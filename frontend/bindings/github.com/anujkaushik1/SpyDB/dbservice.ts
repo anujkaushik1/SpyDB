@@ -56,9 +56,17 @@ export function Disconnect(): $CancellablePromise<void> {
 }
 
 /**
- * RunQuery runs sql on the editor connection opened by Connect. Wails cancels
- * ctx when the frontend cancels the call (the Cancel button); Disconnect
- * cancels it too.
+ * FetchRows returns one page of a statement's rows from the latest run,
+ * starting at offset. The rows are already in memory; nothing goes to Postgres.
+ */
+export function FetchRows(runID: number, statement: number, offset: number): $CancellablePromise<((string | null)[] | null)[] | null> {
+    return $Call.ByID(439117188, runID, statement, offset);
+}
+
+/**
+ * RunQuery runs sql on the editor connection opened by Connect and returns the
+ * first page of each statement's rows. Wails cancels ctx when the frontend
+ * cancels the call (the Cancel button); Disconnect cancels it too.
  */
 export function RunQuery(sql: string): $CancellablePromise<$models.QueryResult> {
     return $Call.ByID(2683527108, sql);

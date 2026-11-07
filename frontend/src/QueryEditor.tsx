@@ -153,12 +153,17 @@ function Output({ outcome }: { outcome: Outcome }) {
     }
     case 'done': {
       const results = outcome.result.results ?? []
-      const { durationMs } = outcome.result
+      const { runId, pageSize, durationMs } = outcome.result
       if (results.length === 0) return <p className="hint">Nothing to run. · {durationMs} ms</p>
-      if (results.length === 1) return <StatementOutput result={results[0]} durationMs={durationMs} />
+      // Keyed by run, so each new run starts back on page 1.
+      if (results.length === 1) {
+        return <StatementOutput key={runId} runId={runId} index={0} pageSize={pageSize} result={results[0]} durationMs={durationMs} />
+      }
       return (
         <>
-          {results.map((r, i) => <StatementOutput key={i} result={r} />)}
+          {results.map((r, i) => (
+            <StatementOutput key={`${runId}-${i}`} runId={runId} index={i} pageSize={pageSize} result={r} />
+          ))}
           <p className="result-meta">{results.length} statements · {durationMs} ms</p>
         </>
       )
@@ -166,11 +171,40 @@ function Output({ outcome }: { outcome: Outcome }) {
   }
 }
 
-// durationMs is passed when this is the run's only statement.
-function StatementOutput({ result, durationMs }: { result: StatementResult; durationMs?: number }) {
+type StatementProps = {
+  runId: number
+  index: number // which statement of the run
+  pageSize: number
+  result: StatementResult
+  durationMs?: number // passed when this is the run's only statement
+}
+
+function StatementOutput({ runId, index, pageSize, result, durationMs }: StatementProps) {
   const columns = result.columns ?? []
-  const rows = result.rows ?? []
+  const [page, setPage] = useState(0)
+  const [rows, setRows] = useState(result.rows ?? [])
+  const [loading, setLoading] = useState(false)
+  const [pageError, setPageError] = useState<string | null>(null)
+  const tableWrap = useRef<HTMLDivElement>(null)
+
   const took = durationMs !== undefined ? ` · ${durationMs} ms` : ''
+  const pages = Math.ceil(result.storedRows / pageSize)
+  const offset = page * pageSize
+
+  // Later pages come from rows Go already holds (DBService.FetchRows).
+  const goToPage = async (next: number) => {
+    setLoading(true)
+    setPageError(null)
+    try {
+      setRows((await DBService.FetchRows(runId, index, next * pageSize)) ?? [])
+      setPage(next)
+      tableWrap.current?.scrollTo({ top: 0 })
+    } catch (err) {
+      setPageError(errorMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // INSERT, UPDATE, CREATE TABLE, ...: no rows, just the command tag.
   if (columns.length === 0) {
@@ -179,7 +213,7 @@ function StatementOutput({ result, durationMs }: { result: StatementResult; dura
 
   return (
     <div className="statement">
-      <div className="result-table-wrap">
+      <div className="result-table-wrap" ref={tableWrap}>
         <table className="table result-table">
           <thead>
             <tr>
@@ -195,7 +229,7 @@ function StatementOutput({ result, durationMs }: { result: StatementResult; dura
           <tbody>
             {rows.map((row, i) => (
               <tr key={i}>
-                <td className="rownum">{i + 1}</td>
+                <td className="rownum">{offset + i + 1}</td>
                 {(row ?? []).map((value, j) => (
                   <td key={j} title={value ?? 'NULL'}>
                     {value === null ? <span className="null">NULL</span> : value}
@@ -206,11 +240,25 @@ function StatementOutput({ result, durationMs }: { result: StatementResult; dura
           </tbody>
         </table>
       </div>
-      <p className="result-meta">
-        {result.rowCount === 1 ? '1 row' : `${result.rowCount.toLocaleString()} rows`}
-        {result.rowCount > rows.length && ` · showing the first ${rows.length.toLocaleString()}`}
-        {took}
-      </p>
+      <div className="result-footer">
+        <p className="result-meta">
+          {pages > 1
+            ? `Rows ${(offset + 1).toLocaleString()}–${(offset + rows.length).toLocaleString()} of ${result.rowCount.toLocaleString()}`
+            : result.rowCount === 1 ? '1 row' : `${result.rowCount.toLocaleString()} rows`}
+          {result.rowCount > result.storedRows && ` · only the first ${result.storedRows.toLocaleString()} can be paged`}
+          {took}
+          {pageError && <span className="page-error"> · {pageError}</span>}
+        </p>
+        {pages > 1 && (
+          <div className="pager">
+            {loading && <Spinner />}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => goToPage(page - 1)}
+                    disabled={loading || page === 0}>‹ Previous</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => goToPage(page + 1)}
+                    disabled={loading || page >= pages - 1}>Next ›</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

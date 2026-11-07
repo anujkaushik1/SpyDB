@@ -37,6 +37,15 @@ export interface DBConfig {
  * QueryResult is what one RunQuery returns: a result per statement.
  */
 export interface QueryResult {
+    /**
+     * pass to FetchRows for later pages
+     */
+    "runId": number;
+
+    /**
+     * rows per page
+     */
+    "pageSize": number;
     "results": StatementResult[] | null;
     "durationMs": number;
 }
@@ -88,14 +97,19 @@ export interface StatementResult {
     "columns": Column[] | null;
 
     /**
-     * values as text; nil is SQL NULL; at most maxRows
+     * first page; values as text; nil is SQL NULL
      */
     "rows": ((string | null)[] | null)[] | null;
 
     /**
-     * rows the statement returned, even past maxRows
+     * rows the statement returned
      */
     "rowCount": number;
+
+    /**
+     * rows kept for paging (at most maxStoredRows)
+     */
+    "storedRows": number;
 
     /**
      * e.g. "SELECT 3", "UPDATE 1", "CREATE TABLE"

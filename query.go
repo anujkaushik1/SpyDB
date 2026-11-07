@@ -10,11 +10,18 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// maxRows caps the rows kept per statement, so a big SELECT can't flood the UI.
-const maxRows = 1000
+const (
+	// pageSize is how many rows go to the screen at a time.
+	pageSize = 1000
+	// maxStoredRows caps the rows kept in Go per statement for paging, so a
+	// SELECT on a huge table can't use unbounded memory.
+	maxStoredRows = 100_000
+)
 
 // QueryResult is what one RunQuery returns: a result per statement.
 type QueryResult struct {
+	RunID      int               `json:"runId"`    // pass to FetchRows for later pages
+	PageSize   int               `json:"pageSize"` // rows per page
 	Results    []StatementResult `json:"results"`
 	DurationMs int               `json:"durationMs"`
 }
@@ -22,10 +29,11 @@ type QueryResult struct {
 // StatementResult is one statement's output. Statements that return no rows
 // (INSERT, CREATE TABLE, ...) have no columns and only a command tag.
 type StatementResult struct {
-	Columns  []Column    `json:"columns"`
-	Rows     [][]*string `json:"rows"`     // values as text; nil is SQL NULL; at most maxRows
-	RowCount int         `json:"rowCount"` // rows the statement returned, even past maxRows
-	Command  string      `json:"command"`  // e.g. "SELECT 3", "UPDATE 1", "CREATE TABLE"
+	Columns    []Column    `json:"columns"`
+	Rows       [][]*string `json:"rows"`       // first page; values as text; nil is SQL NULL
+	RowCount   int         `json:"rowCount"`   // rows the statement returned
+	StoredRows int         `json:"storedRows"` // rows kept for paging (at most maxStoredRows)
+	Command    string      `json:"command"`    // e.g. "SELECT 3", "UPDATE 1", "CREATE TABLE"
 }
 
 type Column struct {
@@ -45,9 +53,23 @@ type QueryError struct {
 
 func (e *QueryError) Error() string { return e.Message }
 
-// RunQuery runs sql on the editor connection opened by Connect. Wails cancels
-// ctx when the frontend cancels the call (the Cancel button); Disconnect
-// cancels it too.
+// storedRun holds every kept row of one RunQuery, per statement.
+type storedRun struct {
+	id   int
+	rows [][][]*string
+}
+
+// statementData is one statement's full output before it is split into pages.
+type statementData struct {
+	columns  []Column
+	rows     [][]*string // at most maxStoredRows
+	rowCount int
+	command  string
+}
+
+// RunQuery runs sql on the editor connection opened by Connect and returns the
+// first page of each statement's rows. Wails cancels ctx when the frontend
+// cancels the call (the Cancel button); Disconnect cancels it too.
 func (s *DBService) RunQuery(ctx context.Context, sql string) (QueryResult, error) {
 	if strings.TrimSpace(sql) == "" {
 		return QueryResult{}, &QueryError{Message: "Write a query first."}
@@ -62,6 +84,7 @@ func (s *DBService) RunQuery(ctx context.Context, sql string) (QueryResult, erro
 	s.mu.Lock()
 	editor := s.editor
 	s.cancelQuery = cancel
+	s.lastRun = nil // this run replaces the previous run's rows
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -77,34 +100,79 @@ func (s *DBService) RunQuery(ctx context.Context, sql string) (QueryResult, erro
 	}
 
 	started := time.Now()
-	results, err := execute(ctx, editor.Conn(), sql)
+	statements, err := execute(ctx, editor.Conn(), sql)
 	if err != nil {
 		return QueryResult{}, toQueryError(err)
 	}
-	return QueryResult{Results: results, DurationMs: int(time.Since(started).Milliseconds())}, nil
+	durationMs := int(time.Since(started).Milliseconds())
+
+	run := &storedRun{}
+	results := []StatementResult{}
+	for _, st := range statements {
+		run.rows = append(run.rows, st.rows)
+		results = append(results, StatementResult{
+			Columns:    st.columns,
+			Rows:       page(st.rows, 0),
+			RowCount:   st.rowCount,
+			StoredRows: len(st.rows),
+			Command:    st.command,
+		})
+	}
+
+	// Store the run only once it is complete, so FetchRows never sees it half-built.
+	s.mu.Lock()
+	s.runSeq++
+	run.id = s.runSeq
+	s.lastRun = run
+	s.mu.Unlock()
+
+	return QueryResult{RunID: run.id, PageSize: pageSize, Results: results, DurationMs: durationMs}, nil
+}
+
+// FetchRows returns one page of a statement's rows from the latest run,
+// starting at offset. The rows are already in memory; nothing goes to Postgres.
+func (s *DBService) FetchRows(runID, statement, offset int) ([][]*string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := s.lastRun
+	if run == nil || run.id != runID {
+		return nil, errors.New("These results are no longer available. Run the query again.")
+	}
+	if statement < 0 || statement >= len(run.rows) {
+		return nil, errors.New("No such statement in this run.")
+	}
+	return page(run.rows[statement], offset), nil
+}
+
+// page returns up to pageSize rows starting at offset.
+func page(rows [][]*string, offset int) [][]*string {
+	if offset < 0 || offset >= len(rows) {
+		return [][]*string{}
+	}
+	return rows[offset:min(offset+pageSize, len(rows))]
 }
 
 // execute runs sql with Postgres's simple query protocol, so one run can hold
 // several statements (BEGIN; UPDATE ...; COMMIT;). Values come back as text.
-func execute(ctx context.Context, conn *pgx.Conn, sql string) ([]StatementResult, error) {
+func execute(ctx context.Context, conn *pgx.Conn, sql string) ([]statementData, error) {
 	types := conn.TypeMap()
 	mrr := conn.PgConn().Exec(ctx, sql)
-	results := []StatementResult{}
+	statements := []statementData{}
 
 	for mrr.NextResult() {
 		rr := mrr.ResultReader()
-		res := StatementResult{Columns: []Column{}, Rows: [][]*string{}}
+		st := statementData{columns: []Column{}, rows: [][]*string{}}
 		for _, fd := range rr.FieldDescriptions() {
 			col := Column{Name: fd.Name}
 			if t, ok := types.TypeForOID(fd.DataTypeOID); ok {
 				col.Type = t.Name
 			}
-			res.Columns = append(res.Columns, col)
+			st.columns = append(st.columns, col)
 		}
 
 		for rr.NextRow() {
-			res.RowCount++
-			if len(res.Rows) >= maxRows {
+			st.rowCount++
+			if len(st.rows) >= maxStoredRows {
 				continue // keep counting, stop storing
 			}
 			values := rr.Values() // reused by the next row, so copy each value
@@ -115,7 +183,7 @@ func execute(ctx context.Context, conn *pgx.Conn, sql string) ([]StatementResult
 					row[i] = &text
 				}
 			}
-			res.Rows = append(res.Rows, row)
+			st.rows = append(st.rows, row)
 		}
 
 		tag, err := rr.Close()
@@ -123,14 +191,14 @@ func execute(ctx context.Context, conn *pgx.Conn, sql string) ([]StatementResult
 			mrr.Close()
 			return nil, err
 		}
-		res.Command = tag.String()
-		results = append(results, res)
+		st.command = tag.String()
+		statements = append(statements, st)
 	}
 
 	if err := mrr.Close(); err != nil {
 		return nil, err
 	}
-	return results, nil
+	return statements, nil
 }
 
 func toQueryError(err error) *QueryError {

@@ -448,6 +448,21 @@ kbd {
     color: var(--text-subtle);
     font-variant-numeric: tabular-nums;
 }
+.result-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+}
+.pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+}
+.pager > svg { width: 14px; height: 14px; }
+.page-error { color: var(--error); }
 .command-tag {
     margin: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

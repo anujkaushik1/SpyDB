@@ -16,7 +16,7 @@ While connected, write SQL and press **Run** (⌘↵). `DBService.RunQuery` runs
 
 - Several statements per run (`BEGIN; UPDATE …; COMMIT;`); each gets its own result.
 - With text selected, only the selection runs.
-- Up to 1,000 rows are kept per statement; the row count is always exact.
+- Results show 1,000 rows per page, with **‹ Previous** / **Next ›** to page through them. Up to 100,000 rows per statement are kept in memory for paging (`DBService.FetchRows`, no re-run); the row count is always exact.
 - **Cancel** (Esc) asks Postgres to stop the query; the connection stays open.
 - Errors show Postgres's message, hint and line/column, and move the cursor there.
 
