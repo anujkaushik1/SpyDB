@@ -5,3 +5,10 @@ import * as DBService from "./dbservice.js";
 export {
     DBService
 };
+
+export type {
+    ConnectionInfo,
+    DBConfig,
+    ServerConnection,
+    ServerConnections
+} from "./models.js";

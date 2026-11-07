@@ -2,17 +2,23 @@
 
 Postgres desktop client built with [Wails v3](https://v3.wails.io/) (Go backend, React + TypeScript frontend).
 
-Click **Test connection** and the Go `DBService.TestConnection` method connects with [pgx](https://github.com/jackc/pgx) and runs `SELECT 1`.
+Fill in host, port, user, password and database, then:
 
-## Database config
+- **Test** — `DBService.TestConnection` opens a connection with [pgx](https://github.com/jackc/pgx), runs `SELECT 1` and closes it.
+- **Connect** — `DBService.Connect` opens a `pgxpool` pool and keeps a connection open until **Disconnect** (or the app quits).
+- **Active connections** — `DBService.ActiveConnections` lists the server's client connections from `pg_stat_activity`, through the open connection, or a temporary one (like **Test**) when not connected. SpyDB's own connections are tagged by their `application_name`, `SpyDB`.
 
-Connection settings live in `db.config.json` in the project root. It is gitignored because it holds the password, so create it from the example:
+Failures show a plain-language summary, with pgx's raw error under **Details**.
+
+## Pre-filling the form (optional)
+
+If `db.config.json` exists in the project root, the form starts with its values. It is gitignored because it can hold a password; create it from the example:
 
 ```sh
 cp db.config.example.json db.config.json
 ```
 
-Then set `host`, `port`, `user`, `password` and `database`. The file is re-read on every test, so edits apply without restarting the app.
+Without it, the form starts at `localhost:5432`.
 
 ## Prerequisites
 
@@ -40,6 +46,8 @@ The binary is written to `bin/`.
 
 - `main.go` — app and window setup
 - `dbservice.go` — `DBService`, the Go service exposed to the frontend
-- `dbconfig.go` — loads `db.config.json` and builds the connection string
-- `frontend/src/App.tsx` — UI
+- `dbconfig.go` — `DBConfig`, form defaults from `db.config.json`, and the connection string
+- `dberrors.go` — turns pgx errors into plain-language summaries
+- `frontend/src/App.tsx` — window shell (title bar)
+- `frontend/src/ConnectionForm.tsx` — connection form
 - `frontend/bindings/` — generated TypeScript bindings for Go services

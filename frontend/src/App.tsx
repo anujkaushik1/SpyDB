@@ -1,31 +1,28 @@
 import { useState } from 'react'
-import {DBService} from "../bindings/github.com/anujkaushik1/SpyDB";
-
-type Status =
-  | { kind: 'idle' }
-  | { kind: 'testing' }
-  | { kind: 'ok'; message: string }
-  | { kind: 'error'; message: string };
+import type { ConnectionInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import ConnectionForm from './ConnectionForm'
 
 function App() {
-  const [status, setStatus] = useState<Status>({ kind: 'idle' });
-
-  const testConnection = () => {
-    setStatus({ kind: 'testing' });
-    DBService.TestConnection()
-      .then((message) => setStatus({ kind: 'ok', message }))
-      .catch((err) => setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) }));
-  };
+  // The open connection, or null when disconnected.
+  const [connection, setConnection] = useState<ConnectionInfo | null>(null)
 
   return (
-    <main className="container">
-      <button className="btn" type="button" onClick={testConnection} disabled={status.kind === 'testing'}>
-        {status.kind === 'testing' ? 'Testing…' : 'Test connection'}
-      </button>
-      {(status.kind === 'ok' || status.kind === 'error') && (
-        <p className={`status status-${status.kind}`} role="status">{status.message}</p>
-      )}
-    </main>
+    <div className="app">
+      {/* Sits under the macOS traffic lights; drags the window. */}
+      <header className="titlebar">
+        <span className="titlebar-title">SpyDB</span>
+        {connection && (
+          <span className="titlebar-status">
+            <span className="status-dot" aria-hidden="true" />
+            {connection.database}
+          </span>
+        )}
+      </header>
+      <main className="content">
+        {/* Also renders the active connections panel below the form. */}
+        <ConnectionForm connection={connection} onConnectionChange={setConnection} />
+      </main>
+    </div>
   )
 }
 

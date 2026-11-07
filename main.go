@@ -32,11 +32,21 @@ func main() {
 		},
 	})
 
+	// The title bar is hidden so the frontend's own header (.titlebar) sits
+	// under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "SpyDB",
-		Width:  800,
-		Height: 500,
-		URL:    "/",
+		Title:     "SpyDB",
+		Width:     960,
+		Height:    720,
+		MinWidth:  560,
+		MinHeight: 560,
+		Mac: application.MacWindow{
+			Appearance:              application.NSAppearanceNameDarkAqua,
+			TitleBar:                application.MacTitleBarHiddenInset,
+			InvisibleTitleBarHeight: 40,
+		},
+		BackgroundColour: application.NewRGB(14, 14, 16),
+		URL:              "/",
 	})
 
 	// Run the application. This blocks until the application has been exited.
