@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { DBService, type QueryResult, type StatementResult } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorMessage } from './Banner'
+import DataGrid, { type GridColumn } from './DataGrid'
 import { ChevronIcon, ChevronLeftIcon, PlayIcon, Spinner } from './icons'
-import { cellClass, cellText, typeCategory } from './tableMeta'
+import { typeCategory } from './tableMeta'
 
 type QueryFailure = { message: string; hint?: string; detail?: string; line?: number; column?: number }
 
@@ -39,13 +40,14 @@ type Props = {
   leading: ReactNode // the </> toggle, at the start of the editor bar
   onSchemaChange: () => void
   onRan: () => void // a run finished without error; the table's rows may have changed
+  onDirtyChange?: (dirty: boolean) => void // unsaved edits in the results
   children: (parts: SqlParts) => ReactNode
 }
 
 // Runs any SQL on the connection opened by Connect (DBService.RunQuery). It
 // keeps its text and last result while the tab is open; the table tab decides
 // where the pieces go.
-export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, children }: Props) {
+export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, children }: Props) {
   const [sql, setSql] = useState(initialSql)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
@@ -54,6 +56,13 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
   // Each run gets a number; replies for an older run are ignored.
   const runSeq = useRef(0)
   const cancelledRun = useRef(0)
+  // Which result grids have unsaved edits; a new run replaces them all.
+  const dirtyResults = useRef(new Set<number>())
+  const setResultDirty = (index: number, dirty: boolean) => {
+    if (dirty) dirtyResults.current.add(index)
+    else dirtyResults.current.delete(index)
+    onDirtyChange?.(dirtyResults.current.size > 0)
+  }
 
   // Focus the editor, cursor at the end, whenever it appears.
   useEffect(() => {
@@ -75,6 +84,8 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
   const execute = async (text: string, offset: number, fullSql: string) => {
     if (!text.trim()) return
     const seq = ++runSeq.current
+    dirtyResults.current.clear()
+    onDirtyChange?.(false)
     setOutcome({ kind: 'running' })
     const call = DBService.RunQuery(tabId, text)
     runningCall.current = call
@@ -210,11 +221,13 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
       )
       // Keyed by run, so each new run starts back on page 1.
       results = statements.length === 1 ? (
-        <StatementOutput key={runId} tabId={tabId} runId={runId} index={0} pageSize={pageSize} result={statements[0]} bleed />
+        <StatementOutput key={runId} tabId={tabId} runId={runId} index={0} pageSize={pageSize} result={statements[0]} bleed
+                         onDirtyChange={setResultDirty} />
       ) : (
         <div className="sql-results-stack">
           {statements.map((r, i) => (
-            <StatementOutput key={`${runId}-${i}`} tabId={tabId} runId={runId} index={i} pageSize={pageSize} result={r} />
+            <StatementOutput key={`${runId}-${i}`} tabId={tabId} runId={runId} index={i} pageSize={pageSize} result={r}
+                             onDirtyChange={setResultDirty} />
           ))}
         </div>
       )
@@ -232,13 +245,18 @@ type StatementProps = {
   pageSize: number
   result: StatementResult
   bleed?: boolean // the only result: fill the grid area, edge to edge, like the table's rows
+  onDirtyChange: (index: number, dirty: boolean) => void
 }
 
-function StatementOutput({ tabId, runId, index, pageSize, result, bleed }: StatementProps) {
+function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirtyChange }: StatementProps) {
   const columns = result.columns ?? []
-  const categories = columns.map((c) => typeCategory(c.type))
+  // A result straight from one table with its primary key can be edited (result.target).
+  const gridColumns: GridColumn[] = columns.map((c) => ({
+    name: c.name, type: c.type, category: typeCategory(c.type), primaryKey: c.primaryKey, source: c.source,
+  }))
   const [page, setPage] = useState(0)
   const [rows, setRows] = useState(result.rows ?? [])
+  const gridRows = useMemo(() => rows.map((r) => r ?? []), [rows])
   const [loading, setLoading] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const tableWrap = useRef<HTMLDivElement>(null)
@@ -268,42 +286,25 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed }: State
 
   return (
     <div className={bleed ? 'statement bleed' : 'statement'}>
-      <div className={bleed ? 'grid-wrap' : 'result-box'} ref={tableWrap}>
-        <table className="grid">
-          <thead>
-            <tr>
-              <th className="grid-rownum" aria-label="Row number" />
-              {columns.map((c, i) => (
-                <th key={i}>
-                  <div className="grid-head static">
-                    <span className="grid-col-name">{c.name}</span>
-                    {c.type && <span className="grid-col-type">{c.type}</span>}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i}>
-                <td className="grid-rownum">{offset + i + 1}</td>
-                {(row ?? []).map((value, j) => (
-                  <td key={j} className={cellClass(value, categories[j])} title={value ?? 'NULL'}>
-                    {value === null ? 'NULL' : cellText(value, categories[j])}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <DataGrid
+        columns={gridColumns}
+        rows={gridRows}
+        firstRowNumber={offset + 1}
+        target={result.target ?? null}
+        keepSavedValues
+        onDirtyChange={(dirty) => onDirtyChange(index, dirty)}
+        wrapClass={bleed ? 'grid-wrap' : 'result-box'}
+        wrapRef={tableWrap}
+      >
         {rows.length === 0 && <p className="grid-empty">The query returned no rows.</p>}
-      </div>
+      </DataGrid>
       <div className={bleed ? 'grid-footer' : 'result-footer'}>
         <span className={bleed ? 'grid-status' : 'result-meta'}>
           {pages > 1
             ? `Rows ${(offset + 1).toLocaleString()}–${(offset + rows.length).toLocaleString()} of ${result.rowCount.toLocaleString()}`
             : result.rowCount === 1 ? '1 row' : `${result.rowCount.toLocaleString()} rows`}
           {result.rowCount > result.storedRows && ` · only the first ${result.storedRows.toLocaleString()} can be paged`}
+          {result.target ? ` · editable (${result.target.schema}.${result.target.table})` : ' · read-only'}
           {pageError && <span className="page-error"> · {pageError}</span>}
         </span>
         {pages > 1 && (

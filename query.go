@@ -30,6 +30,7 @@ type QueryResult struct {
 // (INSERT, CREATE TABLE, ...) have no columns and only a command tag.
 type StatementResult struct {
 	Columns    []Column    `json:"columns"`
+	Target     *EditTarget `json:"target"`     // where edited cells save to; nil means read-only
 	Rows       [][]*string `json:"rows"`       // first page; values as text; nil is SQL NULL
 	RowCount   int         `json:"rowCount"`   // rows the statement returned
 	StoredRows int         `json:"storedRows"` // rows kept for paging (at most maxStoredRows)
@@ -37,8 +38,10 @@ type StatementResult struct {
 }
 
 type Column struct {
-	Name string `json:"name"`
-	Type string `json:"type"` // e.g. "int4", "text"; empty if unknown
+	Name       string `json:"name"`
+	Type       string `json:"type"`       // e.g. "int4", "text"; empty if unknown
+	Source     string `json:"source"`     // the table column it edits, when the result is editable
+	PrimaryKey bool   `json:"primaryKey"` // part of the target table's primary key
 }
 
 // QueryError is returned when a query fails. Wails JSON-encodes it into the
@@ -61,10 +64,12 @@ type storedRun struct {
 
 // statementData is one statement's full output before it is split into pages.
 type statementData struct {
-	columns  []Column
-	rows     [][]*string // at most maxStoredRows
-	rowCount int
-	command  string
+	columns   []Column
+	tableOIDs []uint32    // per column: the table it comes from, 0 for expressions
+	attNums   []uint16    // per column: its column number in that table
+	rows      [][]*string // at most maxStoredRows
+	rowCount  int
+	command   string
 }
 
 // RunQuery runs sql on the editor connection opened by Connect and returns the
@@ -112,12 +117,24 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	}
 	durationMs := int(time.Since(started).Milliseconds())
 
+	// Work out which results can be edited. The catalog lookups use the pool,
+	// so a failed transaction in the editor's session can't break them.
+	s.mu.Lock()
+	pool := s.pool
+	s.mu.Unlock()
+
 	run := &storedRun{}
 	results := []StatementResult{}
-	for _, st := range statements {
+	for i := range statements {
+		st := &statements[i]
+		var target *EditTarget
+		if pool != nil && len(st.columns) > 0 {
+			target = editTarget(ctx, pool, st)
+		}
 		run.rows = append(run.rows, st.rows)
 		results = append(results, StatementResult{
 			Columns:    st.columns,
+			Target:     target,
 			Rows:       page(st.rows, 0),
 			RowCount:   st.rowCount,
 			StoredRows: len(st.rows),
@@ -184,6 +201,8 @@ func execute(ctx context.Context, conn *pgx.Conn, sql string) ([]statementData, 
 				col.Type = t.Name
 			}
 			st.columns = append(st.columns, col)
+			st.tableOIDs = append(st.tableOIDs, fd.TableOID)
+			st.attNums = append(st.attNums, fd.TableAttributeNumber)
 		}
 
 		for rr.NextRow() {

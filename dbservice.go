@@ -26,9 +26,9 @@ type DBService struct {
 	pool        *pgxpool.Pool
 	editor      *pgxpool.Conn // the query editor's connection, held until Disconnect
 	info        *ConnectionInfo
-	cancelQuery context.CancelFunc // stops the running query, if any
+	cancelQuery context.CancelFunc    // stops the running query, if any
 	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows
-	runSeq      int                // last RunID handed out
+	runSeq      int                   // last RunID handed out
 }
 
 // ConnectionInfo describes an open (or just tested) connection.

@@ -16,7 +16,7 @@ Once connected, SpyDB shows a sidebar and tabs.
 
 **Sidebar** — every schema (public first; system schemas hidden) with its tables, views and materialized views from `DBService.ListTables`, with estimated row counts from Postgres's statistics. Filter by name (Esc clears), collapse schemas, refresh. The strip at the bottom shows the connection, opens **Active connections** and **Disconnects**.
 
-**Tabs** — clicking a table (or picking it with **Ctrl+P / ⌘P**) opens it in its own tab, or switches to it if open. Tabs keep their state when you switch; close with × or middle-click. With no tab open, the main area says how to open one.
+**Tabs** — clicking a table (or picking it with **Ctrl+P / ⌘P**) opens it in its own tab, or switches to it if open. **Ctrl+T / ⌘T** opens a Query tab: a SQL editor with its results below. Tabs keep their state when you switch; close with × or middle-click. With no tab open, the main area says how to open one.
 
 **Table tabs** — `DBService.TableData` loads 100 rows per page, ordered by the primary key, with:
 
@@ -35,6 +35,15 @@ Click **</>** in a table tab to write SQL: the filter bar becomes an editor pre-
 - Results show 1,000 rows per page, with **‹** / **›** to page. Up to 100,000 rows per statement are kept in memory for paging (`DBService.FetchRows`, no re-run); the row count is always exact.
 - **Cancel** (Esc) asks Postgres to stop the query; the connection stays open.
 - Errors show Postgres's message, hint and line/column, and move the cursor there.
+
+## Editing cells
+
+Table rows, and query results that come straight from one table with its primary key, can be edited in place:
+
+- Click a cell to select it; double-click, press Enter, or just type to edit. Enter moves down, Tab moves sideways, Esc cancels, **NULL** sets NULL.
+- Edited cells are tinted and wait in a bar at the bottom: **Discard** or **Save changes** (⌘S). The tab shows a dot while edits are unsaved.
+- `DBService.SaveRows` sends them as `UPDATE … WHERE <primary key>` in one transaction on its own connection: either every row saves or none does. A bad value (e.g. text in a number column) shows Postgres's error and keeps your edits.
+- Views, tables without a primary key, joins and computed columns are read-only.
 
 ## Pre-filling the form (optional)
 
@@ -77,9 +86,12 @@ The binary is written to `bin/`.
 - `query.go` — `RunQuery` / `FetchRows`: runs SQL on the editor connection and pages results
 - `schema.go` — `ListTables`: schemas with their tables and views
 - `tabledata.go` — `TableData`: one page of a table, sorted and filtered
+- `edits.go` — `SaveRows` (cell edits → UPDATEs) and which query results are editable
 - `frontend/src/App.tsx` — window shell (title bar)
 - `frontend/src/ConnectionForm.tsx` — connection form (shown while disconnected)
-- `frontend/src/SqlEditor.tsx` — the SQL view inside a table tab
+- `frontend/src/SqlEditor.tsx` — the SQL editor (in table tabs and Query tabs)
+- `frontend/src/DataGrid.tsx` — the grid: colours, selection, cell editing, Save bar
+- `frontend/src/QueryTab.tsx` — a Ctrl+T Query tab
 - `frontend/src/SchemaSidebar.tsx` — schema / table sidebar and connection strip
 - `frontend/src/TabBar.tsx`, `TableTab.tsx`, `TablePalette.tsx` — tabs, the table grid (and its </> toggle), the Ctrl+P switcher
 - `frontend/src/ServerConnectionsPanel.tsx` — active connections list

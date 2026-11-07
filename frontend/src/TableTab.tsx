@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DBService, type TableFilter, type TableInfo, type TablePage } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
+import DataGrid, { type GridColumn, type Sort } from './DataGrid'
 import SqlEditor from './SqlEditor'
-import {
-  ArrowDownIcon, ArrowUpIcon, ChevronIcon, ChevronLeftIcon, CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon,
-} from './icons'
-import { cellClass, cellText } from './tableMeta'
+import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from './icons'
 
 const PAGE_SIZE = 100
 
@@ -25,7 +23,6 @@ const OPERATORS = [
 const NO_VALUE = new Set(['is_null', 'is_not_null'])
 
 type DraftFilter = TableFilter & { key: number }
-type Sort = { column: string; desc: boolean } | null
 
 const emptyFilter = (key: number): DraftFilter => ({ key, column: '', operator: 'eq', value: '' })
 
@@ -33,13 +30,18 @@ type Props = {
   table: TableInfo
   tabId: string
   onSchemaChange: () => void
+  onDirtyChange: (dirty: boolean) => void // unsaved cell edits in this tab
 }
 
 // One table or view: rows a page at a time with sorting and filters
 // (DBService.TableData). Clicking </> swaps the filter bar for a SQL editor;
 // the rows stay below until a query returns rows of its own.
-export default function TableTab({ table, tabId, onSchemaChange }: Props) {
+export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }: Props) {
   const [sqlMode, setSqlMode] = useState(false)
+  // Unsaved edits in the table's rows and in query results, shown as a dot on the tab.
+  const [rowsDirty, setRowsDirty] = useState(false)
+  const [resultsDirty, setResultsDirty] = useState(false)
+  useEffect(() => onDirtyChange(rowsDirty || resultsDirty), [rowsDirty || resultsDirty])
   // Bumped to reload the rows: after a query ran, and when leaving the editor.
   const [reloadSignal, setReloadSignal] = useState(0)
   const reload = () => setReloadSignal((n) => n + 1)
@@ -57,6 +59,7 @@ export default function TableTab({ table, tabId, onSchemaChange }: Props) {
       leading={<SqlModeToggle on onToggle={toggleSql} />}
       onSchemaChange={onSchemaChange}
       onRan={reload}
+      onDirtyChange={setResultsDirty}
     >
       {(sql) => (
         <TableView
@@ -65,7 +68,9 @@ export default function TableTab({ table, tabId, onSchemaChange }: Props) {
           reloadSignal={reloadSignal}
           top={sqlMode ? sql.editor : null}
           notice={sqlMode ? sql.notice : null}
-          results={sqlMode ? sql.results : null}
+          results={sql.results}
+          showResults={sqlMode && sql.results !== null}
+          onDirtyChange={setRowsDirty}
         />
       )}
     </SqlEditor>
@@ -78,10 +83,12 @@ type TableViewProps = {
   reloadSignal: number // a change reloads the rows
   top: ReactNode // replaces the filter bar (the SQL editor), or null
   notice: ReactNode // a strip above the grid, or null
-  results: ReactNode // replaces the rows and their footer (query results), or null
+  results: ReactNode // query results, or null
+  showResults: boolean // results take the rows' place (both stay mounted, so edits survive)
+  onDirtyChange: (dirty: boolean) => void
 }
 
-function TableView({ table, toggle, reloadSignal, top, notice, results }: TableViewProps) {
+function TableView({ table, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<Sort>(null)
   const [draft, setDraft] = useState<DraftFilter[]>([emptyFilter(1)])
@@ -131,6 +138,8 @@ function TableView({ table, toggle, reloadSignal, top, notice, results }: TableV
 
   const columns = data?.columns ?? []
   const rows = data?.rows ?? []
+  // A new array only when the data changes; the grid resets its selection on new rows.
+  const gridRows = useMemo(() => (data?.rows ?? []).map((r) => r ?? []), [data])
   const filtered = applied.length > 0
 
   // Click a header: ascending → descending → back to primary-key order.
@@ -162,6 +171,13 @@ function TableView({ table, toggle, reloadSignal, top, notice, results }: TableV
     if (Number.isFinite(n) && n >= 1) setPage(n - 1)
     else setPageInput(String(page + 1))
   }
+
+  // Cells save to the table by primary key; views and keyless tables are read-only.
+  const isTable = table.kind === 'table' || table.kind === 'partitioned table'
+  const hasKey = columns.some((c) => c.primaryKey)
+  const target = isTable && hasKey ? { schema: table.schema, table: table.name } : null
+  const readOnlyReason = !isTable ? 'read-only' : columns.length > 0 && !hasKey ? 'read-only: no primary key' : null
+  const gridColumns: GridColumn[] = columns.map((c) => ({ ...c, source: c.name }))
 
   const estimate = !filtered ? table.estimatedRows : null
   const totalPages = estimate != null ? Math.max(1, Math.ceil(estimate / PAGE_SIZE)) : null
@@ -220,58 +236,32 @@ function TableView({ table, toggle, reloadSignal, top, notice, results }: TableV
 
   // The table's rows and their footer; query results take their place.
   const rowsView = (
-    <>
+    <div className="rows-pane" hidden={showResults}>
       {error && (
         <div className="table-error">
           <Banner tone="error" title="Couldn’t load rows" message={error.message} detail={error.detail} />
         </div>
       )}
 
-      <div className={loading && data ? 'grid-wrap loading' : 'grid-wrap'} ref={grid}>
-        {columns.length > 0 && (
-          <table className="grid">
-            <thead>
-              <tr>
-                <th className="grid-rownum" aria-label="Row number" />
-                {columns.map((c) => {
-                  const sorted = sort?.column === c.name ? (sort.desc ? 'desc' : 'asc') : null
-                  return (
-                    <th key={c.name} aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}>
-                      <button type="button" className="grid-head" onClick={() => toggleSort(c.name)}
-                              title={`${c.name} · ${c.type}${c.primaryKey ? ' · primary key' : ''} — click to sort`}>
-                        {c.primaryKey && <span className="grid-key" aria-label="Primary key"><KeyIcon /></span>}
-                        <span className="grid-col-name">{c.name}</span>
-                        <span className="grid-col-type">{c.type}</span>
-                        <span className={sorted ? 'grid-sort active' : 'grid-sort'}>
-                          {sorted === 'desc' ? <ArrowDownIcon /> : <ArrowUpIcon />}
-                        </span>
-                      </button>
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="grid-rownum">{first + i}</td>
-                  {(row ?? []).map((value, j) => (
-                    <td key={j} className={cellClass(value, columns[j].category)} title={value ?? 'NULL'}>
-                      {value === null ? 'NULL' : cellText(value, columns[j].category)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <DataGrid
+        columns={gridColumns}
+        rows={gridRows}
+        firstRowNumber={first}
+        target={target}
+        onSaved={() => setReloadToken((t) => t + 1)}
+        onDirtyChange={onDirtyChange}
+        sort={sort}
+        onSort={toggleSort}
+        wrapClass={loading && data ? 'grid-wrap loading' : 'grid-wrap'}
+        wrapRef={grid}
+      >
         {!loading && data && rows.length === 0 && (
           <p className="grid-empty">
             {page > 0 ? `No rows on page ${page + 1}.` : filtered ? 'No rows match these filters.' : 'This table is empty.'}
           </p>
         )}
         {loading && !data && <p className="grid-empty">Loading…</p>}
-      </div>
+      </DataGrid>
 
       <footer className="grid-footer">
         <span className="grid-status">
@@ -281,6 +271,7 @@ function TableView({ table, toggle, reloadSignal, top, notice, results }: TableV
           {rows.length > 0 && ` · rows ${first.toLocaleString()}–${(first + rows.length - 1).toLocaleString()}`}
           {sort && ` · sorted by ${sort.column} ${sort.desc ? '↓' : '↑'}`}
           {data && ` · ${data.durationMs} ms`}
+          {readOnlyReason && ` · ${readOnlyReason}`}
         </span>
         <div className="grid-pager">
           <button type="button" className="sidebar-icon-btn" onClick={() => setReloadToken((t) => t + 1)}
@@ -303,14 +294,15 @@ function TableView({ table, toggle, reloadSignal, top, notice, results }: TableV
                   disabled={loading || !data?.hasMore} aria-label="Next page"><ChevronIcon /></button>
         </div>
       </footer>
-    </>
+    </div>
   )
 
   return (
     <div className="table-view">
       {top ?? filterBar}
       {notice}
-      {results ?? rowsView}
+      {rowsView}
+      {results && <div className="results-pane" hidden={!showResults}>{results}</div>}
     </div>
   )
 }

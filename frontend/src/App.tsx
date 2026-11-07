@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { errorMessage } from './Banner'
 import ConnectionForm from './ConnectionForm'
+import QueryTab from './QueryTab'
 import SchemaSidebar from './SchemaSidebar'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
 import TabBar, { type Tab } from './TabBar'
@@ -20,6 +21,10 @@ function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState('')
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Tabs with unsaved cell edits.
+  const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set())
+  // Numbers for query tabs: Query 1, Query 2, … (not reused after closing).
+  const queryNumber = useRef(0)
 
   const loadSchemas = useCallback(async () => {
     setSchemasLoading(true)
@@ -37,13 +42,18 @@ function App() {
     if (connection) loadSchemas()
   }, [connection, loadSchemas])
 
-  // ⌘P / Ctrl+P opens the table switcher while connected.
+  // While connected: ⌘P / Ctrl+P opens the table switcher, ⌘T / Ctrl+T a new query tab.
   useEffect(() => {
     if (!connection) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
+      } else if (key === 't') {
+        e.preventDefault()
+        newQueryTab()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -55,6 +65,7 @@ function App() {
     if (!next) {
       setTabs([])
       setActiveTab('')
+      setDirtyTabs(new Set())
       setSchemas(null)
       setPaletteOpen(false)
     }
@@ -78,12 +89,26 @@ function App() {
   const openTable = (table: TableInfo) =>
     openTab({ id: `table:${table.qualifiedName}`, kind: 'table', title: table.name, table })
   const openConnections = () => openTab({ id: 'connections', kind: 'connections', title: 'Connections' })
+  const newQueryTab = () => {
+    queryNumber.current += 1
+    openTab({ id: `query-${queryNumber.current}`, kind: 'query', title: `Query ${queryNumber.current}` })
+  }
+
+  const setTabDirty = (id: string, dirty: boolean) =>
+    setDirtyTabs((current) => {
+      if (current.has(id) === dirty) return current
+      const next = new Set(current)
+      if (dirty) next.add(id)
+      else next.delete(id)
+      return next
+    })
 
   // Closing the active tab moves to the tab on its left (or the right, if it was first).
   const closeTab = (id: string) => {
     const index = tabs.findIndex((t) => t.id === id)
     const next = tabs.filter((t) => t.id !== id)
     setTabs(next)
+    setTabDirty(id, false)
     if (id === activeTab) setActiveTab(next[Math.max(0, index - 1)]?.id ?? '')
   }
 
@@ -128,17 +153,24 @@ function App() {
               <p className="workspace-empty-title">Open a table</p>
               <p className="workspace-empty-text">
                 Pick one from the sidebar, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <kbd>Ctrl</kbd> <kbd>P</kbd>.
-                Click <kbd>&lt;/&gt;</kbd> in a table to write SQL.
+                Press <kbd>Ctrl</kbd> <kbd>T</kbd> for a new query, or click <kbd>&lt;/&gt;</kbd> in a table to write SQL.
               </p>
             </div>
           )}
           {connection && tabs.length > 0 && (
             <>
-              <TabBar tabs={tabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} />
+              <TabBar tabs={tabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} dirtyIds={dirtyTabs} />
               {/* Every open tab stays mounted, so switching keeps its page, filters, SQL and results. */}
               {tabs.map((tab) => (
                 <div key={tab.id} role="tabpanel" className={`tab-panel tab-panel-${tab.kind}`} hidden={tab.id !== activeTab}>
-                  {tab.kind === 'table' && <TableTab table={tab.table} tabId={tab.id} onSchemaChange={loadSchemas} />}
+                  {tab.kind === 'table' && (
+                    <TableTab table={tab.table} tabId={tab.id} onSchemaChange={loadSchemas}
+                              onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                  )}
+                  {tab.kind === 'query' && (
+                    <QueryTab tabId={tab.id} active={tab.id === activeTab} onSchemaChange={loadSchemas}
+                              onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                  )}
                   {tab.kind === 'connections' && (
                     <ServerConnectionsPanel
                       config={{ host: connection.host, port: connection.port, user: connection.user, password: '', database: connection.database }}

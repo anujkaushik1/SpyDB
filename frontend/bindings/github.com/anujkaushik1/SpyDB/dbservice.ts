@@ -90,6 +90,16 @@ export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.
 }
 
 /**
+ * SaveRows applies the grid's edits to target as UPDATEs, matching rows by
+ * primary key, all in one transaction: either every row saves or none does.
+ * It uses the pool, not the SQL editor's connection, so an open transaction
+ * in the editor doesn't swallow or delay the save.
+ */
+export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<number> {
+    return $Call.ByID(2331632375, target, edits);
+}
+
+/**
  * TableData returns one page of a table or view, sorted and filtered, using
  * the open pool. Wails cancels ctx when the frontend cancels the call.
  */

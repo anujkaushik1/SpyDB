@@ -1,9 +1,10 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
-import { ActivityIcon, XIcon } from './icons'
+import { ActivityIcon, CodeIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 
 export type Tab =
+  | { id: string; kind: 'query'; title: string }
   | { id: string; kind: 'connections'; title: string }
   | { id: string; kind: 'table'; title: string; table: TableInfo }
 
@@ -12,10 +13,11 @@ type Props = {
   activeId: string
   onSelect: (id: string) => void
   onClose: (id: string) => void
+  dirtyIds: Set<string> // tabs with unsaved cell edits, marked with a dot
 }
 
-// Open tables (and the Connections list); every tab can be closed.
-export default function TabBar({ tabs, activeId, onSelect, onClose }: Props) {
+// Open tables, query tabs and the Connections list; every tab can be closed.
+export default function TabBar({ tabs, activeId, onSelect, onClose, dirtyIds }: Props) {
   return (
     <div className="tabbar" role="tablist" aria-label="Open tabs">
       {tabs.map((tab) => {
@@ -46,10 +48,12 @@ export default function TabBar({ tabs, activeId, onSelect, onClose }: Props) {
             title={tab.kind === 'table' ? tableTooltip(tab.table) : tab.title}
           >
             <span className="tab-icon">
+              {tab.kind === 'query' && <CodeIcon />}
               {tab.kind === 'connections' && <ActivityIcon />}
               {tab.kind === 'table' && <KindIcon kind={tab.table.kind} />}
             </span>
             <span className="tab-title">{tab.title}</span>
+            {dirtyIds.has(tab.id) && <span className="tab-dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
             <button
               type="button"
               className="tab-close"

@@ -8,6 +8,16 @@ export interface Column {
      * e.g. "int4", "text"; empty if unknown
      */
     "type": string;
+
+    /**
+     * the table column it edits, when the result is editable
+     */
+    "source": string;
+
+    /**
+     * part of the target table's primary key
+     */
+    "primaryKey": boolean;
 }
 
 /**
@@ -34,6 +44,14 @@ export interface DBConfig {
 }
 
 /**
+ * EditTarget is the table that edited cells are saved to.
+ */
+export interface EditTarget {
+    "schema": string;
+    "table": string;
+}
+
+/**
  * QueryResult is what one RunQuery returns: a result per statement.
  */
 export interface QueryResult {
@@ -48,6 +66,21 @@ export interface QueryResult {
     "pageSize": number;
     "results": StatementResult[] | null;
     "durationMs": number;
+}
+
+/**
+ * RowEdit is one row's changed cells.
+ */
+export interface RowEdit {
+    /**
+     * primary-key column → its value as shown in the grid
+     */
+    "key": { [_ in string]?: string | null } | null;
+
+    /**
+     * column → new value; nil sets NULL
+     */
+    "values": { [_ in string]?: string | null } | null;
 }
 
 /**
@@ -103,6 +136,11 @@ export interface ServerConnections {
  */
 export interface StatementResult {
     "columns": Column[] | null;
+
+    /**
+     * where edited cells save to; nil means read-only
+     */
+    "target": EditTarget | null;
 
     /**
      * first page; values as text; nil is SQL NULL
