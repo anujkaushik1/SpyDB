@@ -11,7 +11,9 @@ export type {
     ConnectionInfo,
     DBConfig,
     QueryResult,
+    SchemaInfo,
     ServerConnection,
     ServerConnections,
-    StatementResult
+    StatementResult,
+    TableInfo
 } from "./models.js";

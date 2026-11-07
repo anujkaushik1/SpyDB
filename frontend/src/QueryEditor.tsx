@@ -30,36 +30,51 @@ function lineAndColumn(sql: string, position: number) {
   return { line: lines.length, column: lines[lines.length - 1].length + 1 }
 }
 
+// A query to load into the editor and run, e.g. from a sidebar click. `seq`
+// changes on every request, so clicking the same table twice runs it again.
+export type QueryRequest = { sql: string; seq: number }
+
+// CREATE / ALTER / DROP change what the sidebar should list. Checked on the SQL
+// text, since CREATE TABLE AS and CREATE MATERIALIZED VIEW report "SELECT n".
+// A false match (e.g. the word in a string) only costs an extra sidebar reload.
+const changesSchema = (sql: string) => /\b(create|alter|drop)\b/i.test(sql)
+
+type Props = {
+  request: QueryRequest | null
+  onSchemaChange: () => void
+}
+
 // Runs SQL on the connection opened by Connect (see DBService.RunQuery).
-export default function QueryEditor() {
+export default function QueryEditor({ request, onSchemaChange }: Props) {
   const [sql, setSql] = useState(loadSavedQuery)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
   const textarea = useRef<HTMLTextAreaElement>(null)
   const runningCall = useRef<{ cancel: () => void } | null>(null)
-  const cancelled = useRef(false)
+  // Each run gets a number; replies for an older run are ignored.
+  const runSeq = useRef(0)
+  const cancelledRun = useRef(0)
 
   useEffect(() => { textarea.current?.focus() }, [])
 
   const running = outcome.kind === 'running'
 
-  const run = async () => {
-    const el = textarea.current
-    if (!el || running) return
-    // With text selected, run only the selection.
-    const { selectionStart: start, selectionEnd: end } = el
-    const offset = start !== end ? start : 0
-    const text = start !== end ? sql.slice(start, end) : sql
+  // Runs `text`, which starts at `offset` within `fullSql` (for error positions).
+  const execute = async (text: string, offset: number, fullSql: string) => {
     if (!text.trim()) return
-
-    cancelled.current = false
+    runningCall.current?.cancel() // a new run replaces one still running
+    const seq = ++runSeq.current
     setOutcome({ kind: 'running' })
     const call = DBService.RunQuery(text)
     runningCall.current = call
     try {
-      setOutcome({ kind: 'done', result: await call })
+      const result = await call
+      if (seq !== runSeq.current) return
+      setOutcome({ kind: 'done', result })
+      if (changesSchema(text)) onSchemaChange()
     } catch (err) {
-      if (cancelled.current) {
+      if (seq !== runSeq.current) return
+      if (cancelledRun.current === seq) {
         setOutcome({ kind: 'cancelled' })
         return
       }
@@ -67,19 +82,36 @@ export default function QueryEditor() {
       const failure: QueryFailure = { message: errorMessage(err), hint: cause.hint || undefined, detail: cause.detail || undefined }
       if (cause.position) {
         const position = offset + cause.position
-        Object.assign(failure, lineAndColumn(sql, position))
+        Object.assign(failure, lineAndColumn(fullSql, position))
         // Put the cursor where Postgres found the error.
-        el.focus()
-        el.setSelectionRange(position - 1, position - 1)
+        textarea.current?.focus()
+        textarea.current?.setSelectionRange(position - 1, position - 1)
       }
       setOutcome({ kind: 'error', error: failure })
     } finally {
-      runningCall.current = null
+      if (seq === runSeq.current) runningCall.current = null
     }
   }
 
+  // The Run button / ⌘↵: with text selected, run only the selection.
+  const run = () => {
+    const el = textarea.current
+    if (!el || running) return
+    const { selectionStart: start, selectionEnd: end } = el
+    if (start !== end) execute(sql.slice(start, end), start, sql)
+    else execute(sql, 0, sql)
+  }
+
+  // A sidebar click: replace the editor text and run it.
+  useEffect(() => {
+    if (!request) return
+    setSql(request.sql)
+    saveQuery(request.sql)
+    execute(request.sql, 0, request.sql)
+  }, [request?.seq])
+
   const cancel = () => {
-    cancelled.current = true
+    cancelledRun.current = runSeq.current
     runningCall.current?.cancel() // Wails cancels the Go context; pgx asks Postgres to stop
   }
 

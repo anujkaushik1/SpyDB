@@ -36,9 +36,9 @@ func main() {
 	// under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "SpyDB",
-		Width:     960,
+		Width:     1120,
 		Height:    720,
-		MinWidth:  560,
+		MinWidth:  760, // room for the sidebar plus the editor
 		MinHeight: 560,
 		Mac: application.MacWindow{
 			Appearance:              application.NSAppearanceNameDarkAqua,

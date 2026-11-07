@@ -57,6 +57,36 @@ export const EyeOffIcon = () => (
   </Icon>
 )
 
+export const TableIcon = () => (
+  <Icon>
+    <path d="M12 3v18"/>
+    <rect width="18" height="18" x="3" y="3" rx="2"/>
+    <path d="M3 9h18"/>
+    <path d="M3 15h18"/>
+  </Icon>
+)
+
+export const LayersIcon = () => (
+  <Icon>
+    <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>
+    <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/>
+    <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>
+  </Icon>
+)
+
+export const SearchIcon = () => (
+  <Icon>
+    <circle cx="11" cy="11" r="8"/>
+    <path d="m21 21-4.3-4.3"/>
+  </Icon>
+)
+
+export const ChevronIcon = () => (
+  <Icon>
+    <path d="m9 18 6-6-6-6"/>
+  </Icon>
+)
+
 export const PlayIcon = () => (
   <Icon>
     <polygon points="6 3 20 12 6 21 6 3"/>

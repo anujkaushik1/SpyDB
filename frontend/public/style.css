@@ -14,6 +14,10 @@
     --warn: #fbbf24;
     --error: #f87171;
     --error-ring: rgba(248, 113, 113, 0.2);
+    --sidebar: #121214;
+    --kind-table: #8fb8e0;
+    --kind-view: #c4a7e7;
+    --kind-matview: #e5c07b;
     --radius: 8px;
     --radius-lg: 14px;
 
@@ -90,11 +94,207 @@ body {
 
 /* The card is anchored near the top rather than centred, so it doesn't jump
    when the result banner appears. */
+/* Sidebar (while connected) + main content, side by side under the title bar. */
+.workspace {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
 .content {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     padding: 48px 24px;
 }
+.workspace.has-sidebar .content { padding: 20px 24px 32px; }
+
+/* ----- Sidebar: schemas → tables and views --------------------------------- */
+.sidebar {
+    flex: 0 0 264px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+}
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 12px 8px 16px;
+}
+.sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+}
+.sidebar-count {
+    padding: 0 6px;
+    font-size: 10.5px;
+    letter-spacing: 0;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+}
+.sidebar-icon-btn {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-subtle);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.sidebar-icon-btn:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.sidebar-icon-btn:focus-visible { outline: 2px solid var(--focus); }
+.sidebar-icon-btn svg { width: 14px; height: 14px; }
+
+.sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 12px 8px;
+    padding: 0 10px;
+    height: 30px;
+    color: var(--text-subtle);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.sidebar-search:focus-within {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.sidebar-search svg { flex: 0 0 auto; width: 13px; height: 13px; }
+.sidebar-search input {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    outline: none;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.sidebar-search input::placeholder { color: var(--text-subtle); }
+
+.tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 8px 16px;
+}
+.tree-message {
+    margin: 8px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-subtle);
+}
+.tree-error { color: var(--error); }
+.link-btn {
+    padding: 0;
+    font: inherit;
+    color: var(--focus);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.tree-schema,
+.tree-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.tree-schema { font-weight: 600; color: var(--text); }
+.tree-schema:hover,
+.tree-item:hover { background: rgba(255, 255, 255, 0.045); color: var(--text); }
+.tree-schema:focus-visible,
+.tree-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.tree-item.active {
+    color: var(--text);
+    background: rgba(122, 162, 247, 0.14);
+}
+
+.tree-chevron {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 14px;
+    color: var(--text-subtle);
+    transition: transform 0.15s ease;
+}
+.tree-chevron svg { width: 13px; height: 13px; }
+.tree-chevron.open { transform: rotate(90deg); }
+
+.tree-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.tree-label mark {
+    color: var(--text);
+    background: rgba(250, 216, 59, 0.28);
+    border-radius: 2px;
+}
+.tree-badge,
+.tree-rows {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.tree-items {
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+}
+/* Tables sit under their schema, past the chevron. */
+.tree-item { padding-left: 28px; }
+.tree-empty {
+    margin: 0 0 4px;
+    padding: 4px 8px 4px 28px;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-subtle);
+}
+
+.tree-icon {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+}
+.tree-icon svg { width: 14px; height: 14px; }
+.kind-table, .kind-partitioned-table, .kind-foreign-table { color: var(--kind-table); }
+.kind-view { color: var(--kind-view); }
+.kind-materialized-view { color: var(--kind-matview); }
 
 /* ----- Card ---------------------------------------------------------------- */
 .card {

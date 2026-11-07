@@ -64,6 +64,14 @@ export function FetchRows(runID: number, statement: number, offset: number): $Ca
 }
 
 /**
+ * ListTables returns the schemas with their tables and views, public first,
+ * using the open pool.
+ */
+export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
+    return $Call.ByID(1987107542);
+}
+
+/**
  * RunQuery runs sql on the editor connection opened by Connect and returns the
  * first page of each statement's rows. Wails cancels ctx when the frontend
  * cancels the call (the Cancel button); Disconnect cancels it too.

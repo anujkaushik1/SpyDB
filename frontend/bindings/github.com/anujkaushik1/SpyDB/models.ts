@@ -51,6 +51,14 @@ export interface QueryResult {
 }
 
 /**
+ * SchemaInfo is one schema and the tables and views in it.
+ */
+export interface SchemaInfo {
+    "name": string;
+    "tables": TableInfo[] | null;
+}
+
+/**
  * ServerConnection is one row of pg_stat_activity.
  */
 export interface ServerConnection {
@@ -115,4 +123,26 @@ export interface StatementResult {
      * e.g. "SELECT 3", "UPDATE 1", "CREATE TABLE"
      */
     "command": string;
+}
+
+/**
+ * TableInfo is a table or view shown in the sidebar.
+ */
+export interface TableInfo {
+    "name": string;
+
+    /**
+     * table, partitioned table, foreign table, view, materialized view
+     */
+    "kind": string;
+
+    /**
+     * schema.name, quoted only where SQL needs it
+     */
+    "qualifiedName": string;
+
+    /**
+     * from Postgres's statistics; nil for views or if unknown
+     */
+    "estimatedRows": number | null;
 }

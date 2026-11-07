@@ -10,6 +10,15 @@ Fill in host, port, user, password and database, then:
 
 Failures show a plain-language summary, with pgx's raw error under **Details**.
 
+## Tables sidebar
+
+While connected, the left sidebar lists every schema (public first; system schemas hidden) with its tables, views and materialized views, from `DBService.ListTables`.
+
+- Click a table or view to load `SELECT * FROM schema.table;` into the editor and run it.
+- Filter by name; matches are highlighted. Esc clears the filter.
+- Estimated row counts come from Postgres's statistics (no `COUNT(*)`).
+- Schemas collapse by clicking their name. The list refreshes after you run `CREATE`, `ALTER` or `DROP`, or with the refresh button.
+
 ## Query editor
 
 While connected, write SQL and press **Run** (⌘↵). `DBService.RunQuery` runs it on one connection that Connect reserves for the editor, so `SET`, temp tables and open transactions carry over between runs.
@@ -58,9 +67,11 @@ The binary is written to `bin/`.
 - `dbservice.go` — `DBService`, the Go service exposed to the frontend
 - `dbconfig.go` — `DBConfig`, form defaults from `db.config.json`, and the connection string
 - `dberrors.go` — turns pgx errors into plain-language summaries
-- `query.go` — `RunQuery`: runs SQL on the editor connection
+- `query.go` — `RunQuery` / `FetchRows`: runs SQL on the editor connection and pages results
+- `schema.go` — `ListTables`: schemas with their tables and views
 - `frontend/src/App.tsx` — window shell (title bar)
 - `frontend/src/ConnectionForm.tsx` — connection form (a slim bar while connected)
 - `frontend/src/QueryEditor.tsx` — SQL editor and results
+- `frontend/src/SchemaSidebar.tsx` — schema / table sidebar
 - `frontend/src/ServerConnectionsPanel.tsx` — active connections list
 - `frontend/bindings/` — generated TypeScript bindings for Go services
