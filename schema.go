@@ -13,6 +13,7 @@ type SchemaInfo struct {
 
 // TableInfo is a table or view shown in the sidebar.
 type TableInfo struct {
+	Schema        string `json:"schema"`
 	Name          string `json:"name"`
 	Kind          string `json:"kind"`          // table, partitioned table, foreign table, view, materialized view
 	QualifiedName string `json:"qualifiedName"` // schema.name, quoted only where SQL needs it
@@ -87,6 +88,7 @@ func (s *DBService) ListTables() ([]SchemaInfo, error) {
 		}
 		group := &schemas[len(schemas)-1]
 		group.Tables = append(group.Tables, TableInfo{
+			Schema:        schema,
 			Name:          *name,
 			Kind:          relkindNames[*kind],
 			QualifiedName: *qualified,

@@ -27,7 +27,7 @@ type DBService struct {
 	editor      *pgxpool.Conn // the query editor's connection, held until Disconnect
 	info        *ConnectionInfo
 	cancelQuery context.CancelFunc // stops the running query, if any
-	lastRun     *storedRun         // rows of the latest RunQuery, for FetchRows
+	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows
 	runSeq      int                // last RunID handed out
 }
 
@@ -267,7 +267,7 @@ func (s *DBService) closeLocked() {
 	s.editor = nil
 	s.pool = nil
 	s.info = nil
-	s.lastRun = nil
+	s.runs = nil
 }
 
 // selectOne runs SELECT 1 on conn and describes the connection.

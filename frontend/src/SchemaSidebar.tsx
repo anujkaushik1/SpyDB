@@ -1,55 +1,27 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { DBService, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
-import { errorMessage } from './Banner'
-import { ChevronIcon, EyeIcon, LayersIcon, RefreshIcon, SearchIcon, Spinner, TableIcon } from './icons'
-
-// 950 → "950", 1530 → "1.5k", 20003 → "20k", 1250000 → "1.3M"
-function compactCount(n: number) {
-  const short = (value: number, unit: string) => `${value.toFixed(value < 10 ? 1 : 0).replace(/\.0$/, '')}${unit}`
-  if (n < 1000) return String(n)
-  if (n < 1_000_000) return short(n / 1000, 'k')
-  return short(n / 1_000_000, 'M')
-}
-
-const kindIcon: Record<string, ReactNode> = {
-  'view': <EyeIcon />,
-  'materialized view': <LayersIcon />,
-}
-
-// Wraps the part of `text` that matches `query` (already lower-case) in <mark>.
-function Highlight({ text, query }: { text: string; query: string }) {
-  const at = query ? text.toLowerCase().indexOf(query) : -1
-  if (at < 0) return <>{text}</>
-  return <>{text.slice(0, at)}<mark>{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>
-}
+import { useState } from 'react'
+import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner } from './icons'
+import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
 
 type Props = {
-  activeTable: string | null // qualifiedName of the table last opened
-  refreshToken: number // changes when the editor creates, alters or drops something
+  schemas: SchemaInfo[] | null // null until the first load
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+  activeTable: string | null // qualifiedName of the table in the active tab
   onOpenTable: (table: TableInfo) => void
+  onOpenPalette: () => void
+  connection: ConnectionInfo
+  onShowConnections: () => void
+  onDisconnect: () => void
+  disconnecting: boolean
 }
 
-// Schemas with their tables and views (DBService.ListTables).
-export default function SchemaSidebar({ activeTable, refreshToken, onOpenTable }: Props) {
-  const [schemas, setSchemas] = useState<SchemaInfo[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+// Schemas with their tables and views, plus the connection strip at the bottom.
+export default function SchemaSidebar(props: Props) {
+  const { schemas, loading, error, onRefresh, activeTable, onOpenTable, onOpenPalette, connection } = props
   const [filter, setFilter] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setSchemas((await DBService.ListTables()) ?? [])
-      setError(null)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load, refreshToken])
 
   const toggle = (schema: string) => setCollapsed((current) => {
     const next = new Set(current)
@@ -72,13 +44,13 @@ export default function SchemaSidebar({ activeTable, refreshToken, onOpenTable }
           Tables &amp; views
           {schemas && <span className="sidebar-count">{total}</span>}
         </span>
-        <button type="button" className="sidebar-icon-btn" onClick={load} disabled={loading}
+        <button type="button" className="sidebar-icon-btn" onClick={onRefresh} disabled={loading}
                 aria-label="Refresh tables" title="Refresh">
           {loading ? <Spinner /> : <RefreshIcon />}
         </button>
       </div>
 
-      <label className="sidebar-search">
+      <div className="sidebar-search">
         <SearchIcon />
         <input
           type="text"
@@ -92,12 +64,15 @@ export default function SchemaSidebar({ activeTable, refreshToken, onOpenTable }
           autoCorrect="off"
           autoComplete="off"
         />
-      </label>
+        <button type="button" className="kbd-hint" onClick={onOpenPalette} title="Go to table (Ctrl+P or ⌘P)">
+          <kbd>Ctrl P</kbd>
+        </button>
+      </div>
 
       <div className="tree">
         {error && (
           <p className="tree-message tree-error">
-            {error} <button type="button" className="link-btn" onClick={load}>Retry</button>
+            {error} <button type="button" className="link-btn" onClick={onRefresh}>Retry</button>
           </p>
         )}
         {!error && !schemas && <p className="tree-message">Loading…</p>}
@@ -125,9 +100,9 @@ export default function SchemaSidebar({ activeTable, refreshToken, onOpenTable }
                         type="button"
                         className={t.qualifiedName === activeTable ? 'tree-item active' : 'tree-item'}
                         onClick={() => onOpenTable(t)}
-                        title={`${schema.name}.${t.name} · ${t.kind}${t.estimatedRows != null ? ` · about ${t.estimatedRows.toLocaleString()} rows` : ''}`}
+                        title={tableTooltip(t)}
                       >
-                        <span className={`tree-icon kind-${t.kind.replace(' ', '-')}`}>{kindIcon[t.kind] ?? <TableIcon />}</span>
+                        <span className={`tree-icon ${kindClass(t.kind)}`}><KindIcon kind={t.kind} /></span>
                         <span className="tree-label"><Highlight text={t.name} query={query} /></span>
                         {t.estimatedRows != null && <span className="tree-rows">~{compactCount(t.estimatedRows)}</span>}
                       </button>
@@ -138,6 +113,23 @@ export default function SchemaSidebar({ activeTable, refreshToken, onOpenTable }
             </div>
           )
         })}
+      </div>
+
+      <div className="sidebar-footer">
+        <div className="sidebar-footer-info">
+          <p className="sidebar-footer-db"><span className="status-dot" aria-hidden="true" /> {connection.database}</p>
+          <p className="sidebar-footer-host" title={`${connection.user}@${connection.host}:${connection.port} · PostgreSQL ${connection.serverVersion}`}>
+            {connection.host}:{connection.port} · PG {connection.serverVersion.split(' ')[0]}
+          </p>
+        </div>
+        <button type="button" className="sidebar-icon-btn" onClick={props.onShowConnections}
+                aria-label="Active connections" title="Active connections">
+          <ActivityIcon />
+        </button>
+        <button type="button" className="sidebar-icon-btn danger" onClick={props.onDisconnect} disabled={props.disconnecting}
+                aria-label="Disconnect" title="Disconnect">
+          {props.disconnecting ? <Spinner /> : <PowerIcon />}
+        </button>
       </div>
     </aside>
   )

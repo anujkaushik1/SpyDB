@@ -56,11 +56,18 @@ export function Disconnect(): $CancellablePromise<void> {
 }
 
 /**
- * FetchRows returns one page of a statement's rows from the latest run,
+ * FetchRows returns one page of a statement's rows from a tab's latest run,
  * starting at offset. The rows are already in memory; nothing goes to Postgres.
  */
-export function FetchRows(runID: number, statement: number, offset: number): $CancellablePromise<((string | null)[] | null)[] | null> {
-    return $Call.ByID(439117188, runID, statement, offset);
+export function FetchRows(tab: string, runID: number, statement: number, offset: number): $CancellablePromise<((string | null)[] | null)[] | null> {
+    return $Call.ByID(439117188, tab, runID, statement, offset);
+}
+
+/**
+ * ForgetRun drops a tab's stored rows; the frontend calls it when a query tab closes.
+ */
+export function ForgetRun(tab: string): $CancellablePromise<void> {
+    return $Call.ByID(2303925015, tab);
 }
 
 /**
@@ -73,11 +80,21 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
 
 /**
  * RunQuery runs sql on the editor connection opened by Connect and returns the
- * first page of each statement's rows. Wails cancels ctx when the frontend
- * cancels the call (the Cancel button); Disconnect cancels it too.
+ * first page of each statement's rows. tab names the query tab, so each tab
+ * keeps its own rows for FetchRows. All tabs share the one editor connection,
+ * so queries from different tabs take turns. Wails cancels ctx when the
+ * frontend cancels the call (the Cancel button); Disconnect cancels it too.
  */
-export function RunQuery(sql: string): $CancellablePromise<$models.QueryResult> {
-    return $Call.ByID(2683527108, sql);
+export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.QueryResult> {
+    return $Call.ByID(2683527108, tab, sql);
+}
+
+/**
+ * TableData returns one page of a table or view, sorted and filtered, using
+ * the open pool. Wails cancels ctx when the frontend cancels the call.
+ */
+export function TableData(q: $models.TableQuery): $CancellablePromise<$models.TablePage> {
+    return $Call.ByID(2537943209, q);
 }
 
 /**

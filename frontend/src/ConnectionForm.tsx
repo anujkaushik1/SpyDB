@@ -9,7 +9,7 @@ type FieldName = 'host' | 'port' | 'user' | 'password' | 'database'
 // Port is kept as text while editing and converted when testing.
 type FormValues = Record<FieldName, string>
 
-type Busy = 'testing' | 'connecting' | 'disconnecting' | null
+type Busy = 'testing' | 'connecting' | null
 
 const initialValues: FormValues = { host: 'localhost', port: '5432', user: '', password: '', database: '' }
 
@@ -122,28 +122,22 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
     }
   }
 
-  const disconnect = async () => {
-    if (!connection) return
-    setBusy('disconnecting')
-    try {
-      await DBService.Disconnect()
-      onConnectionChange(null)
-      setPanelConfig(null)
-      setNotice({ tone: 'info', title: 'Disconnected', message: `Closed the connection to ${describe(connection)}.` })
-    } catch (err) {
-      setNotice({ tone: 'error', title: 'Couldn’t disconnect', message: errorMessage(err) })
-    } finally {
-      setBusy(null)
+  // Disconnecting happens in the sidebar; when it does, say so here.
+  const previous = useRef<ConnectionInfo | null>(null)
+  useEffect(() => {
+    if (previous.current && !connection) {
+      setNotice({ tone: 'info', title: 'Disconnected', message: `Closed the connection to ${describe(previous.current)}.` })
     }
-  }
+    previous.current = connection
+  }, [connection])
 
-  // Opens the panel with the form's settings (validated when not connected), or closes it.
+  // Opens the panel with the form's settings (validated first), or closes it.
   const toggleConnections = () => {
     if (panelConfig) {
       setPanelConfig(null)
       return
     }
-    const cfg = connection ? toConfig(values) : validConfig()
+    const cfg = validConfig()
     if (cfg) setPanelConfig(cfg)
   }
 
@@ -174,35 +168,11 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
     </button>
   )
 
-  const panel = panelConfig && <ServerConnectionsPanel config={panelConfig} temporary={connection === null} />
+  const panel = panelConfig && <ServerConnectionsPanel config={panelConfig} temporary />
 
-  // Connected: a slim bar instead of the form, leaving room for the query editor.
-  // The form keeps its values for when you disconnect.
-  if (connection) {
-    return (
-      <>
-        <section className="card connection-bar" aria-label="Connection">
-          <span className="db-badge"><DatabaseIcon /></span>
-          <div className="connection-bar-info">
-            <p className="connection-bar-title">
-              <span className="status-dot" aria-hidden="true" /> {connection.database}
-            </p>
-            <p className="card-subtitle">
-              {connection.host}:{connection.port} · {connection.user}
-              {connection.serverVersion && ` · PostgreSQL ${connection.serverVersion}`}
-            </p>
-          </div>
-          <div className="actions">
-            {connectionsButton}
-            <button type="button" className="btn btn-danger" onClick={disconnect} disabled={busy !== null}>
-              {busy === 'disconnecting' ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
-            </button>
-          </div>
-        </section>
-        {panel}
-      </>
-    )
-  }
+  // While connected the workspace (sidebar + tabs) takes over. Rendering nothing,
+  // rather than unmounting, keeps the form's values for when you disconnect.
+  if (connection) return null
 
   return (
     <>

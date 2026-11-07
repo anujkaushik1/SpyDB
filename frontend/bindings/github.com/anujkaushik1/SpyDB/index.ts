@@ -15,5 +15,9 @@ export type {
     ServerConnection,
     ServerConnections,
     StatementResult,
-    TableInfo
+    TableColumn,
+    TableFilter,
+    TableInfo,
+    TablePage,
+    TableQuery
 } from "./models.js";

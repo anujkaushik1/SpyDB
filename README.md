@@ -10,22 +10,29 @@ Fill in host, port, user, password and database, then:
 
 Failures show a plain-language summary, with pgx's raw error under **Details**.
 
-## Tables sidebar
+## Workspace
 
-While connected, the left sidebar lists every schema (public first; system schemas hidden) with its tables, views and materialized views, from `DBService.ListTables`.
+Once connected, SpyDB shows a sidebar and tabs.
 
-- Click a table or view to load `SELECT * FROM schema.table;` into the editor and run it.
-- Filter by name; matches are highlighted. Esc clears the filter.
-- Estimated row counts come from Postgres's statistics (no `COUNT(*)`).
-- Schemas collapse by clicking their name. The list refreshes after you run `CREATE`, `ALTER` or `DROP`, or with the refresh button.
+**Sidebar** — every schema (public first; system schemas hidden) with its tables, views and materialized views from `DBService.ListTables`, with estimated row counts from Postgres's statistics. Filter by name (Esc clears), collapse schemas, refresh. The strip at the bottom shows the connection, opens **Active connections** and **Disconnects**.
 
-## Query editor
+**Tabs** — clicking a table (or picking it with **Ctrl+P / ⌘P**) opens it in its own tab, or switches to it if open. Tabs keep their state when you switch; close with × or middle-click. With no tab open, the main area says how to open one.
 
-While connected, write SQL and press **Run** (⌘↵). `DBService.RunQuery` runs it on one connection that Connect reserves for the editor, so `SET`, temp tables and open transactions carry over between runs.
+**Table tabs** — `DBService.TableData` loads 100 rows per page, ordered by the primary key, with:
+
+- Click a column header to sort (ascending → descending → off); Postgres sorts the whole table.
+- Filter bar: column · operator (equals, not equal, contains, starts with, >, ≥, <, ≤, is null, is not null) · value. Add rows with +; they combine with AND.
+- **</>** swaps the filter bar for a SQL editor (see below); the table's rows stay underneath. Click it again for the filters; the rows reload in case your SQL changed them.
+- Colour by type in soft, cool tones: numbers, dates/times, booleans, JSON and NULL each have their own colour; the primary key has a key icon.
+- Column names come only from the catalog and are quoted; filter values are sent as parameters.
+
+## SQL in a table tab
+
+Click **</>** in a table tab to write SQL: the filter bar becomes an editor pre-filled with `SELECT * FROM schema.table;`, and the table's rows stay below it. Edit it into any query and press **Run** (⌘↵). A query that returns rows shows them in the grid in place of the table's (**Show table rows** brings those back); errors and commands like `UPDATE` show a strip above the table's rows, which reload. `DBService.RunQuery` runs it on one connection that Connect reserves for SQL, so `SET`, temp tables and open transactions carry over between runs and across tabs (queries from different tabs take turns). Each tab keeps its own SQL and results.
 
 - Several statements per run (`BEGIN; UPDATE …; COMMIT;`); each gets its own result.
 - With text selected, only the selection runs.
-- Results show 1,000 rows per page, with **‹ Previous** / **Next ›** to page through them. Up to 100,000 rows per statement are kept in memory for paging (`DBService.FetchRows`, no re-run); the row count is always exact.
+- Results show 1,000 rows per page, with **‹** / **›** to page. Up to 100,000 rows per statement are kept in memory for paging (`DBService.FetchRows`, no re-run); the row count is always exact.
 - **Cancel** (Esc) asks Postgres to stop the query; the connection stays open.
 - Errors show Postgres's message, hint and line/column, and move the cursor there.
 
@@ -69,9 +76,11 @@ The binary is written to `bin/`.
 - `dberrors.go` — turns pgx errors into plain-language summaries
 - `query.go` — `RunQuery` / `FetchRows`: runs SQL on the editor connection and pages results
 - `schema.go` — `ListTables`: schemas with their tables and views
+- `tabledata.go` — `TableData`: one page of a table, sorted and filtered
 - `frontend/src/App.tsx` — window shell (title bar)
-- `frontend/src/ConnectionForm.tsx` — connection form (a slim bar while connected)
-- `frontend/src/QueryEditor.tsx` — SQL editor and results
-- `frontend/src/SchemaSidebar.tsx` — schema / table sidebar
+- `frontend/src/ConnectionForm.tsx` — connection form (shown while disconnected)
+- `frontend/src/SqlEditor.tsx` — the SQL view inside a table tab
+- `frontend/src/SchemaSidebar.tsx` — schema / table sidebar and connection strip
+- `frontend/src/TabBar.tsx`, `TableTab.tsx`, `TablePalette.tsx` — tabs, the table grid (and its </> toggle), the Ctrl+P switcher
 - `frontend/src/ServerConnectionsPanel.tsx` — active connections list
 - `frontend/bindings/` — generated TypeScript bindings for Go services

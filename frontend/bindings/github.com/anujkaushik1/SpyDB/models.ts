@@ -126,9 +126,41 @@ export interface StatementResult {
 }
 
 /**
+ * TableColumn describes a column for the grid header.
+ */
+export interface TableColumn {
+    "name": string;
+
+    /**
+     * short type, e.g. int4, numeric(12,2), timestamptz
+     */
+    "type": string;
+
+    /**
+     * number, bool, time, json, text or other (for colouring)
+     */
+    "category": string;
+    "primaryKey": boolean;
+}
+
+/**
+ * TableFilter is one row of the filter bar.
+ */
+export interface TableFilter {
+    "column": string;
+
+    /**
+     * a key of filterOperators
+     */
+    "operator": string;
+    "value": string;
+}
+
+/**
  * TableInfo is a table or view shown in the sidebar.
  */
 export interface TableInfo {
+    "schema": string;
     "name": string;
 
     /**
@@ -145,4 +177,47 @@ export interface TableInfo {
      * from Postgres's statistics; nil for views or if unknown
      */
     "estimatedRows": number | null;
+}
+
+/**
+ * TablePage is one page of rows.
+ */
+export interface TablePage {
+    "columns": TableColumn[] | null;
+
+    /**
+     * values as text; nil is SQL NULL
+     */
+    "rows": ((string | null)[] | null)[] | null;
+
+    /**
+     * another page follows
+     */
+    "hasMore": boolean;
+    "durationMs": number;
+}
+
+/**
+ * TableQuery asks for one page of a table tab.
+ */
+export interface TableQuery {
+    "schema": string;
+    "table": string;
+
+    /**
+     * 0-based
+     */
+    "page": number;
+    "pageSize": number;
+
+    /**
+     * column name; "" sorts by primary key
+     */
+    "sortBy": string;
+    "sortDesc": boolean;
+
+    /**
+     * combined with AND
+     */
+    "filters": TableFilter[] | null;
 }
