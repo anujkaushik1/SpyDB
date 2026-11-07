@@ -167,22 +167,42 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
     }
   }
 
-  const banner: Notice | null = connection
-    ? {
-        tone: 'ok',
-        title: 'Connected',
-        message: connection.serverVersion
-          ? `${describe(connection)} · PostgreSQL ${connection.serverVersion}`
-          : describe(connection),
-      }
-    : notice
-
   const connectionsButton = (
     <button type="button" className="btn btn-secondary" onClick={toggleConnections} disabled={busy !== null}
             aria-expanded={panelConfig !== null} aria-controls="server-connections">
       {panelConfig ? 'Hide connections' : 'Active connections'}
     </button>
   )
+
+  const panel = panelConfig && <ServerConnectionsPanel config={panelConfig} temporary={connection === null} />
+
+  // Connected: a slim bar instead of the form, leaving room for the query editor.
+  // The form keeps its values for when you disconnect.
+  if (connection) {
+    return (
+      <>
+        <section className="card connection-bar" aria-label="Connection">
+          <span className="db-badge"><DatabaseIcon /></span>
+          <div className="connection-bar-info">
+            <p className="connection-bar-title">
+              <span className="status-dot" aria-hidden="true" /> {connection.database}
+            </p>
+            <p className="card-subtitle">
+              {connection.host}:{connection.port} · {connection.user}
+              {connection.serverVersion && ` · PostgreSQL ${connection.serverVersion}`}
+            </p>
+          </div>
+          <div className="actions">
+            {connectionsButton}
+            <button type="button" className="btn btn-danger" onClick={disconnect} disabled={busy !== null}>
+              {busy === 'disconnecting' ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
+            </button>
+          </div>
+        </section>
+        {panel}
+      </>
+    )
+  }
 
   return (
     <>
@@ -195,9 +215,8 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
           </div>
         </header>
 
-        {/* Locked while a request runs, and while connected (edits wouldn't
-            change the open connection). */}
-        <fieldset className="fields" disabled={busy !== null || connection !== null}>
+        {/* Locked while a request runs. */}
+        <fieldset className="fields" disabled={busy !== null}>
           <Field id="host" label="Host" error={visibleError('host')} className="col-host">
             <input {...inputProps('host')} placeholder="localhost" />
           </Field>
@@ -222,34 +241,24 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
         </fieldset>
 
         <div className="result-slot" aria-live="polite">
-          {banner && <Banner {...banner} />}
+          {notice && <Banner {...notice} />}
         </div>
 
         <footer className="card-footer">
-          <span className="hint">
-            {connection ? 'Disconnect to edit' : <><kbd>↵</kbd> to connect</>}
-          </span>
+          <span className="hint"><kbd>↵</kbd> to connect</span>
           <div className="actions">
             {connectionsButton}
-            {connection ? (
-              <button type="button" className="btn btn-danger" onClick={disconnect} disabled={busy !== null}>
-                {busy === 'disconnecting' ? <><Spinner /> Disconnecting…</> : 'Disconnect'}
-              </button>
-            ) : (
-              <>
-                <button type="button" className="btn btn-secondary" onClick={test} disabled={busy !== null}>
-                  {busy === 'testing' ? <><Spinner /> Testing…</> : 'Test'}
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={busy !== null}>
-                  {busy === 'connecting' ? <><Spinner /> Connecting…</> : 'Connect'}
-                </button>
-              </>
-            )}
+            <button type="button" className="btn btn-secondary" onClick={test} disabled={busy !== null}>
+              {busy === 'testing' ? <><Spinner /> Testing…</> : 'Test'}
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={busy !== null}>
+              {busy === 'connecting' ? <><Spinner /> Connecting…</> : 'Connect'}
+            </button>
           </div>
         </footer>
       </form>
 
-      {panelConfig && <ServerConnectionsPanel config={panelConfig} temporary={connection === null} />}
+      {panel}
     </>
   )
 }

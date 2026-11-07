@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ConnectionInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import ConnectionForm from './ConnectionForm'
+import QueryEditor from './QueryEditor'
 
 function App() {
   // The open connection, or null when disconnected.
@@ -21,6 +22,7 @@ function App() {
       <main className="content">
         {/* Also renders the active connections panel below the form. */}
         <ConnectionForm connection={connection} onConnectionChange={setConnection} />
+        {connection && <QueryEditor />}
       </main>
     </div>
   )

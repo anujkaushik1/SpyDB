@@ -10,6 +10,16 @@ Fill in host, port, user, password and database, then:
 
 Failures show a plain-language summary, with pgx's raw error under **Details**.
 
+## Query editor
+
+While connected, write SQL and press **Run** (⌘↵). `DBService.RunQuery` runs it on one connection that Connect reserves for the editor, so `SET`, temp tables and open transactions carry over between runs.
+
+- Several statements per run (`BEGIN; UPDATE …; COMMIT;`); each gets its own result.
+- With text selected, only the selection runs.
+- Up to 1,000 rows are kept per statement; the row count is always exact.
+- **Cancel** (Esc) asks Postgres to stop the query; the connection stays open.
+- Errors show Postgres's message, hint and line/column, and move the cursor there.
+
 ## Pre-filling the form (optional)
 
 If `db.config.json` exists in the project root, the form starts with its values. It is gitignored because it can hold a password; create it from the example:
@@ -48,6 +58,9 @@ The binary is written to `bin/`.
 - `dbservice.go` — `DBService`, the Go service exposed to the frontend
 - `dbconfig.go` — `DBConfig`, form defaults from `db.config.json`, and the connection string
 - `dberrors.go` — turns pgx errors into plain-language summaries
+- `query.go` — `RunQuery`: runs SQL on the editor connection
 - `frontend/src/App.tsx` — window shell (title bar)
-- `frontend/src/ConnectionForm.tsx` — connection form
+- `frontend/src/ConnectionForm.tsx` — connection form (a slim bar while connected)
+- `frontend/src/QueryEditor.tsx` — SQL editor and results
+- `frontend/src/ServerConnectionsPanel.tsx` — active connections list
 - `frontend/bindings/` — generated TypeScript bindings for Go services

@@ -7,8 +7,11 @@ export {
 };
 
 export type {
+    Column,
     ConnectionInfo,
     DBConfig,
+    QueryResult,
     ServerConnection,
-    ServerConnections
+    ServerConnections,
+    StatementResult
 } from "./models.js";

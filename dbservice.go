@@ -7,17 +7,26 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const connectTimeout = 5 * time.Second
 
-// DBService holds the open connection between Connect and Disconnect. Wails
-// runs each frontend call on its own goroutine, so mu guards pool and info.
+// DBService holds the open connection between Connect and Disconnect.
 type DBService struct {
-	mu   sync.Mutex
-	pool *pgxpool.Pool
-	info *ConnectionInfo
+	// queryMu lets one query run at a time on editor: a single Postgres
+	// connection can't run two at once. Always lock queryMu before mu.
+	queryMu sync.Mutex
+
+	// mu guards the fields below. Wails runs each frontend call on its own
+	// goroutine, so two calls can touch them at the same time.
+	mu          sync.Mutex
+	pool        *pgxpool.Pool
+	editor      *pgxpool.Conn // the query editor's connection, held until Disconnect
+	info        *ConnectionInfo
+	cancelQuery context.CancelFunc // stops the running query, if any
 }
 
 // ConnectionInfo describes an open (or just tested) connection.
@@ -95,7 +104,8 @@ func (s *DBService) TestConnection(cfg DBConfig) (string, error) {
 }
 
 // Connect opens a connection pool with cfg and keeps it open until Disconnect.
-// Any connection that is already open is closed first.
+// It also takes one connection out of the pool for the query editor, so every
+// RunQuery uses the same session. Any connection already open is closed first.
 func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 	if err := cfg.validate(); err != nil {
 		return ConnectionInfo{}, err
@@ -106,7 +116,16 @@ func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 	}
 	// The pool connects lazily; MinConns keeps one connection open while idle.
 	poolCfg.MinConns = 1
+	// When a query's context is cancelled, ask Postgres to stop the query so
+	// the connection stays usable. pgx's default closes the connection instead.
+	poolCfg.ConnConfig.BuildContextWatcherHandler = func(c *pgconn.PgConn) ctxwatch.Handler {
+		return &pgconn.CancelRequestContextWatcherHandler{Conn: c, DeadlineDelay: 5 * time.Second}
+	}
 
+	// Stop a running query, then hold queryMu so none starts while we swap connections.
+	s.stopRunningQuery()
+	s.queryMu.Lock()
+	defer s.queryMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closeLocked()
@@ -118,28 +137,42 @@ func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 	if err != nil {
 		return ConnectionInfo{}, err
 	}
-	conn, err := pool.Acquire(ctx)
+	editor, err := pool.Acquire(ctx)
 	if err != nil {
 		pool.Close()
 		return ConnectionInfo{}, &ConnectionError{Summary: describeConnectError(err, cfg), Detail: err.Error()}
 	}
-	info, err := selectOne(ctx, conn.Conn())
-	conn.Release()
+	info, err := selectOne(ctx, editor.Conn())
 	if err != nil {
+		editor.Release()
 		pool.Close()
 		return ConnectionInfo{}, err
 	}
 
 	s.pool = pool
+	s.editor = editor
 	s.info = &info
 	return info, nil
 }
 
-// Disconnect closes the open connection. It does nothing if none is open.
+// Disconnect stops a running query and closes the open connection. It does
+// nothing if none is open.
 func (s *DBService) Disconnect() {
+	s.stopRunningQuery()
+	s.queryMu.Lock() // wait for the stopped query to return
+	defer s.queryMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closeLocked()
+}
+
+// stopRunningQuery cancels the running query, if any, without waiting for it.
+func (s *DBService) stopRunningQuery() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancelQuery != nil {
+		s.cancelQuery()
+	}
 }
 
 // ActiveConnection returns the open connection, or nil when disconnected. The
@@ -220,11 +253,16 @@ func (s *DBService) ServiceShutdown() error {
 	return nil
 }
 
-// closeLocked closes the pool. The caller must hold s.mu.
+// closeLocked returns the editor connection and closes the pool. The caller
+// must hold queryMu (so no query is using editor) and mu.
 func (s *DBService) closeLocked() {
+	if s.editor != nil {
+		s.editor.Release()
+	}
 	if s.pool != nil {
 		s.pool.Close()
 	}
+	s.editor = nil
 	s.pool = nil
 	s.info = nil
 }
