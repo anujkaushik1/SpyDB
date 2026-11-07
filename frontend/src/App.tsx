@@ -1,31 +1,30 @@
-import { useState, type FormEvent } from 'react'
-import {GreetService} from "../bindings/github.com/anujkaushik1/SpyDB";
+import { useState } from 'react'
+import {DBService} from "../bindings/github.com/anujkaushik1/SpyDB";
+
+type Status =
+  | { kind: 'idle' }
+  | { kind: 'testing' }
+  | { kind: 'ok'; message: string }
+  | { kind: 'error'; message: string };
 
 function App() {
-  const [name, setName] = useState<string>('');
-  const [greeting, setGreeting] = useState<string>('');
+  const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
-  const doGreet = (e: FormEvent) => {
-    e.preventDefault();
-    GreetService.Greet(name.trim()).then(setGreeting).catch(console.error);
+  const testConnection = () => {
+    setStatus({ kind: 'testing' });
+    DBService.TestConnection()
+      .then((message) => setStatus({ kind: 'ok', message }))
+      .catch((err) => setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) }));
   };
 
   return (
     <main className="container">
-      <form className="greet" onSubmit={doGreet}>
-        <input
-          aria-label="name"
-          className="input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          type="text"
-          placeholder="Enter your name"
-          autoComplete="off"
-          autoFocus
-        />
-        <button className="btn" type="submit" disabled={!name.trim()}>Greet</button>
-      </form>
-      <p className="result" aria-live="polite">{greeting}</p>
+      <button className="btn" type="button" onClick={testConnection} disabled={status.kind === 'testing'}>
+        {status.kind === 'testing' ? 'Testing…' : 'Test connection'}
+      </button>
+      {(status.kind === 'ok' || status.kind === 'error') && (
+        <p className={`status status-${status.kind}`} role="status">{status.message}</p>
+      )}
     </main>
   )
 }

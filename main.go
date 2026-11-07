@@ -22,7 +22,7 @@ func main() {
 		Name:        "SpyDB",
 		Description: "SpyDB",
 		Services: []application.Service{
-			application.NewService(&GreetService{}),
+			application.NewService(&DBService{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

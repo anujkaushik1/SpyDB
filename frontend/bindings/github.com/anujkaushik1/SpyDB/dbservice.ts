@@ -5,6 +5,10 @@
 // @ts-ignore: Unused imports
 import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
-export function Greet(name: string): $CancellablePromise<string> {
-    return $Call.ByID(1411160069, name);
+/**
+ * TestConnection connects with the settings in db.config.json and runs SELECT 1.
+ * A nil error means the database is reachable; the error text is shown in the UI.
+ */
+export function TestConnection(): $CancellablePromise<string> {
+    return $Call.ByID(3354703523);
 }
