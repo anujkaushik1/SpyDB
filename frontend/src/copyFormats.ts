@@ -1,5 +1,4 @@
-import { Clipboard } from '@wailsio/runtime'
-import { cellText } from './tableMeta'
+import { cellText } from './cellValues'
 
 export type CopyFormat = 'json' | 'csv' | 'text' | 'markdown'
 type Column = { name: string; category: string }
@@ -19,16 +18,6 @@ export function formatRows(format: CopyFormat, columns: Column[], rows: Row[]): 
 // One cell as you'd paste it: what the grid shows, NULL as empty.
 export function formatValue(value: string | null, category: string) {
   return value === null ? '' : cellText(value, category)
-}
-
-// Copies to the system clipboard through Wails, or the browser API where
-// Wails can't (the server-mode build).
-export async function copyText(text: string) {
-  try {
-    await Clipboard.SetText(text)
-  } catch {
-    await navigator.clipboard.writeText(text)
-  }
 }
 
 // Header row then data rows. A field with the delimiter, a quote or a line
@@ -58,15 +47,20 @@ export function rowsAsJson(columns: Column[], rows: Row[]) {
   return rows.length === 1 ? jsonObjects(columns, rows, '')[0] : toJson(columns, rows)
 }
 
+// The JSON keys for these columns: their names, with duplicates numbered.
+export const jsonKeys = (columns: Column[]) => uniqueNames(columns.map((c) => c.name))
+
 function jsonObjects(columns: Column[], rows: Row[], indent: string) {
-  const keys = uniqueNames(columns.map((c) => c.name))
+  const keys = jsonKeys(columns)
   return rows.map((row) => {
     const fields = row.map((v, j) => `${indent}  ${JSON.stringify(keys[j])}: ${jsonLiteral(v, columns[j].category)}`)
     return `${indent}{\n${fields.join(',\n')}\n${indent}}`
   })
 }
 
-function jsonLiteral(value: string | null, category: string) {
+// One Postgres text value as a JSON literal: number, true / false, null,
+// embedded json, or a string.
+export function jsonLiteral(value: string | null, category: string) {
   if (value === null) return 'null'
   if (category === 'number' && JSON_NUMBER.test(value)) return value
   if (category === 'bool' && (value === 't' || value === 'f')) return value === 't' ? 'true' : 'false'

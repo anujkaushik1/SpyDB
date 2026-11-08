@@ -2,10 +2,12 @@ import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type M
 import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
-import { copyText, formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
+import { copyText } from './clipboard'
+import { formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
-import { cellClass, cellText } from './tableMeta'
+import { rowJsonEdits } from './rowJsonEdits'
+import { cellClass, cellText } from './cellValues'
 
 // The JSON editor is 1.2 MB; load it the first time a json / jsonb cell is opened.
 const JsonEditorModal = lazy(() => import('./JsonEditorModal'))
@@ -308,6 +310,20 @@ export default function DataGrid(props: Props) {
   // Selected rows top to bottom, values as shown (unsaved edits included).
   const shownRows = (indexes: number[]) => indexes.map((i) => rows[i].map((_, j) => shownValue(rows[i], j)))
 
+  // Edited "View as JSON": changed fields become unsaved cell edits, like typed
+  // ones. A rule broken (key removed, primary key changed…) comes back as a
+  // message for the modal, which stays open.
+  const applyRowJson = (indexes: number[], text: string | null) => {
+    if (text === null) return 'A whole row can’t be set to NULL.'
+    const result = rowJsonEdits(columns, shownRows(indexes), text, isEditable)
+    if ('error' in result) return result.error
+    let next = pending
+    for (const e of result.edits) next = withCell(next, { row: indexes[e.row], col: e.col }, e.value)
+    setPending(next)
+    setSavedMessage(null)
+    closeRowJson()
+  }
+
   const closeMenu = () => {
     setMenu(null)
     wrap.current?.focus({ preventScroll: true }) // so ⌘C works next
@@ -541,8 +557,11 @@ export default function DataGrid(props: Props) {
             tag="JSON"
             note={`${columns.length} column${columns.length === 1 ? '' : 's'}`}
             value={rowsAsJson(columns, shownRows(rowJson))}
-            readOnly
-            readOnlyNote="A read-only view of the row. ⌘F to search; Copy and selecting text still work."
+            readOnly={!canEdit}
+            readOnlyNote="This result can’t be edited (it needs one table and its primary key). ⌘F to search; Copy still works."
+            hint="Apply keeps changed fields as unsaved edits until you save (⌘S). Keys and the primary key can’t change."
+            allowNull={false}
+            onApply={(text) => applyRowJson(rowJson, text)}
             onClose={closeRowJson}
           />
         </Suspense>

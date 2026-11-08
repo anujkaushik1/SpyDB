@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { parse, stringify } from 'lossless-json'
 import { createJSONEditor, Mode, type JSONParser, type JsonEditor } from './vendor/vanilla-jsoneditor/standalone.js'
 import './vendor/vanilla-jsoneditor/jse-theme-dark.css'
-import { copyText } from './copyFormats'
+import { copyText } from './clipboard'
+import { normalize, pretty } from './jsonText'
 import { XIcon } from './icons'
 
 type Props = {
@@ -12,7 +13,9 @@ type Props = {
   value: string | null
   readOnly: boolean // query results that can't be saved back, or a whole-row view
   readOnlyNote?: string // footer text when read-only
-  onApply?: (value: string | null) => void // becomes an unsaved edit, like a typed one
+  hint?: string // footer text while editing
+  allowNull?: boolean // offer Set NULL (a single value; not for a whole row)
+  onApply?: (value: string | null) => string | void // becomes unsaved edits; a returned message is shown instead
   onClose: () => void
 }
 
@@ -24,24 +27,12 @@ const parser = { parse, stringify } as JSONParser
 // keystroke; reading sooner would miss it.
 const SETTLE_MS = 350
 
-// Compact JSON text, numbers untouched. Throws if the text isn't valid JSON.
-const normalize = (text: string) => stringify(parse(text)) ?? ''
-
-// Postgres sends jsonb on one line; show it indented, numbers untouched.
-function pretty(value: string | null) {
-  if (value === null) return ''
-  try {
-    return stringify(parse(value), null, 2) ?? value
-  } catch {
-    return value
-  }
-}
 
 // A json / jsonb value as indented JSON text, like DynamoDB's JSON view:
 // vanilla-jsoneditor's code editor without its toolbar, so just line numbers,
 // folding, colours, error marks, ⌘F search and ⌘Z undo. Loaded on first use,
 // so the 1.2 MB editor doesn't slow down startup.
-export default function JsonEditorModal({ title, tag, note, value, readOnly, readOnlyNote, onApply, onClose }: Props) {
+export default function JsonEditorModal({ title, tag, note, value, readOnly, readOnlyNote, hint, allowNull = true, onApply, onClose }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<JsonEditor | null>(null)
   const [invalid, setInvalid] = useState(false)
@@ -121,7 +112,8 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
         // The original wasn't valid JSON, so any valid value is a change.
       }
     }
-    onApply?.(next)
+    const problem = onApply?.(next)
+    if (problem) setError(problem)
   }
 
   const copy = async () => {
@@ -212,9 +204,9 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
           ) : (
             <>
               <span className={error || invalid ? 'json-modal-status error' : 'json-modal-status'}>
-                {error ?? (invalid ? 'Fix the JSON before applying.' : '⌘F to search. Apply keeps the edit unsaved until you save (⌘S).')}
+                {error ?? (invalid ? 'Fix the JSON before applying.' : hint ?? '⌘F to search. Apply keeps the edit unsaved until you save (⌘S).')}
               </span>
-              <button type="button" className="link-btn json-modal-null" onClick={() => onApply?.(null)}>Set NULL</button>
+              {allowNull && <button type="button" className="link-btn json-modal-null" onClick={() => onApply?.(null)}>Set NULL</button>}
               <button type="button" className="btn btn-secondary btn-sm" onClick={requestClose}>Cancel</button>
               <button type="button" className="btn btn-primary btn-sm" onClick={apply} disabled={invalid} title="Apply (⌘Enter)">
                 Apply
