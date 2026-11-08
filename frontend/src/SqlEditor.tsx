@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { DBService, type QueryResult, type StatementResult } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorMessage } from './Banner'
 import DataGrid, { type GridColumn } from './DataGrid'
+import ExportMenu, { type ExportChoice } from './ExportMenu'
 import { ChevronIcon, ChevronLeftIcon, PlayIcon, Spinner } from './icons'
 import { typeCategory } from './tableMeta'
 
@@ -264,6 +265,26 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
   const pages = Math.ceil(result.storedRows / pageSize)
   const offset = page * pageSize
 
+  // Export: exactly the rows this query returned; or the whole table they came from.
+  const target = result.target
+  const exportChoices: ExportChoice[] = [
+    {
+      label: `These ${result.rowCount.toLocaleString()} row${result.rowCount === 1 ? '' : 's'}`,
+      note: result.rowCount > result.storedRows
+        ? 'More rows than SpyDB keeps: the query runs again, read-only, and streams into the file'
+        : 'Exactly what the query returned',
+      fileName: target?.table ?? 'query',
+      run: (path: string, format: string) => DBService.ExportResult(tabId, runId, index, path, format),
+    },
+    ...(target ? [{
+      label: `Full table (${target.schema}.${target.table})`,
+      note: 'Every row of the table the result came from',
+      fileName: target.table,
+      run: (path: string, format: string) =>
+        DBService.ExportTable({ schema: target.schema, table: target.table, sortBy: '', sortDesc: false, filters: [] }, path, format),
+    }] : []),
+  ]
+
   // Later pages come from rows Go already holds (DBService.FetchRows).
   const goToPage = async (next: number) => {
     setLoading(true)
@@ -307,16 +328,19 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
           {result.target ? ` · editable (${result.target.schema}.${result.target.table})` : ' · read-only'}
           {pageError && <span className="page-error"> · {pageError}</span>}
         </span>
-        {pages > 1 && (
-          <div className="grid-pager">
-            {loading && <Spinner />}
-            <button type="button" className="pager-btn" onClick={() => goToPage(page - 1)}
-                    disabled={loading || page === 0} aria-label="Previous page"><ChevronLeftIcon /></button>
-            <span className="grid-page-total">{page + 1} / {pages}</span>
-            <button type="button" className="pager-btn" onClick={() => goToPage(page + 1)}
-                    disabled={loading || page >= pages - 1} aria-label="Next page"><ChevronIcon /></button>
-          </div>
-        )}
+        <div className="grid-pager">
+          <ExportMenu choices={exportChoices} />
+          {pages > 1 && (
+            <>
+              {loading && <Spinner />}
+              <button type="button" className="pager-btn" onClick={() => goToPage(page - 1)}
+                      disabled={loading || page === 0} aria-label="Previous page"><ChevronLeftIcon /></button>
+              <span className="grid-page-total">{page + 1} / {pages}</span>
+              <button type="button" className="pager-btn" onClick={() => goToPage(page + 1)}
+                      disabled={loading || page >= pages - 1} aria-label="Next page"><ChevronIcon /></button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

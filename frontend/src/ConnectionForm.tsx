@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { DBService, type ConnectionInfo, type DBConfig } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type DBConfig, type SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage, type Notice } from './Banner'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
+import { parseConnectionUrl } from './connectionUrl'
 import { DatabaseIcon, EyeIcon, EyeOffIcon, Spinner } from './icons'
 
 type FieldName = 'host' | 'port' | 'user' | 'password' | 'database'
@@ -31,12 +32,18 @@ const toConfig = (v: FormValues): DBConfig => ({
 
 const describe = (c: ConnectionInfo) => `${c.database} on ${c.host}:${c.port} as ${c.user}`
 
+// A connection picked in the sidebar: load it into the form, and connect if asked
+// (double-click). `seq` changes on every pick, so picking the same one again works.
+export type FormRequest = { config: DBConfig; savedId: string | null; name: string; connect: boolean; seq: number }
+
 type Props = {
   connection: ConnectionInfo | null
   onConnectionChange: (connection: ConnectionInfo | null) => void
+  request: FormRequest | null
+  onSaved: (connection: SavedConnection) => void // saved or updated; the sidebar reloads
 }
 
-export default function ConnectionForm({ connection, onConnectionChange }: Props) {
+export default function ConnectionForm({ connection, onConnectionChange, request, onSaved }: Props) {
   const [values, setValues] = useState<FormValues>(initialValues)
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({})
   const [submitted, setSubmitted] = useState(false)
@@ -45,6 +52,13 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
   const [notice, setNotice] = useState<Notice | null>(null)
   // Settings the connections panel lists with; null means the panel is closed.
   const [panelConfig, setPanelConfig] = useState<DBConfig | null>(null)
+  // The saved connection being edited (null for a new one), its name, and the Save outcome.
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [saveState, setSaveState] = useState<{ kind: 'saving' } | { kind: 'saved' } | { kind: 'error'; message: string } | null>(null)
+  // Import from URL: the pasted text while the box is open (null when closed).
+  const [urlText, setUrlText] = useState<string | null>(null)
+  const [urlError, setUrlError] = useState<string | null>(null)
   const inputs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>({})
 
   // On load, pick up a connection that is still open on the Go side (a page
@@ -105,11 +119,15 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
   }
 
   // The form's submit (Connect button or Enter).
-  const connect = async (e: FormEvent) => {
+  // The form's submit (Connect button or Enter).
+  const connect = (e: FormEvent) => {
     e.preventDefault()
     if (connection || busy) return
     const cfg = validConfig()
-    if (!cfg) return
+    if (cfg) connectWith(cfg)
+  }
+
+  const connectWith = async (cfg: DBConfig) => {
     setBusy('connecting')
     setNotice(null)
     try {
@@ -122,14 +140,74 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
     }
   }
 
-  // Disconnecting happens in the sidebar; when it does, say so here.
+  // Disconnecting happens in the sidebar; when it does, say so here. While
+  // connected, keep the form in step with the connection (e.g. after switching
+  // database), so it shows where you were when you come back.
   const previous = useRef<ConnectionInfo | null>(null)
   useEffect(() => {
     if (previous.current && !connection) {
       setNotice({ tone: 'info', title: 'Disconnected', message: `Closed the connection to ${describe(previous.current)}.` })
     }
+    if (connection) {
+      setValues((v) => ({ ...v, host: connection.host, port: String(connection.port), user: connection.user, database: connection.database }))
+    }
     previous.current = connection
   }, [connection])
+
+  // A connection picked in the sidebar.
+  useEffect(() => {
+    if (!request) return
+    const next = fromConfig(request.config)
+    setValues(next)
+    setSavedId(request.savedId)
+    setName(request.name)
+    setSaveState(null)
+    setNotice(null)
+    setSubmitted(false)
+    setTouched({})
+    setPanelConfig(null)
+    if (request.connect && !connection && !busy) connectWith(request.config)
+  }, [request?.seq])
+
+  // Save (or update) the form as a named connection; an empty name uses the suggestion.
+  const save = async () => {
+    const cfg = validConfig()
+    if (!cfg) return
+    const finalName = name.trim() || defaultName
+    setSaveState({ kind: 'saving' })
+    try {
+      const stored = await DBService.SaveConnection({ id: savedId ?? '', name: finalName, config: cfg, lastUsed: 0 })
+      setSavedId(stored.id)
+      setName(stored.name)
+      setSaveState({ kind: 'saved' })
+      onSaved(stored)
+    } catch (err) {
+      setSaveState({ kind: 'error', message: errorMessage(err) })
+    }
+  }
+  const defaultName = `${values.database || values.user || 'postgres'} @ ${values.host || 'localhost'}`
+
+  // Fill the form from a postgres:// URL. Nothing connects or saves until you
+  // click Connect or Save; the URL box is cleared so the password isn't left on screen.
+  const importUrl = (text: string) => {
+    try {
+      const { config, ignored } = parseConnectionUrl(text)
+      setValues(fromConfig(config))
+      setSubmitted(false)
+      setTouched({})
+      setUrlText(null)
+      setUrlError(null)
+      setNotice({
+        tone: 'info',
+        title: 'Imported from URL',
+        message: ignored.length
+          ? `Filled in the form. Skipped settings that aren’t Postgres connection settings: ${ignored.join(', ')}.`
+          : 'Filled in the form. Check it, then Connect or Save.',
+      })
+    } catch (err) {
+      setUrlError(errorMessage(err))
+    }
+  }
 
   // Opens the panel with the form's settings (validated first), or closes it.
   const toggleConnections = () => {
@@ -179,11 +257,48 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
       <form className="card" onSubmit={connect} noValidate>
         <header className="card-header">
           <span className="db-badge"><DatabaseIcon /></span>
-          <div>
-            <h1 className="card-title">New connection</h1>
+          <div className="card-heading">
+            <h1 className="card-title">{savedId ? name || 'Saved connection' : 'New connection'}</h1>
             <p className="card-subtitle">PostgreSQL</p>
           </div>
+          <button type="button" className="link-btn import-url-btn"
+                  onClick={() => { setUrlText((t) => (t === null ? '' : null)); setUrlError(null) }}
+                  aria-expanded={urlText !== null}>
+            {urlText === null ? 'Import from URL' : 'Cancel'}
+          </button>
         </header>
+
+        {urlText !== null && (
+          <div className="import-url">
+            <div className="save-connection-row">
+              <input
+                className="input import-url-input"
+                aria-label="Connection URL"
+                value={urlText}
+                placeholder="postgresql://user:password@host:5432/database"
+                onChange={(e) => { setUrlText(e.target.value); setUrlError(null) }}
+                onPaste={(e) => {
+                  // Pasting a whole URL imports it straight away.
+                  const pasted = e.clipboardData.getData('text')
+                  if (/^\s*postgres(ql)?:\/\//i.test(pasted)) {
+                    e.preventDefault()
+                    importUrl(pasted)
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); importUrl(urlText) } }}
+                autoFocus
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+              />
+              <button type="button" className="btn btn-secondary" onClick={() => importUrl(urlText)} disabled={!urlText.trim()}>
+                Import
+              </button>
+            </div>
+            {urlError && <p className="save-connection-note error">{urlError}</p>}
+          </div>
+        )}
 
         {/* Locked while a request runs. */}
         <fieldset className="fields" disabled={busy !== null}>
@@ -226,6 +341,31 @@ export default function ConnectionForm({ connection, onConnectionChange }: Props
             </button>
           </div>
         </footer>
+
+        <div className="save-connection">
+          <label className="label" htmlFor="connection-name">{savedId ? 'Saved connection' : 'Save connection'}</label>
+          <div className="save-connection-row">
+            <input
+              id="connection-name"
+              className="input"
+              value={name}
+              placeholder={defaultName}
+              onChange={(e) => { setName(e.target.value); setSaveState(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <button type="button" className="btn btn-secondary" onClick={save}
+                    disabled={saveState?.kind === 'saving'}>
+              {saveState?.kind === 'saving' ? <><Spinner /> Saving…</> : savedId ? 'Save changes' : 'Save'}
+            </button>
+          </div>
+          <p className={saveState?.kind === 'error' ? 'save-connection-note error' : 'save-connection-note'}>
+            {saveState?.kind === 'saved' ? '✓ Saved. It’s in the sidebar under Saved.'
+              : saveState?.kind === 'error' ? saveState.message
+              : 'Saved connections, including the password, are kept on this Mac, readable only by your user.'}
+          </p>
+        </div>
       </form>
 
       {panel}

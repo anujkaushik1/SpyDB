@@ -228,7 +228,11 @@ func buildTableQuery(q TableQuery, columns []column) (string, []any, error) {
 		sb.WriteString(" ORDER BY " + strings.Join(primaryKey, ", "))
 	}
 
-	fmt.Fprintf(&sb, " LIMIT %d OFFSET %d", q.PageSize+1, q.Page*q.PageSize)
+	// PageSize 0 means every row (exports); otherwise one page plus one extra
+	// row, to know whether another page exists.
+	if q.PageSize > 0 {
+		fmt.Fprintf(&sb, " LIMIT %d OFFSET %d", q.PageSize+1, q.Page*q.PageSize)
+	}
 	return sb.String(), args, nil
 }
 

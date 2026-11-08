@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DBService, type TableFilter, type TableInfo, type TablePage } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import DataGrid, { type GridColumn, type Sort } from './DataGrid'
+import ExportMenu, { type ExportChoice } from './ExportMenu'
 import SqlEditor from './SqlEditor'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from './icons'
 
@@ -179,6 +180,23 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
   const readOnlyReason = !isTable ? 'read-only' : columns.length > 0 && !hasKey ? 'read-only: no primary key' : null
   const gridColumns: GridColumn[] = columns.map((c) => ({ ...c, source: c.name }))
 
+  // Export: every page, in the order shown. Full table ignores the filters.
+  const exportOrder = { schema: table.schema, table: table.name, sortBy: sort?.column ?? '', sortDesc: sort?.desc ?? false }
+  const exportChoices: ExportChoice[] = [
+    ...(filtered ? [{
+      label: `Filtered rows (${applied.length} filter${applied.length > 1 ? 's' : ''})`,
+      note: 'Every row that matches, not just this page',
+      fileName: `${table.name}_filtered`,
+      run: (path: string, format: string) => DBService.ExportTable({ ...exportOrder, filters: applied }, path, format),
+    }] : []),
+    {
+      label: 'Full table',
+      note: table.estimatedRows != null ? `About ${table.estimatedRows.toLocaleString()} rows${sort ? `, sorted by ${sort.column}` : ''}` : undefined,
+      fileName: table.name,
+      run: (path: string, format: string) => DBService.ExportTable({ ...exportOrder, filters: [] }, path, format),
+    },
+  ]
+
   const estimate = !filtered ? table.estimatedRows : null
   const totalPages = estimate != null ? Math.max(1, Math.ceil(estimate / PAGE_SIZE)) : null
   const first = page * PAGE_SIZE + 1
@@ -274,6 +292,7 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
           {readOnlyReason && ` · ${readOnlyReason}`}
         </span>
         <div className="grid-pager">
+          {columns.length > 0 && <ExportMenu choices={exportChoices} />}
           <button type="button" className="sidebar-icon-btn" onClick={() => setReloadToken((t) => t + 1)}
                   disabled={loading} aria-label="Reload rows" title="Reload">
             {loading ? <Spinner /> : <RefreshIcon />}

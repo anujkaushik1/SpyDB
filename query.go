@@ -58,8 +58,11 @@ func (e *QueryError) Error() string { return e.Message }
 
 // storedRun holds every kept row of one RunQuery, per statement.
 type storedRun struct {
-	id   int
-	rows [][][]*string
+	id        int
+	sql       string        // the text that ran, for exporting a result too big to keep
+	columns   [][]Column    // per statement
+	rows      [][][]*string // per statement, at most maxStoredRows each
+	rowCounts []int         // per statement: rows the statement returned
 }
 
 // statementData is one statement's full output before it is split into pages.
@@ -123,7 +126,7 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	pool := s.pool
 	s.mu.Unlock()
 
-	run := &storedRun{}
+	run := &storedRun{sql: sql}
 	results := []StatementResult{}
 	for i := range statements {
 		st := &statements[i]
@@ -132,6 +135,8 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 			target = editTarget(ctx, pool, st)
 		}
 		run.rows = append(run.rows, st.rows)
+		run.columns = append(run.columns, st.columns)
+		run.rowCounts = append(run.rowCounts, st.rowCount)
 		results = append(results, StatementResult{
 			Columns:    st.columns,
 			Target:     target,

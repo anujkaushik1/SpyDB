@@ -32,6 +32,18 @@ export interface ConnectionInfo {
 }
 
 /**
+ * ConnectionLists is what the connect screen shows.
+ */
+export interface ConnectionLists {
+    "saved": SavedConnection[] | null;
+
+    /**
+     * newest first
+     */
+    "recent": SavedConnection[] | null;
+}
+
+/**
  * DBConfig is the connection form. Only exported fields reach the frontend,
  * under the names in their json tags.
  */
@@ -81,6 +93,22 @@ export interface RowEdit {
      * column → new value; nil sets NULL
      */
     "values": { [_ in string]?: string | null } | null;
+}
+
+/**
+ * SavedConnection is a connection the user saved by name, or (with an empty
+ * Name) one from the Recent list. Config includes the password: the user
+ * chose to keep passwords in this file, which only their account can read.
+ */
+export interface SavedConnection {
+    "id": string;
+    "name": string;
+    "config": DBConfig;
+
+    /**
+     * Unix milliseconds; 0 if never connected
+     */
+    "lastUsed": number;
 }
 
 /**
@@ -179,6 +207,18 @@ export interface TableColumn {
      */
     "category": string;
     "primaryKey": boolean;
+}
+
+/**
+ * TableExport is a table tab's rows to export: the sort and filters as shown,
+ * all pages.
+ */
+export interface TableExport {
+    "schema": string;
+    "table": string;
+    "sortBy": string;
+    "sortDesc": boolean;
+    "filters": TableFilter[] | null;
 }
 
 /**

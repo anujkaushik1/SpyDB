@@ -148,6 +148,34 @@ export const ChevronLeftIcon = () => (
   </Icon>
 )
 
+export const ChevronDownIcon = () => (
+  <Icon>
+    <path d="m6 9 6 6 6-6"/>
+  </Icon>
+)
+
+export const TickIcon = () => (
+  <Icon>
+    <path d="M20 6 9 17l-5-5"/>
+  </Icon>
+)
+
+export const TrashIcon = () => (
+  <Icon>
+    <path d="M3 6h18"/>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+  </Icon>
+)
+
+export const DownloadIcon = () => (
+  <Icon>
+    <path d="M12 15V3"/>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <path d="m7 10 5 5 5-5"/>
+  </Icon>
+)
+
 export const PlayIcon = () => (
   <Icon>
     <polygon points="6 3 20 12 6 21 6 3"/>

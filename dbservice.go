@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -29,6 +30,9 @@ type DBService struct {
 	cancelQuery context.CancelFunc    // stops the running query, if any
 	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows
 	runSeq      int                   // last RunID handed out
+	cfg         DBConfig              // settings of the open connection, for SwitchDatabase
+
+	fileMu sync.Mutex // guards connections.json (see connections.go)
 }
 
 // ConnectionInfo describes an open (or just tested) connection.
@@ -107,14 +111,81 @@ func (s *DBService) TestConnection(cfg DBConfig) (string, error) {
 
 // Connect opens a connection pool with cfg and keeps it open until Disconnect.
 // It also takes one connection out of the pool for the query editor, so every
-// RunQuery uses the same session. Any connection already open is closed first.
+// RunQuery uses the same session. The new connection is opened before any
+// open one is closed, so a failed Connect (or database switch) leaves the
+// current connection as it was. A successful Connect is added to Recent.
 func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 	if err := cfg.validate(); err != nil {
 		return ConnectionInfo{}, err
 	}
-	poolCfg, err := pgxpool.ParseConfig(cfg.connString())
+	opened, err := openConnection(cfg)
 	if err != nil {
 		return ConnectionInfo{}, err
+	}
+
+	// Swap it in: stop a running query, hold queryMu so none starts, close the old one.
+	s.stopRunningQuery()
+	s.queryMu.Lock()
+	defer s.queryMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closeLocked()
+	s.pool = opened.pool
+	s.editor = opened.editor
+	s.info = &opened.info
+	s.cfg = cfg
+
+	s.recordRecent(cfg) // best effort: a failed write doesn't fail the connect
+	return opened.info, nil
+}
+
+// SwitchDatabase reconnects to another database on the same server, with the
+// same login. If it fails, the current connection stays open.
+func (s *DBService) SwitchDatabase(database string) (ConnectionInfo, error) {
+	s.mu.Lock()
+	cfg := s.cfg
+	connected := s.pool != nil
+	s.mu.Unlock()
+	if !connected {
+		return ConnectionInfo{}, errors.New("Not connected.")
+	}
+	cfg.Database = database
+	return s.Connect(cfg)
+}
+
+// ListDatabases returns the databases on the server that the user can connect to.
+func (s *DBService) ListDatabases() ([]string, error) {
+	s.mu.Lock()
+	pool := s.pool
+	s.mu.Unlock()
+	if pool == nil {
+		return nil, errors.New("Not connected.")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+
+	rows, err := pool.Query(ctx, `
+		SELECT datname FROM pg_database
+		WHERE datallowconn AND NOT datistemplate AND has_database_privilege(datname, 'CONNECT')
+		ORDER BY datname`)
+	if err != nil {
+		return nil, toQueryError(err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+type openedConnection struct {
+	pool   *pgxpool.Pool
+	editor *pgxpool.Conn
+	info   ConnectionInfo
+}
+
+// openConnection creates the pool for cfg, takes the editor's connection from
+// it and checks it with SELECT 1. It touches no DBService state.
+func openConnection(cfg DBConfig) (*openedConnection, error) {
+	poolCfg, err := pgxpool.ParseConfig(cfg.connString())
+	if err != nil {
+		return nil, err
 	}
 	// The pool connects lazily; MinConns keeps one connection open while idle.
 	poolCfg.MinConns = 1
@@ -124,37 +195,25 @@ func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 		return &pgconn.CancelRequestContextWatcherHandler{Conn: c, DeadlineDelay: 5 * time.Second}
 	}
 
-	// Stop a running query, then hold queryMu so none starts while we swap connections.
-	s.stopRunningQuery()
-	s.queryMu.Lock()
-	defer s.queryMu.Unlock()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closeLocked()
-
 	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
-		return ConnectionInfo{}, err
+		return nil, err
 	}
 	editor, err := pool.Acquire(ctx)
 	if err != nil {
 		pool.Close()
-		return ConnectionInfo{}, &ConnectionError{Summary: describeConnectError(err, cfg), Detail: err.Error()}
+		return nil, &ConnectionError{Summary: describeConnectError(err, cfg), Detail: err.Error()}
 	}
 	info, err := selectOne(ctx, editor.Conn())
 	if err != nil {
 		editor.Release()
 		pool.Close()
-		return ConnectionInfo{}, err
+		return nil, err
 	}
-
-	s.pool = pool
-	s.editor = editor
-	s.info = &info
-	return info, nil
+	return &openedConnection{pool: pool, editor: editor, info: info}, nil
 }
 
 // Disconnect stops a running query and closes the open connection. It does
@@ -268,6 +327,7 @@ func (s *DBService) closeLocked() {
 	s.pool = nil
 	s.info = nil
 	s.runs = nil
+	s.cfg = DBConfig{}
 }
 
 // selectOne runs SELECT 1 on conn and describes the connection.

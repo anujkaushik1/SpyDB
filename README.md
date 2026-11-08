@@ -10,9 +10,19 @@ Fill in host, port, user, password and database, then:
 
 Failures show a plain-language summary, with pgx's raw error under **Details**.
 
+## Saved connections
+
+The connect screen lists **Saved** connections (ones you name with **Save**) and **Recent** ones (every connection you make, newest first). Click one to load it into the form, double-click to connect; saved ones can be renamed (**Save changes**) or deleted, and Recent can be cleared.
+
+They live in `~/Library/Application Support/SpyDB/connections.json`, **including passwords in plain text**, in a folder and file only your macOS user can read (`700` / `600`).
+
+**Import from URL** fills the form from a `postgres://` or `postgresql://` URL (pasting one imports it straight away). Passwords with `@`, `:` or `/` work; parameters that aren't Postgres connection settings (e.g. `pool_size`, `TrustServerCertificate`) are skipped and listed.
+
 ## Workspace
 
 Once connected, SpyDB shows a sidebar and tabs.
+
+**Database picker** — the menu at the top of the sidebar lists the server's databases; picking one reconnects with the same login (`DBService.SwitchDatabase`) and closes open tabs, asking first if any have unsaved edits. A failed switch keeps the current connection.
 
 **Sidebar** — every schema (public first; system schemas hidden) with its tables, views and materialized views from `DBService.ListTables`, with estimated row counts from Postgres's statistics. Filter by name (Esc clears), collapse schemas, refresh. The strip at the bottom shows the connection, opens **Active connections** and **Disconnects**.
 
@@ -44,6 +54,14 @@ Table rows, and query results that come straight from one table with its primary
 - Edited cells are tinted and wait in a bar at the bottom: **Discard** or **Save changes** (⌘S). The tab shows a dot while edits are unsaved.
 - `DBService.SaveRows` sends them as `UPDATE … WHERE <primary key>` in one transaction on its own connection: either every row saves or none does. A bad value (e.g. text in a number column) shows Postgres's error and keeps your edits.
 - Views, tables without a primary key, joins and computed columns are read-only.
+
+## Export
+
+**Export** in a grid's footer saves rows as **CSV** or **Excel (.xlsx)** through the macOS Save dialog:
+
+- Query results: **These N rows** — exactly what the query returned (from memory; a result bigger than 100,000 rows runs again in a read-only transaction and streams into the file, so a query that changes data is never run twice). **Full table** when the result comes from one table.
+- Table tabs: **Full table**, and **Filtered rows** (every page) when filters are on, in the order shown.
+- Rows stream from Postgres into the file, so big tables don't fill memory. Excel stores numbers and booleans as real values (numbers longer than 15 digits stay text) and is limited to 1,048,576 rows per sheet.
 
 ## Pre-filling the form (optional)
 
@@ -87,11 +105,16 @@ The binary is written to `bin/`.
 - `schema.go` — `ListTables`: schemas with their tables and views
 - `tabledata.go` — `TableData`: one page of a table, sorted and filtered
 - `edits.go` — `SaveRows` (cell edits → UPDATEs) and which query results are editable
+- `export.go` — CSV / Excel export (`ChooseExportFile`, `ExportResult`, `ExportTable`)
+- `connections.go` — saved and recent connections (`connections.json`)
 - `frontend/src/App.tsx` — window shell (title bar)
 - `frontend/src/ConnectionForm.tsx` — connection form (shown while disconnected)
 - `frontend/src/SqlEditor.tsx` — the SQL editor (in table tabs and Query tabs)
 - `frontend/src/DataGrid.tsx` — the grid: colours, selection, cell editing, Save bar
 - `frontend/src/QueryTab.tsx` — a Ctrl+T Query tab
+- `frontend/src/ConnectionsSidebar.tsx`, `connectionUrl.ts` — saved / recent connections, Import from URL
+- `frontend/src/DatabasePicker.tsx` — the database menu
+- `frontend/src/ExportMenu.tsx` — the Export button and menu
 - `frontend/src/SchemaSidebar.tsx` — schema / table sidebar and connection strip
 - `frontend/src/TabBar.tsx`, `TableTab.tsx`, `TablePalette.tsx` — tabs, the table grid (and its </> toggle), the Ctrl+P switcher
 - `frontend/src/ServerConnectionsPanel.tsx` — active connections list

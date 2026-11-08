@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DBService, type ConnectionInfo, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { errorMessage } from './Banner'
-import ConnectionForm from './ConnectionForm'
+import ConnectionForm, { type FormRequest } from './ConnectionForm'
+import ConnectionsSidebar from './ConnectionsSidebar'
+import DatabasePicker from './DatabasePicker'
 import QueryTab from './QueryTab'
 import SchemaSidebar from './SchemaSidebar'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
@@ -25,6 +27,25 @@ function App() {
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set())
   // Numbers for query tabs: Query 1, Query 2, … (not reused after closing).
   const queryNumber = useRef(0)
+  // Disconnected screen: saved + recent connections, and what the form should load.
+  const [lists, setLists] = useState<ConnectionLists | null>(null)
+  const [listsError, setListsError] = useState<string | null>(null)
+  const [selectedSaved, setSelectedSaved] = useState<string | null>(null)
+  const [formRequest, setFormRequest] = useState<FormRequest | null>(null)
+
+  const loadLists = useCallback(async () => {
+    try {
+      setLists(await DBService.SavedConnections())
+      setListsError(null)
+    } catch (err) {
+      setListsError(errorMessage(err))
+    }
+  }, [])
+
+  // Reload on every return to the connect screen; the last connect is now in Recent.
+  useEffect(() => {
+    if (!connection) loadLists()
+  }, [connection, loadLists])
 
   const loadSchemas = useCallback(async () => {
     setSchemasLoading(true)
@@ -69,6 +90,51 @@ function App() {
       setSchemas(null)
       setPaletteOpen(false)
     }
+  }
+
+  const pickConnection = (c: SavedConnection, saved: boolean, connect: boolean) => {
+    setSelectedSaved(saved ? c.id : null)
+    setFormRequest((r) => ({ config: c.config, savedId: saved ? c.id : null, name: saved ? c.name : '', connect, seq: (r?.seq ?? 0) + 1 }))
+  }
+
+  const newConnection = async () => {
+    setSelectedSaved(null)
+    let config = { host: 'localhost', port: 5432, user: '', password: '', database: '' }
+    try {
+      config = await DBService.DefaultConfig()
+    } catch { /* keep the blank form */ }
+    setFormRequest((r) => ({ config, savedId: null, name: '', connect: false, seq: (r?.seq ?? 0) + 1 }))
+  }
+
+  const deleteSaved = async (id: string) => {
+    try {
+      await DBService.DeleteConnection(id)
+      if (id === selectedSaved) setSelectedSaved(null)
+    } catch (err) {
+      setListsError(errorMessage(err))
+    }
+    loadLists()
+  }
+
+  const clearRecent = async () => {
+    try {
+      await DBService.ClearRecent()
+    } catch (err) {
+      setListsError(errorMessage(err))
+    }
+    loadLists()
+  }
+
+  // Reconnect to another database on the same server. Its tabs belong to the
+  // old database, so they close. Throws (and keeps everything) if it fails.
+  const switchDatabase = async (database: string) => {
+    const info = await DBService.SwitchDatabase(database)
+    setTabs([])
+    setActiveTab('')
+    setDirtyTabs(new Set())
+    setSchemas(null)
+    setPaletteOpen(false)
+    setConnection(info) // a new object, so the schema list reloads
   }
 
   const disconnect = async () => {
@@ -129,8 +195,21 @@ function App() {
       </header>
 
       <div className="workspace">
+        {!connection && (
+          <ConnectionsSidebar
+            lists={lists}
+            error={listsError}
+            selectedId={selectedSaved}
+            onNew={newConnection}
+            onSelect={(c, saved) => pickConnection(c, saved, false)}
+            onOpen={(c) => pickConnection(c, (lists?.saved ?? []).some((s) => s.id === c.id), true)}
+            onDelete={deleteSaved}
+            onClearRecent={clearRecent}
+          />
+        )}
         {connection && (
           <SchemaSidebar
+            databasePicker={<DatabasePicker current={connection.database} unsavedTabs={dirtyTabs.size} onSwitch={switchDatabase} />}
             schemas={schemas}
             loading={schemasLoading}
             error={schemasError}
@@ -146,7 +225,12 @@ function App() {
         )}
         <main className={connection ? 'main-area' : 'content'}>
           {/* Stays mounted (and renders nothing) while connected, so the form keeps its values. */}
-          <ConnectionForm connection={connection} onConnectionChange={changeConnection} />
+          <ConnectionForm
+            connection={connection}
+            onConnectionChange={changeConnection}
+            request={formRequest}
+            onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
+          />
           {connection && tabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>

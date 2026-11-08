@@ -32,9 +32,26 @@ export function ActiveConnections(cfg: $models.DBConfig): $CancellablePromise<$m
 }
 
 /**
+ * ChooseExportFile shows the Save dialog, starting in Downloads with
+ * suggestedName. format is "csv" or "xlsx". It returns "" if the user cancels.
+ */
+export function ChooseExportFile(suggestedName: string, format: string): $CancellablePromise<string> {
+    return $Call.ByID(59199622, suggestedName, format);
+}
+
+/**
+ * ClearRecent empties the Recent list.
+ */
+export function ClearRecent(): $CancellablePromise<void> {
+    return $Call.ByID(1471484819);
+}
+
+/**
  * Connect opens a connection pool with cfg and keeps it open until Disconnect.
  * It also takes one connection out of the pool for the query editor, so every
- * RunQuery uses the same session. Any connection already open is closed first.
+ * RunQuery uses the same session. The new connection is opened before any
+ * open one is closed, so a failed Connect (or database switch) leaves the
+ * current connection as it was. A successful Connect is added to Recent.
  */
 export function Connect(cfg: $models.DBConfig): $CancellablePromise<$models.ConnectionInfo> {
     return $Call.ByID(1121424107, cfg);
@@ -48,11 +65,37 @@ export function DefaultConfig(): $CancellablePromise<$models.DBConfig> {
 }
 
 /**
+ * DeleteConnection removes a saved connection.
+ */
+export function DeleteConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1563168100, id);
+}
+
+/**
  * Disconnect stops a running query and closes the open connection. It does
  * nothing if none is open.
  */
 export function Disconnect(): $CancellablePromise<void> {
     return $Call.ByID(1927077453);
+}
+
+/**
+ * ExportResult writes one statement's result from a tab's latest run to path:
+ * exactly the rows the query returned. Results kept in full (up to
+ * maxStoredRows) are written from memory, without running anything again.
+ * A bigger single-statement result is run again in a READ ONLY transaction,
+ * so a query that changes data can never run twice, and streamed to the file.
+ */
+export function ExportResult(tab: string, runID: number, statement: number, path: string, format: string): $CancellablePromise<number> {
+    return $Call.ByID(1151194676, tab, runID, statement, path, format);
+}
+
+/**
+ * ExportTable streams every row of a table (matching the filters, in the
+ * chosen order) to path, using the pool. Nothing is held in memory.
+ */
+export function ExportTable(e: $models.TableExport, path: string, format: string): $CancellablePromise<number> {
+    return $Call.ByID(1713099567, e, path, format);
 }
 
 /**
@@ -71,11 +114,25 @@ export function ForgetRun(tab: string): $CancellablePromise<void> {
 }
 
 /**
+ * ListDatabases returns the databases on the server that the user can connect to.
+ */
+export function ListDatabases(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(739820843);
+}
+
+/**
  * ListTables returns the schemas with their tables and views, public first,
  * using the open pool.
  */
 export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
     return $Call.ByID(1987107542);
+}
+
+/**
+ * RevealFile shows a file in Finder.
+ */
+export function RevealFile(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2947400668, path);
 }
 
 /**
@@ -90,6 +147,13 @@ export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.
 }
 
 /**
+ * SaveConnection adds c to Saved, or updates the saved connection with c.ID.
+ */
+export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<$models.SavedConnection> {
+    return $Call.ByID(1085621238, c);
+}
+
+/**
  * SaveRows applies the grid's edits to target as UPDATEs, matching rows by
  * primary key, all in one transaction: either every row saves or none does.
  * It uses the pool, not the SQL editor's connection, so an open transaction
@@ -97,6 +161,21 @@ export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.
  */
 export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<number> {
     return $Call.ByID(2331632375, target, edits);
+}
+
+/**
+ * SavedConnections returns the saved and recent connections.
+ */
+export function SavedConnections(): $CancellablePromise<$models.ConnectionLists> {
+    return $Call.ByID(3993605935);
+}
+
+/**
+ * SwitchDatabase reconnects to another database on the same server, with the
+ * same login. If it fails, the current connection stays open.
+ */
+export function SwitchDatabase(database: string): $CancellablePromise<$models.ConnectionInfo> {
+    return $Call.ByID(2301968434, database);
 }
 
 /**

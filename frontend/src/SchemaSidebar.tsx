@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner } from './icons'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
 
 type Props = {
+  databasePicker: ReactNode // shown at the very top
   schemas: SchemaInfo[] | null // null until the first load
   loading: boolean
   error: string | null
@@ -39,6 +40,7 @@ export default function SchemaSidebar(props: Props) {
 
   return (
     <aside className="sidebar" aria-label="Tables and views">
+      {props.databasePicker}
       <div className="sidebar-header">
         <span className="sidebar-title">
           Tables &amp; views
