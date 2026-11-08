@@ -47,9 +47,13 @@
 
 [hidden] { display: none !important; }
 
+/* The window itself never scrolls or bounces (macOS rubber-banding); only
+   panels inside it, like the grid and the table list, scroll. */
 html, body {
     margin: 0;
     height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: var(--bg);
     color: var(--text);
 }
@@ -67,6 +71,7 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: clip; /* nothing inside can widen the window, even scrollIntoView */
 }
 
 /* ----- Title bar ----------------------------------------------------------- */
@@ -221,6 +226,7 @@ body {
 .tree {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 2px 8px 16px;
 }
 .tree-message {
@@ -1065,6 +1071,7 @@ kbd {
     flex: 1;
     min-height: 0;
     overflow: auto;
+    overscroll-behavior: contain; /* a swipe past the last column stays in the grid */
 }
 .grid-wrap.loading .grid { opacity: 0.55; transition: opacity 0.15s ease; }
 /* After a column is resized: fixed widths from <colgroup>, values cut off with "…". */
@@ -1124,7 +1131,7 @@ kbd {
 /* Solid row colours, so the sticky row-number column hides what scrolls under it. */
 .grid td {
     height: 34px;
-    max-width: 360px;
+    max-width: 2400px; /* long values (JSON, addresses) show in full; scroll sideways to read */
     padding: 0 14px;
     overflow: hidden;
     white-space: nowrap;
@@ -1821,3 +1828,126 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     pointer-events: none;
 }
 .copy-toast.error { color: var(--error); border-color: rgba(248, 113, 113, 0.4); }
+
+/* ----- JSON editor modal (vanilla-jsoneditor, themed to match) --------------- */
+.json-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.55);
+}
+.json-modal,
+.json-modal-loading {
+    background: var(--surface);
+    border: 1px solid var(--border-hover);
+    border-radius: 12px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+.json-modal {
+    width: min(1040px, 100%);
+    height: min(780px, 100%);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.json-modal-loading { padding: 16px 20px; font-size: 13px; color: var(--text-muted); }
+.json-modal-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 12px 12px 12px 18px;
+    border-bottom: 1px solid var(--border);
+}
+.json-modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.json-modal-type { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-subtle); }
+.json-modal-row { font-size: 12px; color: var(--text-muted); }
+.json-modal-badge {
+    padding: 1px 7px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border: 1px solid var(--border-hover);
+    border-radius: 999px;
+}
+.json-modal-copy { align-self: center; margin-left: auto; }
+.json-modal-close {
+    align-self: center;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.json-modal-close svg { width: 16px; height: 16px; }
+.json-modal-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.json-modal-editor { flex: 1; min-height: 0; }
+.json-modal-footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px 10px 18px;
+    border-top: 1px solid var(--border);
+}
+.json-modal-status { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-muted); }
+.json-modal-status.error { color: var(--error); }
+.json-modal-null { font-size: 12.5px; margin-right: 6px; }
+
+/* SpyDB's colours on top of the editor's dark theme. */
+.json-modal-editor.jse-theme-dark {
+    --jse-font-family: inherit;
+    --jse-font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --jse-font-size-mono: 13.5px;
+    --jse-theme-color: #1c2234;
+    --jse-theme-color-highlight: #26304a;
+    --jse-background-color: var(--surface);
+    --jse-text-color: var(--v-text);
+    --jse-main-border: none;
+    --jse-panel-background: var(--grid-head);
+    --jse-panel-border: 1px solid var(--border);
+    --jse-panel-background-border: 1px solid var(--border);
+    --jse-navigation-bar-background: var(--grid-head);
+    --jse-navigation-bar-background-highlight: #1f2330;
+    --jse-modal-background: var(--surface);
+    --jse-context-menu-background: #1c1d22;
+    --jse-context-menu-background-highlight: #26304a;
+    --jse-key-color: #7aa2f7;
+    --jse-value-color-string: #9ece6a;
+    --jse-value-color-number: #ff9e64;
+    --jse-value-color-boolean: #bb9af7;
+    --jse-value-color-null: #737a96;
+    --jse-delimiter-color: #8b8f9e;
+    --jse-selection-background-color: rgba(122, 162, 247, 0.22);
+    --jse-selection-background-inactive-color: rgba(122, 162, 247, 0.12);
+    --jse-hover-background-color: rgba(255, 255, 255, 0.04);
+    --jse-edit-outline: 2px solid var(--focus);
+    --jse-active-line-background-color: rgba(255, 255, 255, 0.035);
+}
+/* The text view, DynamoDB style: roomy lines, a quiet line-number gutter. */
+.json-modal-editor .cm-editor { padding-top: 6px; }
+.json-modal-editor .cm-content,
+.json-modal-editor .cm-gutters { line-height: 1.75; }
+.json-modal-editor .cm-gutters {
+    background: var(--surface) !important;
+    color: var(--text-subtle);
+    border-right: 1px solid var(--border) !important;
+}
+.json-modal-editor .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 14px; }
+.json-modal-editor .cm-activeLineGutter { color: var(--text); background: rgba(255, 255, 255, 0.035) !important; }
+.json-modal-editor .cm-content { padding-left: 4px; }
+.json-modal-editor .jse-status-bar {
+    padding: 4px 12px;
+    font-size: 11.5px;
+    color: var(--text-subtle);
+    background: var(--grid-head);
+    border-top: 1px solid var(--border);
+}

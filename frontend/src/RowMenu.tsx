@@ -16,13 +16,14 @@ type Props = {
   y: number
   rowCount: number
   onCopyValue?: () => void // given when the click was on a cell
+  onOpenJson?: () => void // given when that cell is json / jsonb
   onCopy: (format: CopyFormat) => void
   onClose: () => void
 }
 
 // The grid's right-click menu: copy the clicked value, or the selected rows
 // in one of the formats.
-export default function RowMenu({ x, y, rowCount, onCopyValue, onCopy, onClose }: Props) {
+export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onCopy, onClose }: Props) {
   const root = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: x, top: y })
   useDismiss(true, root, onClose)
@@ -65,12 +66,9 @@ export default function RowMenu({ x, y, rowCount, onCopyValue, onCopy, onClose }
   return (
     <div className="row-menu" role="menu" ref={root} style={position} onKeyDown={onKeyDown}
          onContextMenu={(e) => e.preventDefault()}>
-      {onCopyValue && (
-        <>
-          <button type="button" role="menuitem" className="row-menu-item" onClick={onCopyValue}>Copy value</button>
-          <div className="row-menu-sep" role="separator" />
-        </>
-      )}
+      {onOpenJson && <button type="button" role="menuitem" className="row-menu-item" onClick={onOpenJson}>Open in JSON editor</button>}
+      {onCopyValue && <button type="button" role="menuitem" className="row-menu-item" onClick={onCopyValue}>Copy value</button>}
+      {(onOpenJson || onCopyValue) && <div className="row-menu-sep" role="separator" />}
       <p className="row-menu-title">Copy {rowCount.toLocaleString()} row{rowCount === 1 ? '' : 's'} as</p>
       {FORMATS.map(({ format, hint }) => (
         <button key={format} type="button" role="menuitem" className="row-menu-item" onClick={() => onCopy(format)}>

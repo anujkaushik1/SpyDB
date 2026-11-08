@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
@@ -6,6 +6,9 @@ import { copyText, formatRows, formatValue, type CopyFormat } from './copyFormat
 import { dragX } from './resize'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { cellClass, cellText } from './tableMeta'
+
+// The JSON editor is 1.2 MB; load it the first time a json / jsonb cell is opened.
+const JsonEditorModal = lazy(() => import('./JsonEditorModal'))
 
 export type GridColumn = {
   name: string
@@ -20,7 +23,7 @@ export type Sort = { column: string; desc: boolean } | null
 type Cell = { row: number; col: number }
 
 const MIN_COLUMN = 56 // px
-const MAX_FIT = 640 // double-click fits a column to its values, up to this
+const MAX_FIT = 2400 // double-click fits a column to its values, up to this (the cell limit in style.css)
 
 // Edited cells, keyed by the row's original primary-key values (JSON), so an
 // edit stays attached to its row across pages and reloads.
@@ -59,6 +62,7 @@ export default function DataGrid(props: Props) {
   const lead = useRef<number | null>(null) // its moving end, for Shift+↑/↓
   const [menu, setMenu] = useState<{ x: number; y: number; cell: Cell | null } | null>(null)
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
+  const [jsonCell, setJsonCell] = useState<Cell | null>(null) // open in the JSON editor
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
   const table = useRef<HTMLTableElement>(null)
@@ -100,6 +104,7 @@ export default function DataGrid(props: Props) {
   const keyIndexes = columns.flatMap((c, i) => (c.primaryKey && c.source ? [i] : []))
   const canEdit = target !== null && keyIndexes.length > 0
   const isEditable = (col: number) => canEdit && columns[col]?.source !== ''
+  const isJson = (col: number) => columns[col]?.category === 'json'
 
   const rowId = (row: (string | null)[]) => JSON.stringify(keyIndexes.map((i) => row[i]))
   // The value without unsaved edits: saved (query results) or as loaded.
@@ -129,6 +134,7 @@ export default function DataGrid(props: Props) {
     anchor.current = null
     lead.current = null
     setMenu(null)
+    setJsonCell(null)
   }, [rows])
 
   useEffect(() => {
@@ -194,6 +200,8 @@ export default function DataGrid(props: Props) {
   }
 
   const startEdit = (cell: Cell, typed?: string) => {
+    // json / jsonb values open the JSON editor instead (read-only when they can't be saved).
+    if (isJson(cell.col)) return openJson(cell)
     if (!isEditable(cell.col)) return
     setSelected(cell)
     setEditing({ cell, initial: typed ?? shownValue(rows[cell.row], cell.col) ?? '', typed: typed !== undefined })
@@ -276,6 +284,20 @@ export default function DataGrid(props: Props) {
     if (col !== null) setSelected({ row, col })
     setMenu({ x: e.clientX, y: e.clientY, cell: col === null ? null : { row, col } })
   }
+  const openJson = (cell: Cell) => {
+    setSelected(cell)
+    setJsonCell(cell)
+  }
+  const closeJson = () => {
+    setJsonCell(null)
+    wrap.current?.focus({ preventScroll: true })
+  }
+  const applyJson = (cell: Cell, value: string | null) => {
+    setPending(withCell(pending, cell, value))
+    setSavedMessage(null)
+    closeJson()
+  }
+
   const closeMenu = () => {
     setMenu(null)
     wrap.current?.focus({ preventScroll: true }) // so ⌘C works next
@@ -417,7 +439,10 @@ export default function DataGrid(props: Props) {
             <tbody>
               {rows.map((row, i) => (
                 <tr key={i} className={rowSelection.has(i) ? 'row-selected' : undefined}
-                    onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() /* no text selection on Shift-click */ }}>
+                    onMouseDown={(e) => {
+                      // No text selection on Shift-click, except inside the cell editor.
+                      if (e.shiftKey && !(e.target as HTMLElement).closest('.cell-editor')) e.preventDefault()
+                    }}>
                   <td className="grid-rownum"
                       onClick={(e) => { selectRow(i, e); setSelected(null); wrap.current?.focus({ preventScroll: true }) }}
                       onContextMenu={(e) => openMenu(e, i, null)}>
@@ -439,8 +464,11 @@ export default function DataGrid(props: Props) {
                         key={j}
                         data-cell={`${i}-${j}`}
                         className={classes}
-                        title={isEditable(j) ? `${value ?? 'NULL'} — double-click to edit` : value ?? 'NULL'}
+                        title={isJson(j) ? `${value ?? 'NULL'} — double-click to open the JSON editor`
+                          : isEditable(j) ? `${value ?? 'NULL'} — double-click to edit` : value ?? 'NULL'}
                         onClick={(e) => {
+                          // Clicks inside the cell editor place the cursor; moving focus would end the edit.
+                          if (isEditing) return
                           if (e.shiftKey || e.metaKey || e.ctrlKey) selectRow(i, e)
                           else {
                             setRowSelection(new Set())
@@ -450,7 +478,7 @@ export default function DataGrid(props: Props) {
                           setSelected({ row: i, col: j })
                           wrap.current?.focus({ preventScroll: true })
                         }}
-                        onDoubleClick={() => startEdit({ row: i, col: j })}
+                        onDoubleClick={() => { if (!isEditing) startEdit({ row: i, col: j }) }}
                         onContextMenu={(e) => openMenu(e, i, j)}
                       >
                         {isEditing && editing ? (
@@ -474,11 +502,25 @@ export default function DataGrid(props: Props) {
           y={menu.y}
           rowCount={rowSelection.size}
           onCopyValue={menu.cell ? () => { copyCell(menu.cell!); closeMenu() } : undefined}
+          onOpenJson={menu.cell && isJson(menu.cell.col) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
           onCopy={(format) => { copyRows(format); closeMenu() }}
           onClose={closeMenu}
         />
       )}
       {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
+      {jsonCell && (
+        <Suspense fallback={<div className="json-modal-backdrop"><div className="json-modal-loading">Loading JSON editor…</div></div>}>
+          <JsonEditorModal
+            column={columns[jsonCell.col].name}
+            type={columns[jsonCell.col].type}
+            rowNumber={firstRowNumber + jsonCell.row}
+            value={shownValue(rows[jsonCell.row], jsonCell.col)}
+            readOnly={!isEditable(jsonCell.col)}
+            onApply={(value) => applyJson(jsonCell, value)}
+            onClose={closeJson}
+          />
+        </Suspense>
+      )}
 
       {saveError && (
         <div className="changes-error">
