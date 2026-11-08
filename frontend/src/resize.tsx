@@ -21,6 +21,27 @@ export function dragX(e: ReactPointerEvent, onMove: (dx: number) => void, onEnd?
   document.addEventListener('pointercancel', end)
 }
 
+// Like dragX, up and down: onMove gets how far the pointer has moved
+// vertically (the query tab's editor / results divider).
+export function dragY(e: ReactPointerEvent, onMove: (dy: number) => void, onEnd?: () => void) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  const startY = e.clientY
+  document.body.classList.add('resizing-rows')
+  const move = (ev: PointerEvent) => onMove(ev.clientY - startY)
+  const end = () => {
+    document.removeEventListener('pointermove', move)
+    document.removeEventListener('pointerup', end)
+    document.removeEventListener('pointercancel', end)
+    document.body.classList.remove('resizing-rows')
+    onEnd?.()
+  }
+  document.addEventListener('pointermove', move)
+  document.addEventListener('pointerup', end)
+  document.addEventListener('pointercancel', end)
+}
+
 const SIDEBAR_DEFAULT = 264
 const SIDEBAR_MIN = 240 // below this the database picker and filter box get cramped
 const SIDEBAR_MAX = 640

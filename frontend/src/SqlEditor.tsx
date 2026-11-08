@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DBService, type QueryResult, type StatementResult } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorMessage } from './Banner'
 import DataGrid, { type GridColumn } from './DataGrid'
@@ -6,6 +6,9 @@ import ExportMenu, { type ExportChoice } from './ExportMenu'
 import { ChevronIcon, ChevronLeftIcon, PlayIcon, Spinner } from './icons'
 import { typeCategory } from './tableMeta'
 import { shortcut } from './platform'
+import SqlCodeEditor, { type SqlCodeEditorHandle } from './SqlCodeEditor'
+import { SqlSchemaContext } from './sqlSchema'
+import { statementAt } from './sqlStatements'
 
 type QueryFailure = { message: string; hint?: string; detail?: string; line?: number; column?: number }
 
@@ -45,17 +48,21 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void // unsaved edits in the results
   onSave?: (sql: string) => void // query tabs: a Save button and ⌘S / Ctrl+S in the editor
   saveState?: 'idle' | 'saving' | 'saved'
+  // 'bar': a compact editor in place of the table tab's filter bar.
+  // 'playground': a query tab's full editor pane, Save / Run at its foot.
+  layout?: 'bar' | 'playground'
   children: (parts: SqlParts) => ReactNode
 }
 
 // Runs any SQL on the connection opened by Connect (DBService.RunQuery). It
 // keeps its text and last result while the tab is open; the table tab decides
 // where the pieces go.
-export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSave, saveState = 'idle', children }: Props) {
+export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSave, saveState = 'idle', layout = 'bar', children }: Props) {
   const [sql, setSql] = useState(initialSql)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
-  const textarea = useRef<HTMLTextAreaElement>(null)
+  const code = useRef<SqlCodeEditorHandle>(null)
+  const schema = useContext(SqlSchemaContext)
   const runningCall = useRef<{ cancel: () => void } | null>(null)
   // Each run gets a number; replies for an older run are ignored.
   const runSeq = useRef(0)
@@ -70,10 +77,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
 
   // Focus the editor, cursor at the end, whenever it appears.
   useEffect(() => {
-    if (!active || !textarea.current) return
-    const el = textarea.current
-    el.focus()
-    el.setSelectionRange(el.value.length, el.value.length)
+    if (active) code.current?.focus(true)
   }, [active])
 
   // Closing the tab (or disconnecting) stops its query and frees its rows in Go.
@@ -111,8 +115,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
         const position = offset + cause.position
         Object.assign(failure, lineAndColumn(fullSql, position))
         // Put the cursor where Postgres found the error.
-        textarea.current?.focus()
-        textarea.current?.setSelectionRange(position - 1, position - 1)
+        code.current?.select(position - 1)
       }
       setOutcome({ kind: 'error', error: failure })
     } finally {
@@ -122,11 +125,17 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
 
   // Run / ⌘↵: with text selected, run only the selection.
   const run = () => {
-    const el = textarea.current
-    if (!el || running) return
-    const { selectionStart: start, selectionEnd: end } = el
-    if (start !== end) execute(sql.slice(start, end), start, sql)
+    if (!code.current || running) return
+    const { from, to } = code.current.selection()
+    if (from !== to) execute(sql.slice(from, to), from, sql)
     else execute(sql, 0, sql)
+  }
+
+  // ⌘⇧↵: just the statement the cursor is in.
+  const runCurrent = () => {
+    if (!code.current || running) return
+    const statement = statementAt(sql, code.current.cursor())
+    if (statement) execute(statement.text, statement.from, sql)
   }
 
   const cancel = () => {
@@ -134,55 +143,62 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
     runningCall.current?.cancel() // Wails cancels the Go context; pgx asks Postgres to stop
   }
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      run()
-    } else if (e.key === 'Escape' && running) {
-      e.preventDefault()
-      cancel()
-    } else if (onSave && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-      e.preventDefault()
-      if (sql.trim()) onSave(sql)
-    }
-  }
+  const codeEditor = (
+    <SqlCodeEditor
+      ref={code}
+      className={layout === 'playground' ? 'sql-code-playground' : 'sql-code-bar'}
+      initialValue={initialSql}
+      placeholderText={`Write SQL…   ${shortcut('↵')} to run`}
+      schema={schema}
+      onChange={setSql}
+      onSelectionChange={setHasSelection}
+      onRun={run}
+      onRunCurrent={runCurrent}
+      onSave={onSave && (() => { if (sql.trim()) onSave(sql) })}
+      onEscape={() => {
+        if (!running) return false
+        cancel()
+        return true
+      }}
+    />
+  )
+  const saveButton = onSave && (
+    <button type="button" className="btn btn-secondary btn-sm sql-save" onClick={() => onSave(sql)}
+            disabled={!sql.trim() || saveState === 'saving'} title={`Save query (${shortcut('S')})`}>
+      {saveState === 'saving' ? <><Spinner /> Saving…</> : saveState === 'saved' ? 'Saved' : 'Save'}
+    </button>
+  )
+  const runButton = running ? (
+    <button type="button" className="btn btn-danger btn-sm" onClick={cancel}><Spinner /> Cancel</button>
+  ) : (
+    <button type="button" className="btn btn-primary btn-sm sql-run" onClick={run} disabled={!sql.trim()}
+            title={hasSelection ? `Run the selected text (${shortcut('↵')})` : `Run (${shortcut('↵')})`}>
+      <PlayIcon /> {hasSelection ? 'Run selection' : 'Run'}
+    </button>
+  )
 
-  const editor = (
+  const editor = layout === 'playground' ? (
+    <div className="sql-pane">
+      {codeEditor}
+      <div className="sql-pane-bar">
+        <p className="sql-pane-hint">
+          {running ? 'Esc to cancel' : `${shortcut('↵')} run · ${shortcut('⇧↵')} run the statement at the cursor · runs on the shared connection, so SET and transactions carry over`}
+        </p>
+        {saveButton}
+        {runButton}
+      </div>
+    </div>
+  ) : (
     <div className="sql-bar">
       {leading}
       <div className="sql-bar-main">
-        <textarea
-          ref={textarea}
-          id={`sql-${tabId}`}
-          className="sql-input"
-          aria-label="SQL query"
-          value={sql}
-          onChange={(e) => setSql(e.target.value)}
-          onKeyDown={onKeyDown}
-          onSelect={(e) => setHasSelection(e.currentTarget.selectionStart !== e.currentTarget.selectionEnd)}
-          rows={3}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          autoComplete="off"
-        />
+        {codeEditor}
         <p className="sql-bar-hint">
-          {running ? 'Esc to cancel' : `${shortcut('↵')} to run · select text to run part of it · runs on the shared connection, so SET and transactions carry over`}
+          {running ? 'Esc to cancel' : `${shortcut('↵')} to run · ${shortcut('⇧↵')} runs the statement at the cursor · runs on the shared connection, so SET and transactions carry over`}
         </p>
       </div>
-      {onSave && (
-        <button type="button" className="btn btn-secondary btn-sm sql-save" onClick={() => onSave(sql)}
-                disabled={!sql.trim() || saveState === 'saving'} title={`Save query (${shortcut('S')})`}>
-          {saveState === 'saving' ? <><Spinner /> Saving…</> : saveState === 'saved' ? 'Saved' : 'Save'}
-        </button>
-      )}
-      {running ? (
-        <button type="button" className="btn btn-danger btn-sm" onClick={cancel}><Spinner /> Cancel</button>
-      ) : (
-        <button type="button" className="btn btn-primary btn-sm" onClick={run} disabled={!sql.trim()}>
-          <PlayIcon /> {hasSelection ? 'Run selection' : 'Run'}
-        </button>
-      )}
+      {saveButton}
+      {runButton}
     </div>
   )
 

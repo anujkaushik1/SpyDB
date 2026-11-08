@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import Banner, { errorMessage } from './Banner'
 import SaveQueryDialog from './SaveQueryDialog'
 import SqlEditor from './SqlEditor'
-import { CodeIcon } from './icons'
 import { modKey } from './platform'
+import { dragY } from './resize'
 import { suggestName } from './savedQueries'
 
 type Props = {
@@ -18,9 +18,42 @@ type Props = {
   onSaveQuery: (sql: string, name: string | null) => Promise<void> // name null: update the linked query
 }
 
-// A Ctrl+T / ⌘T tab: a SQL editor with its results below. Results that come
-// straight from one table (with its primary key) can be edited in place.
-// Save keeps the SQL as a saved query: the first time it asks for a name.
+// The editor's share of the tab's height, remembered for new tabs.
+const SHARE_KEY = 'spydb.editorShare'
+const DEFAULT_SHARE = 0.45
+const clampShare = (share: number) => Math.min(0.85, Math.max(0.15, share))
+function storedShare() {
+  try {
+    const n = Number(localStorage.getItem(SHARE_KEY))
+    return n ? clampShare(n) : DEFAULT_SHARE
+  } catch {
+    return DEFAULT_SHARE
+  }
+}
+function storeShare(share: number) {
+  try {
+    localStorage.setItem(SHARE_KEY, String(share))
+  } catch {
+    // Storage unavailable: new tabs start at the default.
+  }
+}
+
+// What the results area lists before anything has run.
+const SHORTCUTS: [string, string[]][] = [
+  ['Run (the selection, if any)', [modKey(), '↵']],
+  ['Run the statement at the cursor', [modKey(), '⇧', '↵']],
+  ['Save query', [modKey(), 'S']],
+  ['Autocomplete', ['Ctrl', 'Space']],
+  ['Comment / uncomment lines', [modKey(), '/']],
+  ['Find & replace', [modKey(), 'F']],
+  ['New query tab', [modKey(), 'T']],
+  ['Go to table', [modKey(), 'P']],
+]
+
+// A Ctrl+T / ⌘T tab, a SQL playground: the editor on top, results below, and
+// a divider between them to drag. Results that come straight from one table
+// (with its primary key) can be edited in place. Save keeps the SQL as a
+// saved query: the first time it asks for a name.
 export default function QueryTab({ tabId, title, initialSql, linked, database, active, onSchemaChange, onDirtyChange, onSaveQuery }: Props) {
   const [dialogSql, setDialogSql] = useState<string | null>(null) // asking for a name
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
@@ -48,6 +81,25 @@ export default function QueryTab({ tabId, title, initialSql, linked, database, a
     }
   }
 
+  // The divider: drag, double-click to reset, or ↑ / ↓ when focused.
+  const [share, setShare] = useState(storedShare)
+  const area = useRef<HTMLDivElement>(null)
+  const changeShare = (next: number) => {
+    const clamped = clampShare(next)
+    setShare(clamped)
+    storeShare(clamped)
+  }
+  const startResize = (e: PointerEvent<HTMLDivElement>) => {
+    const height = area.current?.getBoundingClientRect().height ?? 1
+    const start = share
+    dragY(e, (dy) => changeShare(start + dy / height))
+  }
+  const onDividerKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+    e.preventDefault()
+    changeShare(share + (e.key === 'ArrowDown' ? 0.05 : -0.05))
+  }
+
   return (
     <>
       <SqlEditor
@@ -60,22 +112,28 @@ export default function QueryTab({ tabId, title, initialSql, linked, database, a
         onDirtyChange={onDirtyChange}
         onSave={save}
         saveState={saveState}
+        layout="playground"
       >
         {(sql) => (
-          <div className="table-view">
-            {sql.editor}
-            {saveError && <div className="save-query-banner"><Banner tone="error" title="Couldn’t save the query" message={saveError} /></div>}
-            {sql.notice}
-            {sql.results ?? (
-              <div className="workspace-empty">
-                <span className="workspace-empty-icon query"><CodeIcon /></span>
-                <p className="workspace-empty-title">Write a query</p>
-                <p className="workspace-empty-text">
-                  Press <span className="keys"><kbd>{modKey()}</kbd> <kbd>↵</kbd></span> to run it. If the result comes straight from one table and includes its
-                  primary key, you can edit its cells and save them.
-                </p>
-              </div>
-            )}
+          <div className="playground" ref={area}>
+            <div className="playground-editor" style={{ flexBasis: `${share * 100}%` }}>{sql.editor}</div>
+            <div className="playground-divider" role="separator" aria-orientation="horizontal" aria-label="Resize the editor"
+                 aria-valuenow={Math.round(share * 100)} tabIndex={0} title="Drag to resize · double-click to reset"
+                 onPointerDown={startResize} onDoubleClick={() => changeShare(DEFAULT_SHARE)} onKeyDown={onDividerKey} />
+            <div className="playground-results">
+              {saveError && <div className="save-query-banner"><Banner tone="error" title="Couldn’t save the query" message={saveError} /></div>}
+              {sql.notice}
+              {sql.results ?? (
+                <div className="shortcuts" aria-label="Keyboard shortcuts">
+                  {SHORTCUTS.map(([label, keys]) => (
+                    <div className="shortcut" key={label}>
+                      <span className="shortcut-label">{label}</span>
+                      <span className="keys">{keys.map((k) => <kbd key={k}>{k}</kbd>)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </SqlEditor>

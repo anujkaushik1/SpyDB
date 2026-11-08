@@ -121,6 +121,14 @@ export function ForgetRun(tab: string): $CancellablePromise<void> {
 }
 
 /**
+ * ListColumns returns every table's and view's columns (the relations
+ * ListTables lists), in one catalog query on the pool.
+ */
+export function ListColumns(): $CancellablePromise<$models.TableColumns[] | null> {
+    return $Call.ByID(980899690);
+}
+
+/**
  * ListDatabases returns the databases on the server that the user can connect to.
  */
 export function ListDatabases(): $CancellablePromise<string[] | null> {

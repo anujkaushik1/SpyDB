@@ -21,6 +21,7 @@ export type {
     ServerConnections,
     StatementResult,
     TableColumn,
+    TableColumns,
     TableExport,
     TableFilter,
     TableInfo,

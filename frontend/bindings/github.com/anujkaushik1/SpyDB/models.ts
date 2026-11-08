@@ -236,6 +236,16 @@ export interface TableColumn {
 }
 
 /**
+ * TableColumns lists one table's or view's columns, for the SQL editor's
+ * autocomplete.
+ */
+export interface TableColumns {
+    "schema": string;
+    "table": string;
+    "columns": string[] | null;
+}
+
+/**
  * TableExport is a table tab's rows to export: the sort and filters as shown,
  * all pages.
  */

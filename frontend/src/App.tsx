@@ -14,6 +14,8 @@ import TableTab from './TableTab'
 import { targetKey } from './connectionSearch'
 import { CodeIcon, TableIcon } from './icons'
 import { upsertQuery } from './savedQueries'
+import { completionSchema, type CompletionSchema } from './sqlCompletion'
+import { SqlSchemaContext } from './sqlSchema'
 
 function App() {
   // The open connection, or null when disconnected.
@@ -23,6 +25,8 @@ function App() {
   const [schemas, setSchemas] = useState<SchemaInfo[] | null>(null)
   const [schemasLoading, setSchemasLoading] = useState(false)
   const [schemasError, setSchemasError] = useState<string | null>(null)
+  // Tables and columns for the SQL editors' autocomplete; loads with the sidebar.
+  const [completion, setCompletion] = useState<CompletionSchema | undefined>(undefined)
   // Open tabs of every connection used this session. Each connection (server,
   // login, database) is a workspace: switching away hides its tabs, switching
   // back shows them as they were (SQL, results, filters, unsaved edits).
@@ -77,6 +81,10 @@ function App() {
 
   const loadSchemas = useCallback(async () => {
     setSchemasLoading(true)
+    // Columns come separately; autocomplete without them still knows keywords.
+    DBService.ListColumns()
+      .then((tables) => setCompletion(completionSchema(tables ?? [])))
+      .catch(() => setCompletion(undefined))
     try {
       setSchemas((await DBService.ListTables()) ?? [])
       setSchemasError(null)
@@ -340,6 +348,7 @@ function App() {
             disconnecting={disconnecting}
           />
         )}
+        <SqlSchemaContext.Provider value={completion}>
         <main className={connection ? 'main-area' : 'content'}>
           {/* Stays mounted (and renders nothing) while connected, so the form keeps its values. */}
           <ConnectionForm
@@ -384,6 +393,7 @@ function App() {
             )
           })}
         </main>
+        </SqlSchemaContext.Provider>
       </div>
 
       {connection && paletteOpen && (

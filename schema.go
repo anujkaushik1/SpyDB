@@ -97,3 +97,55 @@ func (s *DBService) ListTables() ([]SchemaInfo, error) {
 	}
 	return schemas, rows.Err()
 }
+
+// TableColumns lists one table's or view's columns, for the SQL editor's
+// autocomplete.
+type TableColumns struct {
+	Schema  string   `json:"schema"`
+	Table   string   `json:"table"`
+	Columns []string `json:"columns"`
+}
+
+// allColumnsQuery covers the same relations as schemaQuery, columns in order.
+const allColumnsQuery = `
+SELECT n.nspname, c.relname, array_agg(a.attname::text ORDER BY a.attnum)
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE c.relkind IN ('r', 'p', 'f', 'v', 'm')
+  AND NOT c.relispartition
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg\_toast%'
+  AND n.nspname NOT LIKE 'pg\_temp\_%'
+GROUP BY n.nspname, c.relname
+ORDER BY n.nspname, c.relname`
+
+// ListColumns returns every table's and view's columns (the relations
+// ListTables lists), in one catalog query on the pool.
+func (s *DBService) ListColumns() ([]TableColumns, error) {
+	s.mu.Lock()
+	pool := s.pool
+	s.mu.Unlock()
+	if pool == nil {
+		return nil, errors.New("Not connected.")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
+	defer cancel()
+
+	rows, err := pool.Query(ctx, allColumnsQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tables := []TableColumns{}
+	for rows.Next() {
+		var t TableColumns
+		if err := rows.Scan(&t.Schema, &t.Table, &t.Columns); err != nil {
+			return nil, err
+		}
+		tables = append(tables, t)
+	}
+	return tables, rows.Err()
+}
