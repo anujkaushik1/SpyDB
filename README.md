@@ -69,18 +69,33 @@ Times are medians of 7 runs after a warm-up, and include handing the data to the
 | Query returning 100,000 rows | 45.7 ms | 146 ms | SpyDB 3.2× faster |
 | Query returning 1,000,000 rows | 0.40 s | 1.95 s | SpyDB 4.9× faster |
 
-### Resources per job (SpyDB / Beekeeper)
+### CPU and memory per job
 
-| Job | CPU time | Peak memory | Data sent to the window | Round trips to Postgres |
+Lower is better.
+
+| Job | CPU time · SpyDB | CPU time · Beekeeper | Peak memory · SpyDB | Peak memory · Beekeeper |
 |---|---:|---:|---:|---:|
-| Connect + sidebar | 3.6 / 19.5 ms | 28 / 258 MB | 52 / 35 KB | 9 / 10 |
-| Open a 1M-row table | 0.5 / 5.2 ms | 26 / 258 MB | 13 / 17 KB | 3 / 4 |
-| Jump to page 5,000 | 0.8 / 3.4 ms | 26 / 257 MB | 14 / 16 KB | 3 / 1 |
-| Save one cell | 0.5 / 1.3 ms | 26 / 257 MB | 53 / 171 B | 6 / 6 |
-| Query, 1,000 rows | 2.1 / 3.5 ms | 28 / 260 MB | 129 / 136 KB | 5 / 2 |
-| Query, 10,000 rows | 11 / 20 ms | 35 / 299 MB | 129 KB / 1.3 MB | 5 / 2 |
-| Query, 100,000 rows | 50 / 188 ms | 94 / 719 MB | 129 KB / 13 MB | 5 / 2 |
-| Query, 1,000,000 rows | 0.20 / 3.18 s | 95 / 2,210 MB | 129 KB / 135 MB | 6 / 2 |
+| Connect + sidebar | 3.6 ms | 19.5 ms | 28 MB | 258 MB |
+| Open a 1M-row table | 0.5 ms | 5.2 ms | 26 MB | 258 MB |
+| Jump to page 5,000 | 0.8 ms | 3.4 ms | 26 MB | 257 MB |
+| Save one cell | 0.5 ms | 1.3 ms | 26 MB | 257 MB |
+| Query, 1,000 rows | 2.1 ms | 3.5 ms | 28 MB | 260 MB |
+| Query, 10,000 rows | 11 ms | 20 ms | 35 MB | 299 MB |
+| Query, 100,000 rows | 50 ms | 188 ms | 94 MB | 719 MB |
+| Query, 1,000,000 rows | 0.20 s | 3.18 s | 95 MB | 2,210 MB |
+
+### Data and round trips per job
+
+| Job | Sent to the window · SpyDB | Sent to the window · Beekeeper | Round trips · SpyDB | Round trips · Beekeeper |
+|---|---:|---:|---:|---:|
+| Connect + sidebar | 52 KB | 35 KB | 9 | 10 |
+| Open a 1M-row table | 13 KB | 17 KB | 3 | 4 |
+| Jump to page 5,000 | 14 KB | 16 KB | 3 | 1 |
+| Save one cell | 53 B | 171 B | 6 | 6 |
+| Query, 1,000 rows | 129 KB | 136 KB | 5 | 2 |
+| Query, 10,000 rows | 129 KB | 1.3 MB | 5 | 2 |
+| Query, 100,000 rows | 129 KB | 13 MB | 5 | 2 |
+| Query, 1,000,000 rows | 129 KB | 135 MB | 6 | 2 |
 
 Peak memory is the measuring process's peak. That's Go's own ~20 MB baseline for SpyDB, and ~254 MB for Beekeeper's database process before any work. Round trips were counted by a relay between each app and Postgres, in a separate pass.
 
