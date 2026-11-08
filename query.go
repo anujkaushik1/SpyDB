@@ -118,9 +118,14 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	}
 
 	// A plain single-table SELECT may run with its table's key added as
-	// hidden columns (planEdit), so its rows can be edited.
+	// hidden columns (planEdit), so its rows can be edited; an UPDATE with
+	// RETURNING * added (planReturning), so the rows it changed show.
 	conn := editor.Conn()
 	plan, toRun := planEdit(ctx, conn, sql)
+	var returning returningPlan
+	if plan.added == nil {
+		returning, toRun = planReturning(ctx, conn, toRun)
+	}
 	started := time.Now()
 	statements, err := execute(ctx, conn, toRun)
 	if err != nil {
@@ -128,6 +133,7 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		if plan.added != nil {
 			qe.Position = plan.insertion.originalPosition(qe.Position)
 		}
+		qe.Position = returning.originalPosition(qe.Position)
 		return QueryResult{}, qe
 	}
 	durationMs := int(time.Since(started).Milliseconds())
@@ -145,15 +151,24 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 
 	run := &storedRun{sql: sql, session: session}
 	results := []StatementResult{}
+	updates := 0 // UPDATE statements so far, to spot the ones given RETURNING *
 	for i := range statements {
 		st := &statements[i]
 		var target *EditTarget
 		var keys [][]*string
 		var readOnly string
+		returned := false
+		if strings.HasPrefix(st.command, "UPDATE ") {
+			returned = returning.ordinals[updates]
+			updates++
+		}
 		if len(st.columns) > 0 {
-			if pool == nil {
+			switch {
+			case returned:
+				readOnly = returningNote
+			case pool == nil:
 				readOnly = "not connected"
-			} else {
+			default:
 				target, keys, readOnly = plan.resolve(ctx, pool, session, st)
 			}
 		}
