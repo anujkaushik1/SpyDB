@@ -1,6 +1,6 @@
 # SpyDB
 
-A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. A 21 MB app that uses about 110 MB of memory.
+A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
 
 ## Features
 
@@ -48,7 +48,9 @@ Times are medians of 7 runs after a warm-up, and include handing the data to the
 
 ### The apps
 
-| | SpyDB | Beekeeper | |
+Lower is better in every row.
+
+| | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
 | Install size | 21 MB | 778 MB | SpyDB 36× smaller |
 | Window on screen after launch | 0.46 s | 1.29 s | SpyDB 2.8× faster |
@@ -58,7 +60,9 @@ Times are medians of 7 runs after a warm-up, and include handing the data to the
 
 ### Speed
 
-| Job | SpyDB | Beekeeper | |
+Time for each job. Lower is better.
+
+| Job | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
 | Connect + load the sidebar (257 tables) | 11.5 ms | 57.3 ms | SpyDB 5.0× faster |
 | Open a 1M-row table (first 100 rows) | 4.2 ms | 6.7 ms | SpyDB 1.6× faster |
@@ -69,35 +73,65 @@ Times are medians of 7 runs after a warm-up, and include handing the data to the
 | Query returning 100,000 rows | 45.7 ms | 146 ms | SpyDB 3.2× faster |
 | Query returning 1,000,000 rows | 0.40 s | 1.95 s | SpyDB 4.9× faster |
 
-### CPU and memory per job
+### CPU time per job
 
-Lower is better.
+Processor time the app spent on the job. Lower is better: less battery, more room for everything else.
 
-| Job | CPU time · SpyDB | CPU time · Beekeeper | Peak memory · SpyDB | Peak memory · Beekeeper |
-|---|---:|---:|---:|---:|
-| Connect + sidebar | 3.6 ms | 19.5 ms | 28 MB | 258 MB |
-| Open a 1M-row table | 0.5 ms | 5.2 ms | 26 MB | 258 MB |
-| Jump to page 5,000 | 0.8 ms | 3.4 ms | 26 MB | 257 MB |
-| Save one cell | 0.5 ms | 1.3 ms | 26 MB | 257 MB |
-| Query, 1,000 rows | 2.1 ms | 3.5 ms | 28 MB | 260 MB |
-| Query, 10,000 rows | 11 ms | 20 ms | 35 MB | 299 MB |
-| Query, 100,000 rows | 50 ms | 188 ms | 94 MB | 719 MB |
-| Query, 1,000,000 rows | 0.20 s | 3.18 s | 95 MB | 2,210 MB |
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 3.6 ms | 19.5 ms | SpyDB, 5.5× less |
+| Open a 1M-row table | 0.5 ms | 5.2 ms | SpyDB, 11× less |
+| Jump to page 5,000 | 0.8 ms | 3.4 ms | SpyDB, 4.2× less |
+| Save one cell | 0.5 ms | 1.3 ms | SpyDB, 2.5× less |
+| Query, 1,000 rows | 2.1 ms | 3.5 ms | SpyDB, 1.6× less |
+| Query, 10,000 rows | 11 ms | 20 ms | SpyDB, 1.8× less |
+| Query, 100,000 rows | 50 ms | 188 ms | SpyDB, 3.8× less |
+| Query, 1,000,000 rows | 0.20 s | 3.18 s | SpyDB, 16× less |
 
-### Data and round trips per job
+### Peak memory per job
 
-| Job | Sent to the window · SpyDB | Sent to the window · Beekeeper | Round trips · SpyDB | Round trips · Beekeeper |
-|---|---:|---:|---:|---:|
-| Connect + sidebar | 52 KB | 35 KB | 9 | 10 |
-| Open a 1M-row table | 13 KB | 17 KB | 3 | 4 |
-| Jump to page 5,000 | 14 KB | 16 KB | 3 | 1 |
-| Save one cell | 53 B | 171 B | 6 | 6 |
-| Query, 1,000 rows | 129 KB | 136 KB | 5 | 2 |
-| Query, 10,000 rows | 129 KB | 1.3 MB | 5 | 2 |
-| Query, 100,000 rows | 129 KB | 13 MB | 5 | 2 |
-| Query, 1,000,000 rows | 129 KB | 135 MB | 6 | 2 |
+Most memory the app's process used during the job. Lower is better. Before any work, that's about 20 MB for SpyDB's Go process and 254 MB for Beekeeper's database process.
 
-Peak memory is the measuring process's peak. That's Go's own ~20 MB baseline for SpyDB, and ~254 MB for Beekeeper's database process before any work. Round trips were counted by a relay between each app and Postgres, in a separate pass.
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 28 MB | 258 MB | SpyDB, 9.1× less |
+| Open a 1M-row table | 26 MB | 258 MB | SpyDB, 10× less |
+| Jump to page 5,000 | 26 MB | 257 MB | SpyDB, 9.8× less |
+| Save one cell | 26 MB | 257 MB | SpyDB, 9.9× less |
+| Query, 1,000 rows | 28 MB | 260 MB | SpyDB, 9.4× less |
+| Query, 10,000 rows | 35 MB | 299 MB | SpyDB, 8.5× less |
+| Query, 100,000 rows | 94 MB | 719 MB | SpyDB, 7.7× less |
+| Query, 1,000,000 rows | 95 MB | 2,210 MB | SpyDB, 23× less |
+
+### Data sent to the window per job
+
+How much data the app copied from its database part to its window. Lower is better: less to copy and draw.
+
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 52 KB | 35 KB | Beekeeper, 1.5× less (SpyDB also sends every column, for autocomplete) |
+| Open a 1M-row table | 13 KB | 17 KB | SpyDB, 1.3× less |
+| Jump to page 5,000 | 14 KB | 16 KB | about even |
+| Save one cell | 53 B | 171 B | SpyDB, 3.2× less |
+| Query, 1,000 rows | 129 KB | 136 KB | about even |
+| Query, 10,000 rows | 129 KB | 1.3 MB | SpyDB, 11× less |
+| Query, 100,000 rows | 129 KB | 13 MB | SpyDB, 106× less |
+| Query, 1,000,000 rows | 129 KB | 135 MB | SpyDB, 1,068× less |
+
+### Round trips to Postgres per job
+
+How many times the app sent something to Postgres and waited for the answer. Lower is better, and it matters most on a remote database, where each round trip is a network delay (often 20–80 ms). Counted by a relay between each app and Postgres, in a separate pass.
+
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 9 | 10 | SpyDB, 1 fewer |
+| Open a 1M-row table | 3 | 4 | SpyDB, 1 fewer |
+| Jump to page 5,000 | 3 | 1 | Beekeeper, 2 fewer |
+| Save one cell | 6 | 6 | even |
+| Query, 1,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 10,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 100,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 1,000,000 rows | 6 | 2 | Beekeeper, 4 fewer |
 
 ### Why
 
