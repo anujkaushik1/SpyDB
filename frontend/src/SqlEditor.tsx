@@ -43,13 +43,15 @@ type Props = {
   onSchemaChange: () => void
   onRan: () => void // a run finished without error; the table's rows may have changed
   onDirtyChange?: (dirty: boolean) => void // unsaved edits in the results
+  onSave?: (sql: string) => void // query tabs: a Save button and ⌘S / Ctrl+S in the editor
+  saveState?: 'idle' | 'saving' | 'saved'
   children: (parts: SqlParts) => ReactNode
 }
 
 // Runs any SQL on the connection opened by Connect (DBService.RunQuery). It
 // keeps its text and last result while the tab is open; the table tab decides
 // where the pieces go.
-export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, children }: Props) {
+export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSave, saveState = 'idle', children }: Props) {
   const [sql, setSql] = useState(initialSql)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
@@ -139,6 +141,9 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
     } else if (e.key === 'Escape' && running) {
       e.preventDefault()
       cancel()
+    } else if (onSave && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      if (sql.trim()) onSave(sql)
     }
   }
 
@@ -165,6 +170,12 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
           {running ? 'Esc to cancel' : `${shortcut('↵')} to run · select text to run part of it · runs on the shared connection, so SET and transactions carry over`}
         </p>
       </div>
+      {onSave && (
+        <button type="button" className="btn btn-secondary btn-sm sql-save" onClick={() => onSave(sql)}
+                disabled={!sql.trim() || saveState === 'saving'} title={`Save query (${shortcut('S')})`}>
+          {saveState === 'saving' ? <><Spinner /> Saving…</> : saveState === 'saved' ? 'Saved' : 'Save'}
+        </button>
+      )}
       {running ? (
         <button type="button" className="btn btn-danger btn-sm" onClick={cancel}><Spinner /> Cancel</button>
       ) : (

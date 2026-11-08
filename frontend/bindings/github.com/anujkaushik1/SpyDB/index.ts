@@ -15,6 +15,7 @@ export type {
     QueryResult,
     RowEdit,
     SavedConnection,
+    SavedQuery,
     SchemaInfo,
     ServerConnection,
     ServerConnections,

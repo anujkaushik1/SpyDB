@@ -6,7 +6,7 @@ import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 // workspace: the connection the tab belongs to (targetKey); other
 // connections' tabs stay open but hidden.
 export type Tab =
-  | { id: string; workspace: string; kind: 'query'; title: string }
+  | { id: string; workspace: string; kind: 'query'; title: string; savedQueryId?: string; initialSql?: string }
   | { id: string; workspace: string; kind: 'connections'; title: string; config: DBConfig }
   | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo }
 

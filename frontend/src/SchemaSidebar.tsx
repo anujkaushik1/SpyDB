@@ -7,6 +7,7 @@ import { isMac } from './platform'
 
 type Props = {
   databasePicker: ReactNode // shown at the very top
+  content?: ReactNode // another view (Saved queries) in place of the tables list
   schemas: SchemaInfo[] | null // null until the first load
   loading: boolean
   error: string | null
@@ -92,8 +93,9 @@ export default function SchemaSidebar(props: Props) {
   }
 
   return (
-    <aside className="sidebar" aria-label="Tables and views" style={{ flexBasis: width }}>
+    <aside className="sidebar" aria-label={props.content ? 'Saved queries' : 'Tables and views'} style={{ flexBasis: width }}>
       {props.databasePicker}
+      {props.content ?? (<>
       <div className="sidebar-header">
         <span className="sidebar-title">
           Tables &amp; views
@@ -176,6 +178,7 @@ export default function SchemaSidebar(props: Props) {
           )
         })}
       </div>
+      </>)}
 
       <div className="sidebar-footer">
         <div className="sidebar-footer-info">

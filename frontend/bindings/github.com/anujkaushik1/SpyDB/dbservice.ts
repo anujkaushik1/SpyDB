@@ -72,6 +72,13 @@ export function DeleteConnection(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteQuery removes a saved query; deleting one that's already gone is fine.
+ */
+export function DeleteQuery(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3493450992, id);
+}
+
+/**
  * Disconnect stops a running query and closes the open connection. It does
  * nothing if none is open.
  */
@@ -129,6 +136,13 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
 }
 
 /**
+ * RenameQuery changes only a saved query's name.
+ */
+export function RenameQuery(id: string, name: string): $CancellablePromise<$models.SavedQuery> {
+    return $Call.ByID(2822217659, id, name);
+}
+
+/**
  * RevealFile shows a file in Finder.
  */
 export function RevealFile(path: string): $CancellablePromise<void> {
@@ -154,6 +168,15 @@ export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<
 }
 
 /**
+ * SaveQuery creates a saved query (empty ID) or replaces the SQL and name of
+ * the one with that ID. Either way it records the time and the database
+ * you're connected to, and returns the saved query.
+ */
+export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.SavedQuery> {
+    return $Call.ByID(2725652286, q);
+}
+
+/**
  * SaveRows applies the grid's edits to target as UPDATEs, matching rows by
  * primary key, all in one transaction: either every row saves or none does.
  * It uses the pool, not the SQL editor's connection, so an open transaction
@@ -168,6 +191,13 @@ export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | 
  */
 export function SavedConnections(): $CancellablePromise<$models.ConnectionLists> {
     return $Call.ByID(3993605935);
+}
+
+/**
+ * SavedQueries returns every saved query, most recently saved first.
+ */
+export function SavedQueries(): $CancellablePromise<$models.SavedQuery[] | null> {
+    return $Call.ByID(2912482006);
 }
 
 /**

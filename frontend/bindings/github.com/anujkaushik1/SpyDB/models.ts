@@ -112,6 +112,32 @@ export interface SavedConnection {
 }
 
 /**
+ * SavedQuery is SQL the user saved by name from a query tab. Saved queries
+ * are shared by every connection; Database and Host only label where each one
+ * was last saved.
+ */
+export interface SavedQuery {
+    "id": string;
+    "name": string;
+    "sql": string;
+
+    /**
+     * e.g. "cashier"; "" if saved while disconnected
+     */
+    "database": string;
+
+    /**
+     * for the label's tooltip
+     */
+    "host": string;
+
+    /**
+     * Unix milliseconds
+     */
+    "updatedAt": number;
+}
+
+/**
  * SchemaInfo is one schema and the tables and views in it.
  */
 export interface SchemaInfo {

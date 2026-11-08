@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -32,14 +31,9 @@ type ConnectionLists struct {
 	Recent []SavedConnection `json:"recent"` // newest first
 }
 
-// connectionsFile is ~/Library/Application Support/SpyDB/connections.json on
-// macOS (the OS's per-user config folder elsewhere).
+// connectionsFile is connections.json in SpyDB's settings folder (configPath).
 func connectionsFile() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "SpyDB", "connections.json"), nil
+	return configPath("connections.json")
 }
 
 // SavedConnections returns the saved and recent connections.
@@ -169,38 +163,14 @@ func loadConnections() (ConnectionLists, error) {
 	return lists, nil
 }
 
-// writeConnections replaces the file in one step (write a temporary file, then
-// rename), so a crash mid-write can't leave it half written. The folder and
-// file are readable only by the current user, since they hold passwords.
+// writeConnections replaces the file in one step, readable only by the
+// current user, since it holds passwords (see writePrivateJSON).
 func writeConnections(lists ConnectionLists) error {
 	path, err := connectionsFile()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(lists, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "connections-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name()) // no-op once renamed
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return writePrivateJSON(path, lists)
 }
 
 func newID() string {

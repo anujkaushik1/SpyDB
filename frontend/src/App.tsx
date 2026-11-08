@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
 import DatabasePicker from './DatabasePicker'
 import QueryTab from './QueryTab'
+import SavedQueriesPanel from './SavedQueriesPanel'
 import SchemaSidebar from './SchemaSidebar'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
 import TabBar, { type Tab } from './TabBar'
 import TablePalette from './TablePalette'
 import TableTab from './TableTab'
 import { targetKey } from './connectionSearch'
-import { TableIcon } from './icons'
+import { CodeIcon, TableIcon } from './icons'
+import { upsertQuery } from './savedQueries'
 
 function App() {
   // The open connection, or null when disconnected.
@@ -36,6 +38,28 @@ function App() {
   const [listsError, setListsError] = useState<string | null>(null)
   const [selectedSaved, setSelectedSaved] = useState<string | null>(null)
   const [formRequest, setFormRequest] = useState<FormRequest | null>(null)
+  // The left rail picks the sidebar's view. Saved queries are shared by every
+  // connection (queries.json, see queries.go).
+  const [sidebarView, setSidebarView] = useState<'tables' | 'queries'>('tables')
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[] | null>(null)
+  const [queriesLoading, setQueriesLoading] = useState(false)
+  const [queriesError, setQueriesError] = useState<string | null>(null)
+
+  const loadSavedQueries = useCallback(async () => {
+    setQueriesLoading(true)
+    try {
+      setSavedQueries((await DBService.SavedQueries()) ?? [])
+      setQueriesError(null)
+    } catch (err) {
+      setQueriesError(errorMessage(err))
+    } finally {
+      setQueriesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSavedQueries()
+  }, [loadSavedQueries])
 
   const loadLists = useCallback(async () => {
     try {
@@ -189,6 +213,46 @@ function App() {
     openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `Query ${queryNumber.current}` })
   }
 
+  // A saved query opens in a query tab, or switches to the one already showing it.
+  const openSavedQuery = (q: SavedQuery) => {
+    if (!workspace) return
+    const open = workspaceTabs.find((t) => t.kind === 'query' && t.savedQueryId === q.id)
+    if (open) return setActiveTab(open.id)
+    queryNumber.current += 1
+    openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'query', title: q.name, savedQueryId: q.id, initialSql: q.sql })
+  }
+
+  // Save from a query tab: name null updates the saved query the tab belongs
+  // to; a name creates a new one. Either way the tab takes its name.
+  const saveQueryFromTab = async (tabId: string, sql: string, name: string | null) => {
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab || tab.kind !== 'query') return
+    const linked = name === null ? savedQueries?.find((q) => q.id === tab.savedQueryId) : undefined
+    const saved = await DBService.SaveQuery({
+      id: linked?.id ?? '',
+      name: name ?? linked?.name ?? tab.title,
+      sql,
+      database: '',
+      host: '',
+      updatedAt: 0,
+    })
+    setSavedQueries((current) => upsertQuery(current ?? [], saved))
+    setTabs((current) => current.map((t) => (t.id === tabId ? { ...t, title: saved.name, savedQueryId: saved.id } : t)))
+  }
+
+  const renameSavedQuery = async (id: string, name: string) => {
+    const renamed = await DBService.RenameQuery(id, name)
+    setSavedQueries((current) => upsertQuery(current ?? [], renamed))
+    setTabs((current) => current.map((t) => (t.kind === 'query' && t.savedQueryId === id ? { ...t, title: renamed.name } : t)))
+  }
+
+  // Its open tabs stay, no longer linked: Save in them asks for a name again.
+  const deleteSavedQuery = async (id: string) => {
+    await DBService.DeleteQuery(id)
+    setSavedQueries((current) => (current ?? []).filter((q) => q.id !== id))
+    setTabs((current) => current.map((t) => (t.kind === 'query' && t.savedQueryId === id ? { ...t, savedQueryId: undefined } : t)))
+  }
+
   const setTabDirty = (id: string, dirty: boolean) =>
     setDirtyTabs((current) => {
       if (current.has(id) === dirty) return current
@@ -237,7 +301,31 @@ function App() {
           />
         )}
         {connection && (
+          <nav className="rail" aria-label="Sidebar">
+            <button type="button" className={sidebarView === 'tables' ? 'rail-btn active' : 'rail-btn'}
+                    onClick={() => setSidebarView('tables')} aria-pressed={sidebarView === 'tables'} title="Tables & views">
+              <TableIcon />
+            </button>
+            <button type="button" className={sidebarView === 'queries' ? 'rail-btn active' : 'rail-btn'}
+                    onClick={() => setSidebarView('queries')} aria-pressed={sidebarView === 'queries'} title="Saved queries">
+              <CodeIcon />
+            </button>
+          </nav>
+        )}
+        {connection && (
           <SchemaSidebar
+            content={sidebarView === 'queries' ? (
+              <SavedQueriesPanel
+                queries={savedQueries}
+                error={queriesError}
+                loading={queriesLoading}
+                currentDatabase={connection.database}
+                onRefresh={loadSavedQueries}
+                onOpen={openSavedQuery}
+                onRename={renameSavedQuery}
+                onDelete={deleteSavedQuery}
+              />
+            ) : undefined}
             databasePicker={<DatabasePicker connection={connection} onSwitchDatabase={switchDatabase} onSwitchConnection={switchConnection} />}
             schemas={schemas}
             loading={schemasLoading}
@@ -284,8 +372,10 @@ function App() {
                             onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
                 )}
                 {tab.kind === 'query' && (
-                  <QueryTab tabId={tab.id} active={shown} onSchemaChange={loadSchemas}
-                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                  <QueryTab tabId={tab.id} title={tab.title} initialSql={tab.initialSql ?? ''} linked={!!tab.savedQueryId}
+                            database={connection?.database ?? ''} active={shown} onSchemaChange={loadSchemas}
+                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)}
+                            onSaveQuery={(sql, name) => saveQueryFromTab(tab.id, sql, name)} />
                 )}
                 {tab.kind === 'connections' && (
                   <ServerConnectionsPanel config={tab.config} temporary={false} />
