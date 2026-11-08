@@ -1,12 +1,14 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
-import type { TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { ActivityIcon, CodeIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 
+// workspace: the connection the tab belongs to (targetKey); other
+// connections' tabs stay open but hidden.
 export type Tab =
-  | { id: string; kind: 'query'; title: string }
-  | { id: string; kind: 'connections'; title: string }
-  | { id: string; kind: 'table'; title: string; table: TableInfo }
+  | { id: string; workspace: string; kind: 'query'; title: string }
+  | { id: string; workspace: string; kind: 'connections'; title: string; config: DBConfig }
+  | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo }
 
 type Props = {
   tabs: Tab[]

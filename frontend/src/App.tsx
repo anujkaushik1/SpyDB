@@ -10,6 +10,7 @@ import ServerConnectionsPanel from './ServerConnectionsPanel'
 import TabBar, { type Tab } from './TabBar'
 import TablePalette from './TablePalette'
 import TableTab from './TableTab'
+import { targetKey } from './connectionSearch'
 import { TableIcon } from './icons'
 
 function App() {
@@ -20,8 +21,11 @@ function App() {
   const [schemas, setSchemas] = useState<SchemaInfo[] | null>(null)
   const [schemasLoading, setSchemasLoading] = useState(false)
   const [schemasError, setSchemasError] = useState<string | null>(null)
+  // Open tabs of every connection used this session. Each connection (server,
+  // login, database) is a workspace: switching away hides its tabs, switching
+  // back shows them as they were (SQL, results, filters, unsaved edits).
   const [tabs, setTabs] = useState<Tab[]>([])
-  const [activeTab, setActiveTab] = useState('')
+  const [activeTabs, setActiveTabs] = useState<Record<string, string>>({}) // workspace → tab id
   const [paletteOpen, setPaletteOpen] = useState(false)
   // Tabs with unsaved cell edits.
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set())
@@ -81,12 +85,18 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [connection])
 
+  const workspace = connection ? targetKey(connection) : null
+  const workspaceTabs = tabs.filter((t) => t.workspace === workspace)
+  const activeTab = (workspace && activeTabs[workspace]) || ''
+  const setActiveTab = (id: string) => {
+    if (workspace) setActiveTabs((current) => ({ ...current, [workspace]: id }))
+  }
+
+  // Disconnecting keeps every workspace's tabs; reconnecting to the same
+  // connection brings them back.
   const changeConnection = (next: ConnectionInfo | null) => {
     setConnection(next)
     if (!next) {
-      setTabs([])
-      setActiveTab('')
-      setDirtyTabs(new Set())
       setSchemas(null)
       setPaletteOpen(false)
     }
@@ -125,16 +135,27 @@ function App() {
     loadLists()
   }
 
-  // Reconnect to another database on the same server. Its tabs belong to the
-  // old database, so they close. Throws (and keeps everything) if it fails.
-  const switchDatabase = async (database: string) => {
-    const info = await DBService.SwitchDatabase(database)
-    setTabs([])
-    setActiveTab('')
-    setDirtyTabs(new Set())
+  // After switching database or server. The old connection's tabs stay in
+  // their workspace; this one's (if any) come back.
+  const reconnected = (info: ConnectionInfo) => {
     setSchemas(null)
     setPaletteOpen(false)
     setConnection(info) // a new object, so the schema list reloads
+  }
+
+  // Reconnect to another database on the same server. Throws (and keeps
+  // everything) if it fails.
+  const switchDatabase = async (database: string) => {
+    reconnected(await DBService.SwitchDatabase(database))
+  }
+
+  // Connect to a saved or recent connection while connected: Connect opens
+  // the new one before closing this one, so a failure keeps everything.
+  const switchConnection = async (c: SavedConnection, saved: boolean) => {
+    reconnected(await DBService.Connect(c.config))
+    // The connect screen shows this connection (with its password) after a disconnect.
+    setSelectedSaved(saved ? c.id : null)
+    setFormRequest((r) => ({ config: c.config, savedId: saved ? c.id : null, name: saved ? c.name : '', connect: false, seq: (r?.seq ?? 0) + 1 }))
   }
 
   const disconnect = async () => {
@@ -152,12 +173,20 @@ function App() {
     setTabs((current) => (current.some((t) => t.id === tab.id) ? current : [...current, tab]))
     setActiveTab(tab.id)
   }
-  const openTable = (table: TableInfo) =>
-    openTab({ id: `table:${table.qualifiedName}`, kind: 'table', title: table.name, table })
-  const openConnections = () => openTab({ id: 'connections', kind: 'connections', title: 'Connections' })
+  // Ids include the workspace, so the same table on two servers gets two tabs
+  // (and two result stores on the Go side).
+  const openTable = (table: TableInfo) => {
+    if (workspace) openTab({ id: `${workspace}|table:${table.qualifiedName}`, workspace, kind: 'table', title: table.name, table })
+  }
+  const openConnections = () => {
+    if (!connection || !workspace) return
+    const config = { host: connection.host, port: connection.port, user: connection.user, password: '', database: connection.database }
+    openTab({ id: `${workspace}|connections`, workspace, kind: 'connections', title: 'Connections', config })
+  }
   const newQueryTab = () => {
+    if (!workspace) return
     queryNumber.current += 1
-    openTab({ id: `query-${queryNumber.current}`, kind: 'query', title: `Query ${queryNumber.current}` })
+    openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `Query ${queryNumber.current}` })
   }
 
   const setTabDirty = (id: string, dirty: boolean) =>
@@ -171,14 +200,14 @@ function App() {
 
   // Closing the active tab moves to the tab on its left (or the right, if it was first).
   const closeTab = (id: string) => {
-    const index = tabs.findIndex((t) => t.id === id)
-    const next = tabs.filter((t) => t.id !== id)
-    setTabs(next)
+    const index = workspaceTabs.findIndex((t) => t.id === id)
+    const remaining = workspaceTabs.filter((t) => t.id !== id)
+    setTabs((current) => current.filter((t) => t.id !== id))
     setTabDirty(id, false)
-    if (id === activeTab) setActiveTab(next[Math.max(0, index - 1)]?.id ?? '')
+    if (id === activeTab) setActiveTab(remaining[Math.max(0, index - 1)]?.id ?? '')
   }
 
-  const active = tabs.find((t) => t.id === activeTab)
+  const active = workspaceTabs.find((t) => t.id === activeTab)
   const activeTable = active?.kind === 'table' ? active.table.qualifiedName : null
 
   return (
@@ -209,7 +238,7 @@ function App() {
         )}
         {connection && (
           <SchemaSidebar
-            databasePicker={<DatabasePicker current={connection.database} unsavedTabs={dirtyTabs.size} onSwitch={switchDatabase} />}
+            databasePicker={<DatabasePicker connection={connection} onSwitchDatabase={switchDatabase} onSwitchConnection={switchConnection} />}
             schemas={schemas}
             loading={schemasLoading}
             error={schemasError}
@@ -231,7 +260,7 @@ function App() {
             request={formRequest}
             onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
           />
-          {connection && tabs.length === 0 && (
+          {connection && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>
               <p className="workspace-empty-title">Open a table</p>
@@ -241,30 +270,29 @@ function App() {
               </p>
             </div>
           )}
-          {connection && tabs.length > 0 && (
-            <>
-              <TabBar tabs={tabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} dirtyIds={dirtyTabs} />
-              {/* Every open tab stays mounted, so switching keeps its page, filters, SQL and results. */}
-              {tabs.map((tab) => (
-                <div key={tab.id} role="tabpanel" className={`tab-panel tab-panel-${tab.kind}`} hidden={tab.id !== activeTab}>
-                  {tab.kind === 'table' && (
-                    <TableTab table={tab.table} tabId={tab.id} onSchemaChange={loadSchemas}
-                              onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
-                  )}
-                  {tab.kind === 'query' && (
-                    <QueryTab tabId={tab.id} active={tab.id === activeTab} onSchemaChange={loadSchemas}
-                              onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
-                  )}
-                  {tab.kind === 'connections' && (
-                    <ServerConnectionsPanel
-                      config={{ host: connection.host, port: connection.port, user: connection.user, password: '', database: connection.database }}
-                      temporary={false}
-                    />
-                  )}
-                </div>
-              ))}
-            </>
+          {connection && workspaceTabs.length > 0 && (
+            <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} dirtyIds={dirtyTabs} />
           )}
+          {/* Every open tab stays mounted, other connections' and while disconnected too (hidden),
+              so coming back keeps its page, filters, SQL, results and unsaved edits. */}
+          {tabs.map((tab) => {
+            const shown = tab.workspace === workspace && tab.id === activeTab
+            return (
+              <div key={tab.id} role="tabpanel" className={`tab-panel tab-panel-${tab.kind}`} hidden={!shown}>
+                {tab.kind === 'table' && (
+                  <TableTab table={tab.table} tabId={tab.id} onSchemaChange={loadSchemas}
+                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                )}
+                {tab.kind === 'query' && (
+                  <QueryTab tabId={tab.id} active={shown} onSchemaChange={loadSchemas}
+                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                )}
+                {tab.kind === 'connections' && (
+                  <ServerConnectionsPanel config={tab.config} temporary={false} />
+                )}
+              </div>
+            )
+          })}
         </main>
       </div>
 
