@@ -1759,3 +1759,65 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
 }
 .col-resizer:hover::after,
 .col-resizer.dragging::after { background: var(--focus); }
+
+/* ----- Row selection, right-click menu, "Copied" toast ----------------------- */
+.grid .grid-rownum { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.grid th.grid-rownum:hover { background: #1f2330; }
+.grid tbody tr.row-selected td:not(.cell-changed) { background: #1a2236; }
+.grid tbody tr.row-selected td.grid-rownum { color: #fff; background: #34477a; }
+
+.row-menu {
+    position: fixed;
+    z-index: 100;
+    min-width: 190px;
+    padding: 5px;
+    background: var(--surface);
+    border: 1px solid var(--border-hover);
+    border-radius: 9px;
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+.row-menu-title {
+    margin: 0;
+    padding: 6px 9px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-subtle);
+}
+.row-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 28px;
+    padding: 0 9px;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.row-menu-item kbd { font-size: 10px; color: var(--text-subtle); }
+.row-menu-item:hover,
+.row-menu-item:focus-visible { outline: none; background: rgba(122, 162, 247, 0.16); }
+.row-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+
+.copy-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 64px;
+    z-index: 100;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    font-size: 12.5px;
+    color: var(--ok);
+    background: var(--surface);
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+.copy-toast.error { color: var(--error); border-color: rgba(248, 113, 113, 0.4); }

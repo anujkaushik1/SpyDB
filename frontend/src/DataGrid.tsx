@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
+import { copyText, formatRows, formatValue, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
+import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { cellClass, cellText } from './tableMeta'
 
 export type GridColumn = {
@@ -52,6 +54,11 @@ export default function DataGrid(props: Props) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<{ message: string; detail?: string } | null>(null)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
+  const [rowSelection, setRowSelection] = useState<Set<number>>(new Set()) // row indexes on this page
+  const anchor = useRef<number | null>(null) // where a Shift range starts
+  const lead = useRef<number | null>(null) // its moving end, for Shift+↑/↓
+  const [menu, setMenu] = useState<{ x: number; y: number; cell: Cell | null } | null>(null)
+  const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
   const table = useRef<HTMLTableElement>(null)
@@ -118,7 +125,17 @@ export default function DataGrid(props: Props) {
   useEffect(() => {
     setSelected(null)
     setEditing(null)
+    setRowSelection(new Set())
+    anchor.current = null
+    lead.current = null
+    setMenu(null)
   }, [rows])
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(null), 2500)
+    return () => clearTimeout(timer)
+  }, [copied])
 
   useEffect(() => onDirtyChange?.(changedRows > 0), [changedRows > 0])
 
@@ -202,13 +219,127 @@ export default function DataGrid(props: Props) {
     if (saveAfter) save(next)
   }
 
+  // A click on a row number, or a Shift / ⌘ click anywhere in a row: plain
+  // picks just that row, ⌘ / Ctrl adds or removes it, Shift selects the range
+  // from the row clicked before.
+  const selectRange = (from: number, to: number) => {
+    const [start, end] = from < to ? [from, to] : [to, from]
+    setRowSelection(new Set(Array.from({ length: end - start + 1 }, (_, k) => start + k)))
+  }
+  const selectRow = (row: number, e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    if (e.shiftKey && anchor.current !== null) {
+      selectRange(anchor.current, row)
+      lead.current = row
+      return
+    }
+    if (e.metaKey || e.ctrlKey) {
+      setRowSelection((current) => {
+        const next = new Set(current)
+        if (next.has(row)) next.delete(row)
+        else next.add(row)
+        return next
+      })
+    } else {
+      setRowSelection(new Set([row]))
+    }
+    anchor.current = row
+    lead.current = row
+  }
+  const allSelected = rows.length > 0 && rowSelection.size === rows.length
+  const selectAll = () => setRowSelection(new Set(rows.map((_, i) => i)))
+
+  const copy = async (text: string, message: string) => {
+    try {
+      await copyText(text)
+      setCopied({ text: message })
+    } catch (err) {
+      setCopied({ text: `Couldn’t copy: ${errorMessage(err)}`, error: true })
+    }
+  }
+  // Selected rows top to bottom, as shown (unsaved edits included).
+  const copyRows = (format: CopyFormat) => {
+    const picked = [...rowSelection].sort((a, b) => a - b).map((i) => rows[i].map((_, j) => shownValue(rows[i], j)))
+    copy(formatRows(format, columns, picked), `Copied ${picked.length} row${picked.length === 1 ? '' : 's'} as ${FORMAT_LABELS[format]}`)
+  }
+  const copyCell = (cell: Cell) =>
+    copy(formatValue(shownValue(rows[cell.row], cell.col), columns[cell.col].category), 'Copied value')
+
+  // Right-click: a row outside the selection becomes the selection, like Beekeeper.
+  const openMenu = (e: MouseEvent, row: number, col: number | null) => {
+    if ((e.target as HTMLElement).closest('input')) return // the cell editor keeps its own menu
+    e.preventDefault()
+    if (!rowSelection.has(row)) {
+      setRowSelection(new Set([row]))
+      anchor.current = row
+      lead.current = row
+    }
+    if (col !== null) setSelected({ row, col })
+    setMenu({ x: e.clientX, y: e.clientY, cell: col === null ? null : { row, col } })
+  }
+  const closeMenu = () => {
+    setMenu(null)
+    wrap.current?.focus({ preventScroll: true }) // so ⌘C works next
+  }
+
   // Keys on the grid itself; while a cell is being edited its input handles them.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (editing) return
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+    const mod = e.metaKey || e.ctrlKey
+    if (mod && e.key.toLowerCase() === 's') {
       e.preventDefault()
       save()
       return
+    }
+    if (mod && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      selectAll()
+      return
+    }
+    if (mod && e.key.toLowerCase() === 'c') {
+      if (window.getSelection()?.toString()) return // text picked with the mouse: normal copy
+      if (rowSelection.size > 0) {
+        e.preventDefault()
+        copyRows('text')
+      } else if (selected) {
+        e.preventDefault()
+        copyCell(selected)
+      }
+      return
+    }
+    if (e.key === 'Escape' && rowSelection.size > 0) {
+      setRowSelection(new Set())
+      return
+    }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !mod && rows.length > 0) {
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const clamp = (row: number) => Math.max(0, Math.min(rows.length - 1, row))
+      const scrollTo = (row: number) => wrap.current?.querySelectorAll('tbody tr')[row]?.scrollIntoView({ block: 'nearest' })
+      if (e.shiftKey) {
+        // Shift+↑/↓ grows or shrinks the row selection from the row it started
+        // on: the selected cell's row, or the rows picked before.
+        e.preventDefault()
+        if (rowSelection.size === 0 || anchor.current === null || lead.current === null) {
+          anchor.current = selected?.row ?? 0
+          lead.current = anchor.current
+        }
+        const next = clamp(lead.current + step)
+        lead.current = next
+        selectRange(anchor.current, next)
+        if (selected) setSelected({ row: next, col: selected.col })
+        scrollTo(next)
+        return
+      }
+      if (rowSelection.size > 0 && !selected) {
+        // Rows picked by their numbers: ↑/↓ moves to the next row on its own.
+        e.preventDefault()
+        const next = clamp((lead.current ?? 0) + step)
+        setRowSelection(new Set([next]))
+        anchor.current = next
+        lead.current = next
+        scrollTo(next)
+        return
+      }
+      if (rowSelection.size > 0) setRowSelection(new Set()) // the cell moves on its own, like a spreadsheet
     }
     if (!selected) return
     const step: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }
@@ -250,7 +381,8 @@ export default function DataGrid(props: Props) {
             )}
             <thead>
               <tr>
-                <th className="grid-rownum" aria-label="Row number" />
+                <th className="grid-rownum" aria-label="Select all rows" title={allSelected ? 'Clear selection' : 'Select all rows (⌘A)'}
+                    onClick={() => (allSelected ? setRowSelection(new Set()) : selectAll())} />
                 {columns.map((c, i) => {
                   const sorted = sort?.column === c.name ? (sort.desc ? 'desc' : 'asc') : null
                   const label = (
@@ -284,8 +416,13 @@ export default function DataGrid(props: Props) {
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="grid-rownum">{firstRowNumber + i}</td>
+                <tr key={i} className={rowSelection.has(i) ? 'row-selected' : undefined}
+                    onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() /* no text selection on Shift-click */ }}>
+                  <td className="grid-rownum"
+                      onClick={(e) => { selectRow(i, e); setSelected(null); wrap.current?.focus({ preventScroll: true }) }}
+                      onContextMenu={(e) => openMenu(e, i, null)}>
+                    {firstRowNumber + i}
+                  </td>
                   {row.map((_, j) => {
                     const value = shownValue(row, j)
                     const category = columns[j].category
@@ -303,8 +440,18 @@ export default function DataGrid(props: Props) {
                         data-cell={`${i}-${j}`}
                         className={classes}
                         title={isEditable(j) ? `${value ?? 'NULL'} — double-click to edit` : value ?? 'NULL'}
-                        onClick={() => { setSelected({ row: i, col: j }); wrap.current?.focus({ preventScroll: true }) }}
+                        onClick={(e) => {
+                          if (e.shiftKey || e.metaKey || e.ctrlKey) selectRow(i, e)
+                          else {
+                            setRowSelection(new Set())
+                            anchor.current = i
+                            lead.current = i
+                          }
+                          setSelected({ row: i, col: j })
+                          wrap.current?.focus({ preventScroll: true })
+                        }}
                         onDoubleClick={() => startEdit({ row: i, col: j })}
+                        onContextMenu={(e) => openMenu(e, i, j)}
                       >
                         {isEditing && editing ? (
                           <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit} />
@@ -320,6 +467,18 @@ export default function DataGrid(props: Props) {
         )}
         {props.children}
       </div>
+
+      {menu && (
+        <RowMenu
+          x={menu.x}
+          y={menu.y}
+          rowCount={rowSelection.size}
+          onCopyValue={menu.cell ? () => { copyCell(menu.cell!); closeMenu() } : undefined}
+          onCopy={(format) => { copyRows(format); closeMenu() }}
+          onClose={closeMenu}
+        />
+      )}
+      {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
 
       {saveError && (
         <div className="changes-error">
