@@ -1,167 +1,158 @@
 # SpyDB
 
-Postgres desktop client built with [Wails v3](https://v3.wails.io/) (Go backend, React + TypeScript frontend).
+A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. A 21 MB app that uses about 110 MB of memory.
 
-Fill in host, port, user, password and database, then:
+## Features
 
-- **Test** — `DBService.TestConnection` opens a connection with [pgx](https://github.com/jackc/pgx), runs `SELECT 1` and closes it.
-- **Connect** — `DBService.Connect` opens a `pgxpool` pool and keeps a connection open until **Disconnect** (or the app quits).
-- **Active connections** — `DBService.ActiveConnections` lists the server's client connections from `pg_stat_activity`, through the open connection, or a temporary one (like **Test**) when not connected. SpyDB's own connections are tagged by their `application_name`, `SpyDB`.
+- **Connect** from a form or a pasted `postgres://` URL. Test first, save connections by name, and reconnect from the 10 most recent. Errors are in plain language ("Nothing is accepting connections on localhost:5433").
+- **Switch** databases or saved connections from the top of the sidebar. Each connection keeps its own tabs.
+- **Browse** every schema's tables and views with approximate row counts. Filter by name, or press ⌘P / Ctrl+P to jump to any table.
+- **Table tabs:** 100 rows per page, sort by any column, filters (equals, contains, >, is null and 6 more), jump to a page, or write SQL right on the table with `</>`.
+- **Query tabs** (⌘T / Ctrl+T):
+  - Run everything, the selection, or the statement at the cursor (⌘⇧↵).
+  - Several statements can run at once, each with its own result.
+  - Autocomplete knows your tables and columns. You can cancel a running query, and errors point at the exact spot in your SQL.
+  - All query tabs share one session, so `SET`, `BEGIN … COMMIT` and temp tables carry over.
+- **Edit in place:**
+  - Works on table rows, and on the results of any plain single-table `SELECT`, even when the primary key isn't selected or the table has none.
+  - Saves are checked: one transaction, each row must still hold the values you saw, and the save runs with your session's role and settings.
+  - Results that can't map a cell to exactly one row (joins, `GROUP BY`, views…) are read-only, with the reason shown.
+- **JSON:** an editor for `json`/`jsonb` cells that keeps big numbers exact, and View as JSON to read or edit whole rows.
+- **Copy** rows as JSON, CSV, tab-separated text or Markdown.
+- **Export** query results, filtered rows or whole tables to CSV or Excel, streamed straight to the file.
+- **Saved queries** in a left rail, shared by all connections.
+- **Active connections:** everyone connected to the server, with their state and current or last query.
 
-Failures show a plain-language summary, with pgx's raw error under **Details**.
+## How it works
 
-## Saved connections
-
-The connect screen lists **Saved** connections (ones you name with **Save**) and **Recent** ones (every connection you make, newest first). Click one to load it into the form, double-click to connect; saved ones can be renamed (**Save changes**) or deleted, and Recent can be cleared.
-
-They live in `~/Library/Application Support/SpyDB/connections.json` on macOS (`~/.config/SpyDB/connections.json` on Linux), **including passwords in plain text**, in a folder and file only your user can read (`700` / `600`).
-
-**Import from URL** fills the form from a `postgres://` or `postgresql://` URL (pasting one imports it straight away). Passwords with `@`, `:` or `/` work; parameters that aren't Postgres connection settings (e.g. `pool_size`, `TrustServerCertificate`) are skipped and listed.
-
-## Workspace
-
-Once connected, SpyDB shows a sidebar and tabs.
-
-**Database picker** — the menu at the top of the sidebar lists the server's databases; picking one reconnects with the same login (`DBService.SwitchDatabase`) and closes open tabs, asking first if any have unsaved edits. A failed switch keeps the current connection.
-
-**Sidebar** — every schema (public first; system schemas hidden) with its tables, views and materialized views from `DBService.ListTables`, with estimated row counts from Postgres's statistics. Filter by name (Esc clears), collapse schemas, refresh. The strip at the bottom shows the connection, opens **Active connections** and **Disconnects**.
-
-**Tabs** — clicking a table (or picking it with **Ctrl+P / ⌘P**) opens it in its own tab, or switches to it if open. **Ctrl+T / ⌘T** opens a Query tab: a SQL editor with its results below. Tabs keep their state when you switch; close with × or middle-click. With no tab open, the main area says how to open one.
-
-**Table tabs** — `DBService.TableData` loads 100 rows per page, ordered by the primary key, with:
-
-- Click a column header to sort (ascending → descending → off); Postgres sorts the whole table.
-- Filter bar: column · operator (equals, not equal, contains, starts with, >, ≥, <, ≤, is null, is not null) · value. Add rows with +; they combine with AND.
-- **</>** swaps the filter bar for a SQL editor (see below); the table's rows stay underneath. Click it again for the filters; the rows reload in case your SQL changed them.
-- Colour by type in soft, cool tones: numbers, dates/times, booleans, JSON and NULL each have their own colour; the primary key has a key icon.
-- Column names come only from the catalog and are quoted; filter values are sent as parameters.
-
-## SQL in a table tab
-
-Click **</>** in a table tab to write SQL: the filter bar becomes an editor pre-filled with `SELECT * FROM schema.table;`, and the table's rows stay below it. Edit it into any query and press **Run** (⌘↵). A query that returns rows shows them in the grid in place of the table's (**Show table rows** brings those back); errors and commands like `UPDATE` show a strip above the table's rows, which reload. `DBService.RunQuery` runs it on one connection that Connect reserves for SQL, so `SET`, temp tables and open transactions carry over between runs and across tabs (queries from different tabs take turns). Each tab keeps its own SQL and results.
-
-- Several statements per run (`BEGIN; UPDATE …; COMMIT;`); each gets its own result.
-- With text selected, only the selection runs.
-- Results show 1,000 rows per page, with **‹** / **›** to page. Up to 100,000 rows per statement are kept in memory for paging (`DBService.FetchRows`, no re-run); the row count is always exact.
-- **Cancel** (Esc) asks Postgres to stop the query; the connection stays open.
-- Errors show Postgres's message, hint and line/column, and move the cursor there.
-
-## Editing cells
-
-Table rows, and query results of a plain `SELECT` from one table, can be edited in place, even when the primary key isn't among the columns:
-
-- Click a cell to select it; double-click, press Enter, or just type to edit. Enter moves down, Tab moves sideways, Esc cancels, **NULL** sets NULL.
-- Edited cells are tinted and wait in a bar at the bottom: **Discard** or **Save changes** (⌘S). The tab shows a dot while edits are unsaved.
-- Each row is found again by its primary key. If the query doesn't select it, `RunQuery` adds it as hidden columns (never shown, copied or exported). A table without a primary key uses each row's `ctid` (its address) plus an MD5 of the whole row, so an edit never lands on a different row, even one that later reuses the address.
-- `DBService.SaveRows` sends them as `UPDATE … WHERE <that row> AND <each edited cell still holds its old value>` in one transaction on its own connection: either every row saves or none does. If someone changed or deleted the row since it loaded, nothing is saved and the bar says so. A bad value (e.g. text in a number column) shows Postgres's error and keeps your edits.
-- Saves run as the query tab's role (after `SET ROLE`) with its `search_path` and date/number settings, so values read the same way and privileges apply as in the tab. A date or time shown in a form Postgres reads back differently (e.g. `IST`, which it reads as Israel time, under `DateStyle = SQL`) is refused rather than saved wrong; `SET DateStyle = ISO` (the default) avoids that.
-- Read-only, with the reason in the footer: joins (self-joins too), `GROUP BY`, `DISTINCT`, `UNION`, `WITH`, subqueries in `FROM`, several statements in one run, views, system catalogs, temporary tables, tables other tables inherit from, tables your role can't update, rows that repeat (e.g. `unnest` in the columns), and computed columns. Inside an open transaction only results that show the whole primary key are editable.
-
-## Export
-
-**Export** in a grid's footer saves rows as **CSV** or **Excel (.xlsx)** through the system Save dialog:
-
-- Query results: **These N rows** — exactly what the query returned (from memory; a result bigger than 100,000 rows runs again in a read-only transaction and streams into the file, so a query that changes data is never run twice). **Full table** when the result comes from one table.
-- Table tabs: **Full table**, and **Filtered rows** (every page) when filters are on, in the order shown.
-- Rows stream from Postgres into the file, so big tables don't fill memory. Excel stores numbers and booleans as real values (numbers longer than 15 digits stay text) and is limited to 1,048,576 rows per sheet.
-
-## Pre-filling the form (optional)
-
-If `db.config.json` exists in the project root, the form starts with its values. It is gitignored because it can hold a password; create it from the example:
-
-```sh
-cp db.config.example.json db.config.json
+```
+Window (React, in the OS web view)  ⇄  Go (DBService)  ⇄  Postgres (pgx)
 ```
 
-Without it, the form starts at `localhost:5432`.
+- **Your SQL runs on one held "editor" connection**, a real Postgres session. Everything else (sidebar, table tabs, saves, exports) borrows from a pool. So browsing works while a query runs, and a save never lands inside a transaction you left open.
+- **Big results stay cheap.** Go keeps up to 100,000 rows per statement and sends the window 1,000 at a time. Next pages come from memory, with no new query. Table tabs fetch one page at a time.
+- **No table scans for row counts.** The sidebar's `~20k` comes from Postgres's statistics, in one query for all tables.
+- **Editing finds rows safely.** Rows are matched by primary key, adding it as a hidden column if needed. Tables without a key use each row's address plus a fingerprint of the whole row. Every `UPDATE` must match exactly one row still holding its old values, or nothing is saved.
 
-## Prerequisites
+**What's stored on disk:** only saved connections (passwords included) and saved queries. They're JSON files in `~/Library/Application Support/SpyDB/` (macOS) or `~/.config/SpyDB/` (Ubuntu), readable only by your user. Open tabs, results and unsaved edits end when the app quits.
 
-- Go 1.26+
-- Node.js + npm
+## Benchmarks vs Beekeeper Studio
+
+Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12 (Electron 31, Node 20). Setup: Apple M4 (10 cores, 16 GB), macOS 26.5.1, local Postgres 15.15, a 1M-row table among 257 tables.
+
+**How:** each app's real database code ran the same jobs:
+- SpyDB: its `DBService` methods.
+- Beekeeper: its own bundled database process (`dist/utility.js`), run on its own Electron binary and sent the same requests its window sends.
+
+Times are medians of 7 runs after a warm-up, and include handing the data to the window (JSON for SpyDB, Electron's structured clone for Beekeeper). Drawing the grid on screen isn't measured. App figures come from launching each app 3 times in the background.
+
+### The apps
+
+| | SpyDB | Beekeeper | |
+|---|---:|---:|---|
+| Install size | 21 MB | 778 MB | SpyDB 36× smaller |
+| Window on screen after launch | 0.46 s | 1.29 s | SpyDB 2.8× faster |
+| CPU used while launching | 0.76 s | 2.55 s | SpyDB 3.3× less |
+| Memory after launch, all processes | 112 MB | 532 MB | SpyDB 4.8× less |
+| CPU while idle | 0.12 % | 3.47 % | SpyDB 29× less |
+
+### Speed
+
+| Job | SpyDB | Beekeeper | |
+|---|---:|---:|---|
+| Connect + load the sidebar (257 tables) | 11.5 ms | 57.3 ms | SpyDB 5.0× faster |
+| Open a 1M-row table (first 100 rows) | 4.2 ms | 6.7 ms | SpyDB 1.6× faster |
+| Jump to page 5,000 | 17.4 ms | 18.7 ms | even |
+| Save one edited cell | 2.8 ms | 1.6 ms | Beekeeper 1.8× faster |
+| Query returning 1,000 rows | 4.8 ms | 2.8 ms | Beekeeper 1.7× faster |
+| Query returning 10,000 rows | 11.3 ms | 14.4 ms | SpyDB 1.3× faster |
+| Query returning 100,000 rows | 45.7 ms | 146 ms | SpyDB 3.2× faster |
+| Query returning 1,000,000 rows | 0.40 s | 1.95 s | SpyDB 4.9× faster |
+
+### Resources per job (SpyDB / Beekeeper)
+
+| Job | CPU time | Peak memory | Data sent to the window | Round trips to Postgres |
+|---|---:|---:|---:|---:|
+| Connect + sidebar | 3.6 / 19.5 ms | 28 / 258 MB | 52 / 35 KB | 9 / 10 |
+| Open a 1M-row table | 0.5 / 5.2 ms | 26 / 258 MB | 13 / 17 KB | 3 / 4 |
+| Jump to page 5,000 | 0.8 / 3.4 ms | 26 / 257 MB | 14 / 16 KB | 3 / 1 |
+| Save one cell | 0.5 / 1.3 ms | 26 / 257 MB | 53 / 171 B | 6 / 6 |
+| Query, 1,000 rows | 2.1 / 3.5 ms | 28 / 260 MB | 129 / 136 KB | 5 / 2 |
+| Query, 10,000 rows | 11 / 20 ms | 35 / 299 MB | 129 KB / 1.3 MB | 5 / 2 |
+| Query, 100,000 rows | 50 / 188 ms | 94 / 719 MB | 129 KB / 13 MB | 5 / 2 |
+| Query, 1,000,000 rows | 0.20 / 3.18 s | 95 / 2,210 MB | 129 KB / 135 MB | 6 / 2 |
+
+Peak memory is the measuring process's peak. That's Go's own ~20 MB baseline for SpyDB, and ~254 MB for Beekeeper's database process before any work. Round trips were counted by a relay between each app and Postgres, in a separate pass.
+
+### Why
+
+- **Big results:** SpyDB sends the window at most 1,000 rows and keeps at most 100,000. Beekeeper sends every row to its window, then keeps 50,000. That's the gap in time, memory and data at 100k and 1M rows.
+- **Small queries and saves:** after each query SpyDB makes three small lookups so results can be edited (5 round trips against 2). Its saves also run safety checks. That costs 1–2 ms locally, and more on a remote database, where every round trip is a network delay.
+- **Paging** in a table tab takes 3 round trips against Beekeeper's 1, because SpyDB re-reads the table's columns and key for each page.
+- **The app itself:** SpyDB uses the system web view. Beekeeper bundles its own Chromium and Node and runs 5 processes.
+
+## Requirements
+
+- Go 1.26+, Node.js 22.12+
 - Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+- On macOS, cgo must use Apple clang: if your shell sets `CC` to GNU gcc, prefix commands with `CC=clang CXX=clang++`.
 
-On macOS, cgo must use Apple clang. If your shell sets `CC` to GNU gcc, prefix commands with `CC=clang CXX=clang++`.
-
-## Develop
+## Develop, test, build
 
 ```sh
-wails3 dev
+wails3 dev                                # run with hot reload
+cd frontend && npm test                   # window unit tests
+SPYDB_TEST_DATABASE=mydb go test ./...    # Go tests against a local Postgres (they create and drop their own schemas)
+wails3 build                              # binary in bin/
+wails3 task package                       # macOS app bundle in bin/spydb.app
 ```
 
-Unit tests (Node's built-in test runner, no extra packages):
+To pre-fill the connect form while developing, copy `db.config.example.json` to `db.config.json` (gitignored, since it can hold a password).
+
+## Ubuntu
+
+SpyDB runs on Ubuntu 22.04 and newer. Build with Docker (works from a Mac too):
 
 ```sh
-cd frontend && npm test
-```
-
-## Build
-
-```sh
-wails3 build
-```
-
-The binary is written to `bin/`.
-
-## Ubuntu (Linux)
-
-SpyDB runs on Ubuntu 22.04 and newer. Build it with Docker, which works from a Mac too:
-
-```sh
-build/linux/build-docker.sh             # Ubuntu 22.04+ (GTK3), amd64 → bin/linux/ubuntu-22.04-gtk3-amd64/spydb
-build/linux/build-docker.sh gtk4        # Ubuntu 24.04+ (GTK4)       → bin/linux/ubuntu-24.04-gtk4-amd64/spydb
+build/linux/build-docker.sh             # Ubuntu 22.04+ (GTK3), amd64
+build/linux/build-docker.sh gtk4        # Ubuntu 24.04+ (GTK4)
 build/linux/build-docker.sh gtk3 arm64  # ARM machines
 ```
 
-On the Ubuntu machine, install the libraries the build needs (a desktop install usually has them), then run it:
+Then install the runtime libraries on the Ubuntu machine and run `./spydb`:
 
 | Build | Ubuntu 22.04 | Ubuntu 24.04 |
 |---|---|---|
 | `gtk3` (default) | `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0` | `sudo apt install libgtk-3-0t64 libwebkit2gtk-4.1-0` |
-| `gtk4` | not supported (GTK too old) | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4` |
+| `gtk4` | not supported | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4` |
 
-```sh
-chmod +x spydb && ./spydb
-```
-
-To build on Ubuntu itself, install Go 1.26+, Node.js 22.12+ and `gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev` (or `libgtk-4-dev libwebkitgtk-6.0-dev` for GTK4), then:
+To build on Ubuntu itself, install `gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev` (or `libgtk-4-dev libwebkitgtk-6.0-dev`), then:
 
 ```sh
 cd frontend && npm ci && npm run build && cd ..
 go build -tags production,gtk3 -trimpath -buildvcs=false -ldflags="-w -s" -o bin/spydb .   # drop ",gtk3" for GTK4
 ```
 
-Notes:
+If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is blocking WebKit's sandbox; use the GTK3 build.
 
-- The GTK3 build uses Wails' legacy backend, which a future Wails release may remove; Ubuntu 24.04 (GTK4) would then be the minimum.
-- The GTK4 build runs WebKit's sandbox (bubblewrap). If it fails to start with a `bwrap: … Operation not permitted` error, the system is blocking it; use the GTK3 build.
-- On Linux the window keeps the system title bar, and shortcut hints say Ctrl instead of ⌘.
+## Project layout
 
-## Layout
+| Go (backend) | |
+|---|---|
+| `dbservice.go` | `DBService`: connect, disconnect, the editor connection and pool, active connections |
+| `query.go` | Runs SQL, keeps results for paging |
+| `editable.go`, `edits.go` | Decides which results are editable; saves edits safely |
+| `tabledata.go`, `schema.go` | Table pages; the sidebar's schemas, tables and columns |
+| `export.go` | CSV and Excel export |
+| `connections.go`, `queries.go`, `files.go` | Saved connections and queries on disk |
+| `dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
 
-- `main.go` — app and window setup
-- `dbservice.go` — `DBService`, the Go service exposed to the frontend
-- `dbconfig.go` — `DBConfig`, form defaults from `db.config.json`, and the connection string
-- `dberrors.go` — turns pgx errors into plain-language summaries
-- `query.go` — `RunQuery` / `FetchRows`: runs SQL on the editor connection and pages results
-- `schema.go` — `ListTables`: schemas with their tables and views
-- `tabledata.go` — `TableData`: one page of a table, sorted and filtered
-- `edits.go` — `SaveRows` (cell edits → UPDATEs) and which query results are editable
-- `editable.go` — reads a query's SQL to tell a plain single-table `SELECT` from everything else, and adds hidden key columns
-- `export.go` — CSV / Excel export (`ChooseExportFile`, `ExportResult`, `ExportTable`)
-- `connections.go` — saved and recent connections (`connections.json`)
-- `frontend/src/App.tsx` — window shell (title bar)
-- `frontend/src/ConnectionForm.tsx` — connection form (shown while disconnected)
-- `frontend/src/SqlEditor.tsx` — the SQL editor (in table tabs and Query tabs)
-- `frontend/src/DataGrid.tsx` — the grid: colours, selection, cell editing, Save bar
-- `frontend/src/QueryTab.tsx` — a Ctrl+T Query tab
-- `frontend/src/ConnectionsSidebar.tsx`, `connectionUrl.ts` — saved / recent connections, Import from URL
-- `frontend/src/DatabasePicker.tsx`, `connectionSearch.ts` — the database / connection switcher
-- `frontend/src/ExportMenu.tsx` — the Export button and menu
-- `frontend/src/SchemaSidebar.tsx` — schema / table sidebar and connection strip
-- `frontend/src/TabBar.tsx`, `TableTab.tsx`, `TablePalette.tsx` — tabs, the table grid (and its </> toggle), the Ctrl+P switcher
-- `frontend/src/ServerConnectionsPanel.tsx` — active connections list
-- `frontend/src/platform.ts` — macOS vs Linux labels (⌘ / Ctrl, Finder / folder)
-- `frontend/tests/` — unit tests (`npm test`)
-- `build/linux/build-docker.sh`, `Dockerfile.ubuntu` — Ubuntu builds with Docker
-- `frontend/bindings/` — generated TypeScript bindings for Go services
+| React (window), in `frontend/src/` | |
+|---|---|
+| `App.tsx` | Connections, tabs per connection, shortcuts |
+| `SqlEditor.tsx`, `SqlCodeEditor.tsx`, `sqlCompletion.ts` | The SQL editor and autocomplete |
+| `DataGrid.tsx` | The grid: selection, editing, saving, copy |
+| `TableTab.tsx`, `QueryTab.tsx` | Table and query tabs |
+| `SchemaSidebar.tsx`, `DatabasePicker.tsx`, `TablePalette.tsx` | Sidebar, switcher, ⌘P |
+| `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
+| `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, active connections |
