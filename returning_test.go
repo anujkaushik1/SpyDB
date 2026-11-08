@@ -127,15 +127,29 @@ func cells(r StatementResult) []string {
 func TestReturningShowsUpdatedRows(t *testing.T) {
 	s := returningFixture(t)
 	r := run(t, s, "update "+testSchema+".acct set owner = 'hello kak', balance = balance + 1 where id = 1")
-	if len(r) != 1 || r[0].Command != "UPDATE 1" || r[0].ReadOnly != returningNote || r[0].Target != nil {
+	if len(r) != 1 || r[0].Command != "UPDATE 1" || r[0].Note != returningNote {
 		t.Fatalf("got %+v", r)
 	}
+	// Committed straight away, so the returned rows can be edited.
+	editable(t, r[0], "pk", "id")
 	if got := cells(r[0]); !slices.Equal(got, []string{"1|hello kak|1001"}) {
 		t.Fatalf("rows %v", got)
 	}
 	// Ran once: the balance went up by 1, not 2.
 	if got := table(t, s, "SELECT owner, balance::text FROM "+testSchema+".acct WHERE id = 1"); got[0] != "hello kak|1001" {
 		t.Fatalf("table %v", got)
+	}
+	// Edit a returned row and save it: found by its key, checked against
+	// the value the UPDATE returned.
+	if _, err := s.SaveRows(t.Context(), *r[0].Target, []RowEdit{{
+		Key:    map[string]*string{"id": r[0].Keys[0][0]},
+		Old:    map[string]*string{"owner": str("hello kak")},
+		Values: map[string]*string{"owner": str("saved")},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := table(t, s, "SELECT owner FROM "+testSchema+".acct WHERE id = 1"); got[0] != "saved" {
+		t.Fatalf("after save %v", got)
 	}
 	// No rows matched: still a result, with the columns and no rows.
 	r = run(t, s, "update "+testSchema+".acct set owner = 'x' where id = 99")
@@ -151,7 +165,9 @@ func TestReturningInsideTransaction(t *testing.T) {
 	t.Cleanup(func() { s.RunQuery(context.Background(), "tab", "rollback") })
 	run(t, s, "begin")
 	r := run(t, s, "update "+testSchema+".acct set balance = balance + 1 where id = 1")
-	if got := cells(r[0]); r[0].ReadOnly != returningNote || !slices.Equal(got, []string{"1|alice|1001"}) {
+	// Not committed: shown, but read-only, since a save couldn't see them.
+	if got := cells(r[0]); r[0].Target != nil || r[0].ReadOnly != returningUncommitted || r[0].Note != returningNote ||
+		!slices.Equal(got, []string{"1|alice|1001"}) {
 		t.Fatalf("got %v (%q)", got, r[0].ReadOnly)
 	}
 	if status := s.editor.Conn().PgConn().TxStatus(); status != 'T' {
@@ -179,13 +195,14 @@ func TestReturningMultiStatement(t *testing.T) {
 	if len(r) != 6 {
 		t.Fatalf("%d results", len(r))
 	}
-	if r[1].ReadOnly != returningNote || !slices.Equal(cells(r[1]), []string{"1|alice|1001"}) {
-		t.Fatalf("first update: %q %v", r[1].ReadOnly, cells(r[1]))
+	// The run ends with COMMIT, so the rows it returned are committed.
+	if r[1].Note != returningNote || r[1].Target == nil || !slices.Equal(cells(r[1]), []string{"1|alice|1001"}) {
+		t.Fatalf("first update: %q %q %v", r[1].Note, r[1].ReadOnly, cells(r[1]))
 	}
-	if r[2].ReadOnly == returningNote || !slices.Equal(cells(r[2]), []string{"2"}) {
-		t.Fatalf("your own RETURNING: %q %v", r[2].ReadOnly, cells(r[2]))
+	if r[2].Note != "" || r[2].Target != nil || !slices.Equal(cells(r[2]), []string{"2"}) {
+		t.Fatalf("your own RETURNING: %q %v", r[2].Note, cells(r[2]))
 	}
-	if r[4].ReadOnly != returningNote || r[4].Command != "UPDATE 0" || len(r[4].Columns) != 3 {
+	if r[4].Note != returningNote || r[4].Command != "UPDATE 0" || len(r[4].Columns) != 3 {
 		t.Fatalf("third update: %+v", r[4])
 	}
 	if got := table(t, s, "SELECT balance::text FROM "+acct+" ORDER BY id"); !slices.Equal(got, []string{"1001", "501"}) {
@@ -230,9 +247,9 @@ func TestReturningLeavesUnsafeTargetsAlone(t *testing.T) {
 	})
 	for _, sql := range []string{
 		"update " + sc + ".acct_view set owner = 'v' where id = 2", // a view
-		"update " + sc + ".ruled set owner = 'r'",                 // a rule without RETURNING: RETURNING * would fail
-		"update " + sc + ".secured set owner = 's'",               // row-level security
-		"update " + sc + ".missing set owner = 'm'",               // no such table: Postgres says so, as written
+		"update " + sc + ".ruled set owner = 'r'",                  // a rule without RETURNING: RETURNING * would fail
+		"update " + sc + ".secured set owner = 's'",                // row-level security
+		"update " + sc + ".missing set owner = 'm'",                // no such table: Postgres says so, as written
 	} {
 		result, err := s.RunQuery(t.Context(), "tab", sql)
 		if strings.Contains(sql, "missing") {
@@ -263,5 +280,16 @@ func TestReturningStopsAtSetConfig(t *testing.T) {
 	run(t, s, "reset search_path")
 	if len(r) != 2 || len(r[1].Columns) != 0 || r[1].Command != "UPDATE 1" {
 		t.Fatalf("got %+v", r)
+	}
+}
+
+func TestReturningNoPrimaryKey(t *testing.T) {
+	s := returningFixture(t,
+		"CREATE TABLE "+testSchema+".nokey (name text, n int)",
+		"INSERT INTO "+testSchema+".nokey VALUES ('a', 1)")
+	r := run(t, s, "update "+testSchema+".nokey set n = n + 1")
+	if r[0].Note != returningNote || r[0].Target != nil || r[0].ReadOnly != "the table has no primary key" ||
+		!slices.Equal(cells(r[0]), []string{"a|2"}) {
+		t.Fatalf("got %q %q %v", r[0].Note, r[0].ReadOnly, cells(r[0]))
 	}
 }

@@ -20,7 +20,11 @@ import (
 
 const (
 	returningClause = " RETURNING *"
-	returningNote   = "rows your UPDATE changed (SpyDB added RETURNING *)"
+	returningNote   = "RETURNING * added by SpyDB"
+	// Rows an UPDATE returned can be edited only once they're committed: a
+	// save runs on another connection, which can't see uncommitted rows and
+	// would wait on the UPDATE's row locks.
+	returningUncommitted = "your transaction isn't committed yet"
 )
 
 // returnable is an UPDATE in a run that could get RETURNING *.

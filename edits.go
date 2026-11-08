@@ -234,6 +234,7 @@ func (r *relation) keyNames() []string {
 type editPlan struct {
 	reason        string // why the result is read-only; "" if it may be editable
 	inTransaction bool   // the editor was inside a transaction, so nothing was added
+	returning     bool   // the rows came from UPDATE … RETURNING * (planReturning)
 	rel           *relation
 	added         []string // aliases of the key columns added at the end; nil if none
 	insertion     insertion
@@ -392,6 +393,9 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		// Nothing added: the result must show the whole primary key.
 		if len(rel.primaryKey) == 0 {
 			clearSources()
+			if p.returning {
+				return nil, nil, "the table has no primary key"
+			}
 			if p.inTransaction {
 				return nil, nil, "no primary key, inside a transaction"
 			}

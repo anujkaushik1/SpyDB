@@ -256,6 +256,11 @@ export interface StatementResult {
     "readOnly": string;
 
     /**
+     * what SpyDB changed in the SQL, e.g. "RETURNING * added by SpyDB"
+     */
+    "note": string;
+
+    /**
      * first page; values as text; nil is SQL NULL
      */
     "rows": ((string | null)[] | null)[] | null;

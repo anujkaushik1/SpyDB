@@ -362,6 +362,7 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
           {result.target
             ? ` · editable (${result.target.schema}.${result.target.table}${result.target.kind === 'ctid' ? ', no primary key' : ''})`
             : ` · read-only${result.readOnly ? `: ${result.readOnly}` : ''}`}
+          {result.note && ` · ${result.note}`}
           {pageError && <span className="page-error"> · {pageError}</span>}
         </span>
         <div className="grid-pager">

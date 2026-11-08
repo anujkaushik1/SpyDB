@@ -32,6 +32,7 @@ type StatementResult struct {
 	Columns    []Column    `json:"columns"`
 	Target     *EditTarget `json:"target"`     // where edited cells save to; nil means read-only
 	ReadOnly   string      `json:"readOnly"`   // why it's read-only, e.g. "a join"
+	Note       string      `json:"note"`       // what SpyDB changed in the SQL, e.g. "RETURNING * added by SpyDB"
 	Rows       [][]*string `json:"rows"`       // first page; values as text; nil is SQL NULL
 	Keys       [][]*string `json:"keys"`       // per row of Rows, its key (Target.Key); empty when read-only
 	RowCount   int         `json:"rowCount"`   // rows the statement returned
@@ -137,9 +138,13 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		return QueryResult{}, qe
 	}
 	durationMs := int(time.Since(started).Milliseconds())
+	// Rows an UPDATE returned are editable only if nothing is left
+	// uncommitted (see returningUncommitted).
+	committed := conn.PgConn().TxStatus() == 'I'
 	// The session's role and formats, for saves (and exports that run again).
 	var session map[string]string
-	if plan.reason == "" && len(statements) > 0 && len(statements[len(statements)-1].columns) > 0 {
+	if plan.reason == "" && len(statements) > 0 && len(statements[len(statements)-1].columns) > 0 ||
+		returning.added != nil && committed {
 		session = sessionOf(ctx, conn)
 	}
 
@@ -156,18 +161,23 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		st := &statements[i]
 		var target *EditTarget
 		var keys [][]*string
-		var readOnly string
+		var readOnly, note string
 		returned := false
 		if strings.HasPrefix(st.command, "UPDATE ") {
 			returned = returning.ordinals[updates]
 			updates++
 		}
+		if returned {
+			note = returningNote
+		}
 		if len(st.columns) > 0 {
 			switch {
-			case returned:
-				readOnly = returningNote
+			case returned && !committed:
+				readOnly = returningUncommitted
 			case pool == nil:
 				readOnly = "not connected"
+			case returned:
+				target, keys, readOnly = editPlan{returning: true}.resolve(ctx, pool, session, st)
 			default:
 				target, keys, readOnly = plan.resolve(ctx, pool, session, st)
 			}
@@ -180,6 +190,7 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 			Columns:    st.columns,
 			Target:     target,
 			ReadOnly:   readOnly,
+			Note:       note,
 			Rows:       page(st.rows, 0),
 			Keys:       page(keys, 0),
 			RowCount:   st.rowCount,
