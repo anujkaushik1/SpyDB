@@ -40,6 +40,13 @@ export function ChooseExportFile(suggestedName: string, format: string): $Cancel
 }
 
 /**
+ * ChooseImportFile shows the Open dialog for a CSV or Excel file; "" if cancelled.
+ */
+export function ChooseImportFile(): $CancellablePromise<string> {
+    return $Call.ByID(3959967681);
+}
+
+/**
  * ClearRecent empties the Recent list.
  */
 export function ClearRecent(): $CancellablePromise<void> {
@@ -121,6 +128,13 @@ export function ForgetRun(tab: string): $CancellablePromise<void> {
 }
 
 /**
+ * ImportTargetColumns lists an existing table's columns for matching.
+ */
+export function ImportTargetColumns(schema: string, table: string): $CancellablePromise<$models.ImportTargetColumn[] | null> {
+    return $Call.ByID(3115908994, schema, table);
+}
+
+/**
  * ListColumns returns every table's and view's columns (the relations
  * ListTables lists), in one catalog query on the pool.
  */
@@ -144,6 +158,14 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
 }
 
 /**
+ * PreviewImport reads the whole file: the first rows to show, the row
+ * count, and for a new table suggested names, types and a primary key.
+ */
+export function PreviewImport(opts: $models.ImportOptions): $CancellablePromise<$models.ImportPreview> {
+    return $Call.ByID(2233282824, opts);
+}
+
+/**
  * RenameQuery changes only a saved query's name.
  */
 export function RenameQuery(id: string, name: string): $CancellablePromise<$models.SavedQuery> {
@@ -155,6 +177,15 @@ export function RenameQuery(id: string, name: string): $CancellablePromise<$mode
  */
 export function RevealFile(path: string): $CancellablePromise<void> {
     return $Call.ByID(2947400668, path);
+}
+
+/**
+ * RunImport imports the file in one transaction on a pool connection (not
+ * the SQL editor's, so a transaction left open there can't swallow it),
+ * with the editor session's role and formats when it's free to ask.
+ */
+export function RunImport(req: $models.ImportRequest): $CancellablePromise<$models.ImportResult> {
+    return $Call.ByID(565754781, req);
 }
 
 /**

@@ -4,6 +4,7 @@ import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
 import DatabasePicker from './DatabasePicker'
+import ImportDialog from './ImportDialog'
 import QueryTab from './QueryTab'
 import SavedQueriesPanel from './SavedQueriesPanel'
 import SchemaSidebar from './SchemaSidebar'
@@ -33,6 +34,8 @@ function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({}) // workspace → tab id
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // The Import a file as a new table dialog.
+  const [importOpen, setImportOpen] = useState(false)
   // Tabs with unsaved cell edits.
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set())
   // Numbers for query tabs: Query 1, Query 2, … (not reused after closing).
@@ -339,6 +342,7 @@ function App() {
             loading={schemasLoading}
             error={schemasError}
             onRefresh={loadSchemas}
+            onImportFile={() => setImportOpen(true)}
             activeTable={activeTable}
             onOpenTable={openTable}
             onOpenPalette={() => setPaletteOpen(true)}
@@ -396,6 +400,19 @@ function App() {
         </SqlSchemaContext.Provider>
       </div>
 
+      {connection && importOpen && (
+        <ImportDialog
+          mode="new"
+          schema={schemas?.some((s) => s.name === 'public') ? 'public' : schemas?.[0]?.name ?? 'public'}
+          schemas={(schemas ?? []).map((s) => s.name)}
+          onClose={() => setImportOpen(false)}
+          onImported={(r) => {
+            loadSchemas()
+            const quote = (name: string) => (/^[a-z_][a-z0-9_]*$/.test(name) ? name : `"${name.replace(/"/g, '""')}"`)
+            openTable({ schema: r.schema, name: r.table, kind: 'table', qualifiedName: `${quote(r.schema)}.${quote(r.table)}`, estimatedRows: r.rows })
+          }}
+        />
+      )}
       {connection && paletteOpen && (
         <TablePalette
           schemas={schemas ?? []}

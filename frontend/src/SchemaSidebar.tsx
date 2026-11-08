@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
-import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner } from './icons'
+import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
 import { isMac } from './platform'
@@ -12,6 +12,7 @@ type Props = {
   loading: boolean
   error: string | null
   onRefresh: () => void
+  onImportFile: () => void // import a CSV / Excel file as a new table
   activeTable: string | null // qualifiedName of the table in the active tab
   onOpenTable: (table: TableInfo) => void
   onOpenPalette: () => void
@@ -101,6 +102,10 @@ export default function SchemaSidebar(props: Props) {
           Tables &amp; views
           {schemas && <span className="sidebar-count">{total}</span>}
         </span>
+        <button type="button" className="sidebar-icon-btn sidebar-import-btn" onClick={props.onImportFile}
+                aria-label="Import a file as a new table" title="Import a CSV or Excel file as a new table">
+          <UploadIcon />
+        </button>
         <button type="button" className="sidebar-icon-btn" onClick={onRefresh} disabled={loading}
                 aria-label="Refresh tables" title="Refresh">
           {loading ? <Spinner /> : <RefreshIcon />}

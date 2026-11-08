@@ -20,6 +20,8 @@ A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go 
 - **JSON:** an editor for `json`/`jsonb` cells that keeps big numbers exact, and View as JSON to read or edit whole rows.
 - **Copy** rows as JSON, CSV, tab-separated text or Markdown.
 - **Export** query results, filtered rows or whole tables to CSV or Excel, streamed straight to the file.
+- **Import** a CSV or Excel file into an existing table (columns matched by name) or as a new table (names, types and a primary key suggested from the file). It loads with `COPY` in one transaction: every row goes in, or none does, and a bad row is named ("Row 2, column balance: …").
+- **UPDATE shows what it changed:** SpyDB adds `RETURNING *` when that's safe, and the returned rows are editable once committed.
 - **Saved queries** in a left rail, shared by all connections.
 - **Active connections:** everyone connected to the server, with their state and current or last query.
 
@@ -192,7 +194,8 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `query.go` | Runs SQL, keeps results for paging |
 | `editable.go`, `edits.go` | Decides which results are editable; saves edits safely |
 | `tabledata.go`, `schema.go` | Table pages; the sidebar's schemas, tables and columns |
-| `export.go` | CSV and Excel export |
+| `export.go`, `importer.go` | CSV and Excel export; import into a table or a new one |
+| `returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
 | `connections.go`, `queries.go`, `files.go` | Saved connections and queries on disk |
 | `dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
 
@@ -204,4 +207,4 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `TableTab.tsx`, `QueryTab.tsx` | Table and query tabs |
 | `SchemaSidebar.tsx`, `DatabasePicker.tsx`, `TablePalette.tsx` | Sidebar, switcher, ⌘P |
 | `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
-| `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, active connections |
+| `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ImportDialog.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, import, active connections |

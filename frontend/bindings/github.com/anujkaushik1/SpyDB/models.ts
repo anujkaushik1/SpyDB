@@ -89,6 +89,193 @@ export interface EditTarget {
 }
 
 /**
+ * ImportChoice is what happens to one file column.
+ */
+export interface ImportChoice {
+    /**
+     * the table column it fills; "" skips it
+     */
+    "target": string;
+
+    /**
+     * new table only: the column's type
+     */
+    "type": string;
+}
+
+/**
+ * ImportColumn is one column of the file, with suggestions for a new table.
+ */
+export interface ImportColumn {
+    /**
+     * as in the file ("" without a header row)
+     */
+    "header": string;
+
+    /**
+     * suggested column name
+     */
+    "name": string;
+
+    /**
+     * suggested Postgres type, from every value
+     */
+    "type": string;
+
+    /**
+     * empty cells
+     */
+    "empty": number;
+}
+
+/**
+ * ImportOptions says which file to read and how.
+ */
+export interface ImportOptions {
+    "path": string;
+
+    /**
+     * Excel: the sheet; "" for the first
+     */
+    "sheet": string;
+
+    /**
+     * CSV: the separator; "" to detect it
+     */
+    "delimiter": string;
+
+    /**
+     * the first row holds column names
+     */
+    "hasHeader": boolean;
+}
+
+/**
+ * ImportPreview is what a file holds, read with ImportOptions.
+ */
+export interface ImportPreview {
+    /**
+     * csv or xlsx
+     */
+    "format": string;
+
+    /**
+     * Excel: every sheet
+     */
+    "sheets": string[] | null;
+
+    /**
+     * Excel: the sheet read
+     */
+    "sheet": string;
+
+    /**
+     * CSV: the separator used
+     */
+    "delimiter": string;
+    "columns": ImportColumn[] | null;
+
+    /**
+     * the first rows, as they'll be imported
+     */
+    "rows": (string[] | null)[] | null;
+
+    /**
+     * data rows (not counting the header)
+     */
+    "rowCount": number;
+
+    /**
+     * suggested name for a new table
+     */
+    "tableName": string;
+
+    /**
+     * file column suggested as primary key, or -1
+     */
+    "keyColumn": number;
+
+    /**
+     * e.g. how the file was decoded
+     */
+    "notes": string[] | null;
+}
+
+/**
+ * ImportRequest is a whole import.
+ */
+export interface ImportRequest {
+    "path": string;
+
+    /**
+     * Excel: the sheet; "" for the first
+     */
+    "sheet": string;
+
+    /**
+     * CSV: the separator; "" to detect it
+     */
+    "delimiter": string;
+
+    /**
+     * the first row holds column names
+     */
+    "hasHeader": boolean;
+
+    /**
+     * empty cells become NULL (else empty text)
+     */
+    "emptyAsNull": boolean;
+    "schema": string;
+    "table": string;
+    "newTable": boolean;
+
+    /**
+     * one per file column
+     */
+    "choices": ImportChoice[] | null;
+
+    /**
+     * new table: an id column to add as primary key, or ""
+     */
+    "addKey": string;
+
+    /**
+     * new table: file column to make the primary key, or -1
+     */
+    "keyColumn": number;
+}
+
+/**
+ * ImportResult says what an import did.
+ */
+export interface ImportResult {
+    "schema": string;
+    "table": string;
+    "rows": number;
+    "created": boolean;
+    "durationMs": number;
+}
+
+/**
+ * ImportTargetColumn is a column of an existing table, for matching.
+ */
+export interface ImportTargetColumn {
+    "name": string;
+    "type": string;
+
+    /**
+     * NOT NULL with no default: every row needs a value
+     */
+    "required": boolean;
+
+    /**
+     * GENERATED ALWAYS (identity or computed): can't be filled
+     */
+    "generated": boolean;
+}
+
+/**
  * QueryResult is what one RunQuery returns: a result per statement.
  */
 export interface QueryResult {

@@ -3,8 +3,9 @@ import { DBService, type TableFilter, type TableInfo, type TablePage } from '../
 import Banner, { errorDetail, errorMessage } from './Banner'
 import DataGrid, { type GridColumn, type Sort } from './DataGrid'
 import ExportMenu, { type ExportChoice } from './ExportMenu'
+import ImportDialog from './ImportDialog'
 import SqlEditor from './SqlEditor'
-import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from './icons'
+import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon, XIcon } from './icons'
 
 const PAGE_SIZE = 100
 
@@ -65,6 +66,7 @@ export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }
       {(sql) => (
         <TableView
           table={table}
+          onImported={onSchemaChange}
           toggle={<SqlModeToggle on={false} onToggle={toggleSql} />}
           reloadSignal={reloadSignal}
           top={sqlMode ? sql.editor : null}
@@ -80,6 +82,7 @@ export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }
 
 type TableViewProps = {
   table: TableInfo
+  onImported: () => void // rows were imported: refresh the sidebar's counts
   toggle: ReactNode // the </> button, at the start of the filter bar
   reloadSignal: number // a change reloads the rows
   top: ReactNode // replaces the filter bar (the SQL editor), or null
@@ -89,7 +92,8 @@ type TableViewProps = {
   onDirtyChange: (dirty: boolean) => void
 }
 
-function TableView({ table, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
+function TableView({ table, onImported, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
+  const [importOpen, setImportOpen] = useState(false)
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<Sort>(null)
   const [draft, setDraft] = useState<DraftFilter[]>([emptyFilter(1)])
@@ -295,6 +299,11 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
           {target?.kind === 'ctid' && ' · no primary key: rows are matched by address'}
         </span>
         <div className="grid-pager">
+          {(table.kind === 'table' || table.kind === 'partitioned table') && (
+            <button type="button" className="btn btn-secondary btn-sm export-btn" onClick={() => setImportOpen(true)}>
+              <UploadIcon /> Import
+            </button>
+          )}
           {columns.length > 0 && <ExportMenu choices={exportChoices} />}
           <button type="button" className="sidebar-icon-btn" onClick={() => setReloadToken((t) => t + 1)}
                   disabled={loading} aria-label="Reload rows" title="Reload">
@@ -316,6 +325,11 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
                   disabled={loading || !data?.hasMore} aria-label="Next page"><ChevronIcon /></button>
         </div>
       </footer>
+      {importOpen && (
+        <ImportDialog mode="existing" schema={table.schema} table={table.name} schemas={[table.schema]}
+                      onClose={() => setImportOpen(false)}
+                      onImported={() => { setReloadToken((t) => t + 1); onImported() }} />
+      )}
     </div>
   )
 
