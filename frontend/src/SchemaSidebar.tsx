@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner } from './icons'
+import { SidebarResizer, useSidebarWidth } from './resize'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
 
 type Props = {
@@ -23,6 +24,9 @@ export default function SchemaSidebar(props: Props) {
   const { schemas, loading, error, onRefresh, activeTable, onOpenTable, onOpenPalette, connection } = props
   const [filter, setFilter] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [highlighted, setHighlighted] = useState<string | null>(null) // qualifiedName picked with ↑/↓ or a click
+  const tree = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useSidebarWidth()
 
   const toggle = (schema: string) => setCollapsed((current) => {
     const next = new Set(current)
@@ -37,9 +41,57 @@ export default function SchemaSidebar(props: Props) {
   const groups = (schemas ?? [])
     .map((s) => ({ name: s.name, tables: (s.tables ?? []).filter((t) => !query || t.name.toLowerCase().includes(query)) }))
     .filter((s) => !query || s.tables.length > 0)
+  const isOpen = (schema: string) => query !== '' || !collapsed.has(schema) // filtering opens every group
+  const visible = groups.flatMap((g) => (isOpen(g.name) ? g.tables : []))
+
+  // The table ↑/↓ and Enter act on. While filtering it defaults to the first
+  // match, so typing a name and pressing Enter opens it.
+  const current = visible.find((t) => t.qualifiedName === highlighted) ?? (query ? visible[0] : undefined)
+
+  useEffect(() => {
+    tree.current?.querySelector('.tree-item.highlighted')?.scrollIntoView({ block: 'nearest' })
+  }, [current?.qualifiedName])
+
+  const changeFilter = (value: string) => {
+    setFilter(value)
+    setHighlighted(null)
+  }
+
+  const open = (table: TableInfo) => {
+    setHighlighted(table.qualifiedName)
+    onOpenTable(table)
+  }
+
+  // ↑/↓ move through the visible tables, Enter opens the highlighted one.
+  // Returns true when the key was used.
+  const navigate = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (visible.length === 0) return true
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const i = current ? visible.indexOf(current) : -1
+      const next = i === -1 ? (step === 1 ? 0 : visible.length - 1) : Math.min(Math.max(i + step, 0), visible.length - 1)
+      setHighlighted(visible[next].qualifiedName)
+      return true
+    }
+    if (e.key === 'Enter' && current) {
+      e.preventDefault()
+      open(current)
+      return true
+    }
+    return false
+  }
+
+  const onTreeKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Schema headers and Retry keep their own Enter.
+    if ((e.target as HTMLElement).closest('.tree-schema, .link-btn')) return
+    // Move focus off a clicked button onto the list, so its focus ring
+    // doesn't sit on a different row from the highlight.
+    if (navigate(e) && e.target !== tree.current) tree.current?.focus({ preventScroll: true })
+  }
 
   return (
-    <aside className="sidebar" aria-label="Tables and views">
+    <aside className="sidebar" aria-label="Tables and views" style={{ flexBasis: width }}>
       {props.databasePicker}
       <div className="sidebar-header">
         <span className="sidebar-title">
@@ -57,8 +109,11 @@ export default function SchemaSidebar(props: Props) {
         <input
           type="text"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setFilter('') }}
+          onChange={(e) => changeFilter(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') changeFilter('')
+            else navigate(e)
+          }}
           placeholder="Filter tables"
           aria-label="Filter tables"
           spellCheck={false}
@@ -71,7 +126,7 @@ export default function SchemaSidebar(props: Props) {
         </button>
       </div>
 
-      <div className="tree">
+      <div className="tree" ref={tree} tabIndex={-1} onKeyDown={onTreeKeyDown}>
         {error && (
           <p className="tree-message tree-error">
             {error} <button type="button" className="link-btn" onClick={onRefresh}>Retry</button>
@@ -83,25 +138,29 @@ export default function SchemaSidebar(props: Props) {
         )}
 
         {groups.map((schema) => {
-          // Filtering opens every group so matches are visible.
-          const open = query !== '' || !collapsed.has(schema.name)
+          const expanded = isOpen(schema.name)
           return (
             <div className="tree-group" key={schema.name}>
-              <button type="button" className="tree-schema" onClick={() => toggle(schema.name)} aria-expanded={open}>
-                <span className={open ? 'tree-chevron open' : 'tree-chevron'}><ChevronIcon /></span>
+              <button type="button" className="tree-schema" onClick={() => toggle(schema.name)} aria-expanded={expanded}>
+                <span className={expanded ? 'tree-chevron open' : 'tree-chevron'}><ChevronIcon /></span>
                 <span className="tree-label">{schema.name}</span>
                 <span className="tree-badge">{schema.tables.length}</span>
               </button>
 
-              {open && schema.tables.length === 0 && <p className="tree-empty">No tables</p>}
-              {open && schema.tables.length > 0 && (
+              {expanded && schema.tables.length === 0 && <p className="tree-empty">No tables</p>}
+              {expanded && schema.tables.length > 0 && (
                 <ul className="tree-items">
                   {schema.tables.map((t) => (
                     <li key={t.qualifiedName}>
                       <button
                         type="button"
-                        className={t.qualifiedName === activeTable ? 'tree-item active' : 'tree-item'}
-                        onClick={() => onOpenTable(t)}
+                        className={['tree-item', t.qualifiedName === activeTable && 'active', t === current && 'highlighted'].filter(Boolean).join(' ')}
+                        onClick={() => {
+                          open(t)
+                          // WebKit doesn't focus a button on click; focus the list so ↑/↓ work next.
+                          if (!tree.current?.contains(document.activeElement)) tree.current?.focus({ preventScroll: true })
+                        }}
+                        onFocus={() => setHighlighted(t.qualifiedName)}
                         title={tableTooltip(t)}
                       >
                         <span className={`tree-icon ${kindClass(t.kind)}`}><KindIcon kind={t.kind} /></span>
@@ -133,6 +192,7 @@ export default function SchemaSidebar(props: Props) {
           {props.disconnecting ? <Spinner /> : <PowerIcon />}
         </button>
       </div>
+      <SidebarResizer width={width} onResize={setWidth} />
     </aside>
   )
 }

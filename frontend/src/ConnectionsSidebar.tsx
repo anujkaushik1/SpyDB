@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ConnectionLists, SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { DatabaseIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
+import { SidebarResizer, useSidebarWidth } from './resize'
 
 // 0 → "never", 40 s → "just now", 5 min → "5 minutes ago", 3 h → "3 hours ago", …
 function timeAgo(ms: number) {
@@ -35,6 +36,7 @@ type Props = {
 export default function ConnectionsSidebar({ lists, error, selectedId, onNew, onSelect, onOpen, onDelete, onClearRecent }: Props) {
   const [filter, setFilter] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null) // asking "delete?" for this id
+  const [width, setWidth] = useSidebarWidth()
 
   const query = filter.trim().toLowerCase()
   const matches = (c: SavedConnection) =>
@@ -45,7 +47,7 @@ export default function ConnectionsSidebar({ lists, error, selectedId, onNew, on
   const recent = allRecent.filter(matches)
 
   return (
-    <aside className="sidebar" aria-label="Connections">
+    <aside className="sidebar" aria-label="Connections" style={{ flexBasis: width }}>
       <div className="sidebar-new">
         <button type="button" className="btn btn-secondary new-connection-btn" onClick={onNew}>
           <PlusIcon /> New connection
@@ -136,6 +138,7 @@ export default function ConnectionsSidebar({ lists, error, selectedId, onNew, on
           ))}
         </ul>
       </div>
+      <SidebarResizer width={width} onResize={setWidth} />
     </aside>
   )
 }

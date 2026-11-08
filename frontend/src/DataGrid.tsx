@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
+import { dragX } from './resize'
 import { cellClass, cellText } from './tableMeta'
 
 export type GridColumn = {
@@ -15,6 +16,9 @@ export type GridColumn = {
 export type Sort = { column: string; desc: boolean } | null
 
 type Cell = { row: number; col: number }
+
+const MIN_COLUMN = 56 // px
+const MAX_FIT = 640 // double-click fits a column to its values, up to this
 
 // Edited cells, keyed by the row's original primary-key values (JSON), so an
 // edit stays attached to its row across pages and reloads.
@@ -50,6 +54,41 @@ export default function DataGrid(props: Props) {
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
+  const table = useRef<HTMLTableElement>(null)
+
+  // Column widths in px ([row numbers, ...columns]) once one is resized; until
+  // then the browser sizes columns to their content. They belong to these
+  // column names, so another page keeps them and a different result starts fresh.
+  const columnKey = columns.map((c) => c.name).join('\n')
+  const [sizing, setSizing] = useState<{ key: string; widths: number[] } | null>(null)
+  const [resizing, setResizing] = useState<number | null>(null) // column being dragged
+  const widths = sizing?.key === columnKey ? sizing.widths : null
+
+  // The widths as drawn now, so the first drag doesn't make anything jump.
+  const currentWidths = () => widths
+    ?? [...(table.current?.tHead?.rows[0]?.cells ?? [])].slice(0, columns.length + 1).map((c) => c.getBoundingClientRect().width)
+
+  const setWidth = (base: number[], col: number, width: number) => {
+    const next = base.slice()
+    next[col + 1] = Math.round(width)
+    setSizing({ key: columnKey, widths: next })
+  }
+
+  const startResize = (e: PointerEvent<HTMLSpanElement>, col: number) => {
+    const base = currentWidths()
+    setResizing(col)
+    dragX(e, (dx) => setWidth(base, col, Math.max(MIN_COLUMN, base[col + 1] + dx)), () => setResizing(null))
+  }
+
+  // Double-click a column's edge: fit it to its header and the values on this page.
+  const fitColumn = (col: number) => {
+    let fit = MIN_COLUMN
+    for (const row of table.current?.rows ?? []) {
+      const cell = row.cells[col + 1]
+      if (cell) fit = Math.max(fit, contentWidth(cell))
+    }
+    setWidth(currentWidths(), col, Math.min(fit, MAX_FIT))
+  }
 
   const keyIndexes = columns.flatMap((c, i) => (c.primaryKey && c.source ? [i] : []))
   const canEdit = target !== null && keyIndexes.length > 0
@@ -200,7 +239,15 @@ export default function DataGrid(props: Props) {
     <>
       <div className={props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown}>
         {columns.length > 0 && (
-          <table className="grid">
+          <table className={widths ? 'grid sized' : 'grid'} ref={table}
+                 style={widths ? { width: widths.reduce((sum, w) => sum + w, 0) } : undefined}>
+            {widths && (
+              <colgroup>
+                {widths.map((w, k) => <col key={k} style={{ width: w }} />)}
+                {/* the filler column takes any space left over */}
+                <col />
+              </colgroup>
+            )}
             <thead>
               <tr>
                 <th className="grid-rownum" aria-label="Row number" />
@@ -226,9 +273,13 @@ export default function DataGrid(props: Props) {
                       ) : (
                         <div className="grid-head static">{label}</div>
                       )}
+                      <span className={resizing === i ? 'col-resizer dragging' : 'col-resizer'} aria-hidden="true"
+                            title="Drag to resize · double-click to fit"
+                            onPointerDown={(e) => startResize(e, i)} onDoubleClick={() => fitColumn(i)} />
                     </th>
                   )
                 })}
+                {widths && <th className="grid-filler" aria-hidden="true" />}
               </tr>
             </thead>
             <tbody>
@@ -261,6 +312,7 @@ export default function DataGrid(props: Props) {
                       </td>
                     )
                   })}
+                  {widths && <td className="grid-filler" aria-hidden="true" />}
                 </tr>
               ))}
             </tbody>
@@ -291,6 +343,25 @@ export default function DataGrid(props: Props) {
       )}
     </>
   )
+}
+
+// The width a cell needs to show everything without cutting it off.
+function contentWidth(cell: HTMLTableCellElement) {
+  const style = getComputedStyle(cell)
+  const edges = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderRightWidth)
+  const head = cell.tagName === 'TH' ? cell.querySelector<HTMLElement>('.grid-head') : null
+  if (head) {
+    // Header: its parts side by side (key, name, type, sort arrow) plus gaps and padding.
+    const parts = [...head.children] as HTMLElement[]
+    const headStyle = getComputedStyle(head)
+    const gaps = parseFloat(headStyle.columnGap || '0') * Math.max(parts.length - 1, 0)
+    return parts.reduce((sum, p) => sum + p.offsetWidth, 0) + gaps
+      + parseFloat(headStyle.paddingLeft) + parseFloat(headStyle.paddingRight) + edges + 1
+  }
+  // Value: the text's laid-out width, which ignores the cell's clipping.
+  const range = document.createRange()
+  range.selectNodeContents(cell)
+  return Math.ceil(range.getBoundingClientRect().width + edges) + 1
 }
 
 type EditorProps = {
