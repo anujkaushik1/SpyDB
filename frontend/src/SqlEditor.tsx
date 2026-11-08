@@ -279,13 +279,16 @@ type StatementProps = {
 
 function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirtyChange }: StatementProps) {
   const columns = result.columns ?? []
-  // A result straight from one table with its primary key can be edited (result.target).
+  // A plain SELECT from one table can be edited (result.target): each row
+  // comes with its key, even when the key columns aren't shown.
   const gridColumns: GridColumn[] = columns.map((c) => ({
     name: c.name, type: c.type, category: typeCategory(c.type), primaryKey: c.primaryKey, source: c.source,
   }))
   const [page, setPage] = useState(0)
-  const [rows, setRows] = useState(result.rows ?? [])
-  const gridRows = useMemo(() => rows.map((r) => r ?? []), [rows])
+  const [shown, setShown] = useState({ rows: result.rows ?? [], keys: result.keys ?? [] })
+  const rows = shown.rows
+  const gridRows = useMemo(() => shown.rows.map((r) => r ?? []), [shown])
+  const gridKeys = useMemo(() => shown.keys.map((k) => k ?? []), [shown])
   const [loading, setLoading] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const tableWrap = useRef<HTMLDivElement>(null)
@@ -318,7 +321,8 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
     setLoading(true)
     setPageError(null)
     try {
-      setRows((await DBService.FetchRows(tabId, runId, index, next * pageSize)) ?? [])
+      const fetched = await DBService.FetchRows(tabId, runId, index, next * pageSize)
+      setShown({ rows: fetched.rows ?? [], keys: fetched.keys ?? [] })
       setPage(next)
       tableWrap.current?.scrollTo({ top: 0 })
     } catch (err) {
@@ -340,6 +344,8 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
         rows={gridRows}
         firstRowNumber={offset + 1}
         target={result.target ?? null}
+        rowKeys={gridKeys}
+        readOnlyReason={result.readOnly}
         keepSavedValues
         onDirtyChange={(dirty) => onDirtyChange(index, dirty)}
         wrapClass={bleed ? 'grid-wrap' : 'result-box'}
@@ -353,7 +359,9 @@ function StatementOutput({ tabId, runId, index, pageSize, result, bleed, onDirty
             ? `Rows ${(offset + 1).toLocaleString()}–${(offset + rows.length).toLocaleString()} of ${result.rowCount.toLocaleString()}`
             : result.rowCount === 1 ? '1 row' : `${result.rowCount.toLocaleString()} rows`}
           {result.rowCount > result.storedRows && ` · only the first ${result.storedRows.toLocaleString()} can be paged`}
-          {result.target ? ` · editable (${result.target.schema}.${result.target.table})` : ' · read-only'}
+          {result.target
+            ? ` · editable (${result.target.schema}.${result.target.table}${result.target.kind === 'ctid' ? ', no primary key' : ''})`
+            : ` · read-only${result.readOnly ? `: ${result.readOnly}` : ''}`}
           {pageError && <span className="page-error"> · {pageError}</span>}
         </span>
         <div className="grid-pager">

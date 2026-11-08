@@ -48,12 +48,14 @@ Click **</>** in a table tab to write SQL: the filter bar becomes an editor pre-
 
 ## Editing cells
 
-Table rows, and query results that come straight from one table with its primary key, can be edited in place:
+Table rows, and query results of a plain `SELECT` from one table, can be edited in place, even when the primary key isn't among the columns:
 
 - Click a cell to select it; double-click, press Enter, or just type to edit. Enter moves down, Tab moves sideways, Esc cancels, **NULL** sets NULL.
 - Edited cells are tinted and wait in a bar at the bottom: **Discard** or **Save changes** (⌘S). The tab shows a dot while edits are unsaved.
-- `DBService.SaveRows` sends them as `UPDATE … WHERE <primary key>` in one transaction on its own connection: either every row saves or none does. A bad value (e.g. text in a number column) shows Postgres's error and keeps your edits.
-- Views, tables without a primary key, joins and computed columns are read-only.
+- Each row is found again by its primary key. If the query doesn't select it, `RunQuery` adds it as hidden columns (never shown, copied or exported). A table without a primary key uses each row's `ctid` (its address) plus an MD5 of the whole row, so an edit never lands on a different row, even one that later reuses the address.
+- `DBService.SaveRows` sends them as `UPDATE … WHERE <that row> AND <each edited cell still holds its old value>` in one transaction on its own connection: either every row saves or none does. If someone changed or deleted the row since it loaded, nothing is saved and the bar says so. A bad value (e.g. text in a number column) shows Postgres's error and keeps your edits.
+- Saves run as the query tab's role (after `SET ROLE`) with its `search_path` and date/number settings, so values read the same way and privileges apply as in the tab. A date or time shown in a form Postgres reads back differently (e.g. `IST`, which it reads as Israel time, under `DateStyle = SQL`) is refused rather than saved wrong; `SET DateStyle = ISO` (the default) avoids that.
+- Read-only, with the reason in the footer: joins (self-joins too), `GROUP BY`, `DISTINCT`, `UNION`, `WITH`, subqueries in `FROM`, several statements in one run, views, system catalogs, temporary tables, tables other tables inherit from, tables your role can't update, rows that repeat (e.g. `unnest` in the columns), and computed columns. Inside an open transaction only results that show the whole primary key are editable.
 
 ## Export
 
@@ -145,6 +147,7 @@ Notes:
 - `schema.go` — `ListTables`: schemas with their tables and views
 - `tabledata.go` — `TableData`: one page of a table, sorted and filtered
 - `edits.go` — `SaveRows` (cell edits → UPDATEs) and which query results are editable
+- `editable.go` — reads a query's SQL to tell a plain single-table `SELECT` from everything else, and adds hidden key columns
 - `export.go` — CSV / Excel export (`ChooseExportFile`, `ExportResult`, `ExportTable`)
 - `connections.go` — saved and recent connections (`connections.json`)
 - `frontend/src/App.tsx` — window shell (title bar)

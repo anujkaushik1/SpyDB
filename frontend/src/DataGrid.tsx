@@ -29,15 +29,24 @@ type Cell = { row: number; col: number }
 const MIN_COLUMN = 56 // px
 const MAX_FIT = 2400 // double-click fits a column to its values, up to this (the cell limit in style.css)
 
-// Edited cells, keyed by the row's original primary-key values (JSON), so an
-// edit stays attached to its row across pages and reloads.
-type Edits = Record<string, { key: Record<string, string | null>; values: Record<string, string | null> }>
+type Values = Record<string, string | null> // column (or key name) → value; null is NULL
+
+// Edited cells, keyed by the row's key as loaded (JSON), so an edit stays
+// attached to its row across pages. `key` finds the row when saving, `old`
+// holds each edited cell's value before the edit (the save checks nobody
+// changed it meanwhile).
+type Edits = Record<string, { key: Values; old: Values; values: Values }>
+// Rows saved from query results, which aren't reloaded: their new key (a
+// ctid changes on every save) and values as Postgres now shows them.
+type Saved = Record<string, { key: Values; values: Values }>
 
 type Props = {
   columns: GridColumn[]
   rows: (string | null)[][]
   firstRowNumber: number
   target: EditTarget | null // where edits save; null = read-only
+  rowKeys: (string | null)[][] // per row, its key (target.key); from Go, never shown
+  readOnlyReason?: string // why it can't be edited, e.g. "a join"
   keepSavedValues?: boolean // query results: show saved values (the rows aren't reloaded)
   onSaved?: () => void // after a successful save; table tabs reload their rows
   onDirtyChange?: (dirty: boolean) => void
@@ -48,16 +57,17 @@ type Props = {
   children?: ReactNode // shown under the table, e.g. "This table is empty."
 }
 
-// The grid of rows. When `target` is set and the primary key is among the
-// columns, cells can be edited: click to select, double-click / Enter / type
-// to edit. Changes wait in a bar at the bottom until Save, which sends them
-// as UPDATEs in one transaction (DBService.SaveRows).
+// The grid of rows. When `target` is set, every row comes with its key
+// (rowKeys: primary key, or ctid + row hash; the key columns may not be
+// shown) and cells can be edited: click to select, double-click / Enter /
+// type to edit. Changes wait in a bar at the bottom until Save, which sends
+// them as UPDATEs in one transaction (DBService.SaveRows).
 export default function DataGrid(props: Props) {
-  const { columns, rows, firstRowNumber, target, keepSavedValues, onSaved, onDirtyChange, sort, onSort } = props
+  const { columns, rows, rowKeys, firstRowNumber, target, keepSavedValues, onSaved, onDirtyChange, sort, onSort } = props
   const [selected, setSelected] = useState<Cell | null>(null)
   const [editing, setEditing] = useState<{ cell: Cell; initial: string; typed: boolean } | null>(null)
   const [pending, setPending] = useState<Edits>({})
-  const [saved, setSaved] = useState<Edits>({})
+  const [saved, setSaved] = useState<Saved>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<{ message: string; detail?: string } | null>(null)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
@@ -106,26 +116,31 @@ export default function DataGrid(props: Props) {
     setWidth(currentWidths(), col, Math.min(fit, MAX_FIT))
   }
 
-  const keyIndexes = columns.flatMap((c, i) => (c.primaryKey && c.source ? [i] : []))
-  const canEdit = target !== null && keyIndexes.length > 0
+  const keyNames = target?.key ?? []
+  const canEdit = target !== null && keyNames.length > 0 && rowKeys.length === rows.length
   const isEditable = (col: number) => canEdit && columns[col]?.source !== ''
   const isJson = (col: number) => columns[col]?.category === 'json'
 
-  const rowId = (row: (string | null)[]) => JSON.stringify(keyIndexes.map((i) => row[i]))
+  // Rows are told apart by their key as loaded; after a save, `saved` holds
+  // the key that finds the row now.
+  const rowId = (r: number) => JSON.stringify(rowKeys[r] ?? [])
+  const currentKey = (r: number): Values =>
+    saved[rowId(r)]?.key ?? Object.fromEntries(keyNames.map((name, j) => [name, rowKeys[r]?.[j] ?? null]))
   // The value without unsaved edits: saved (query results) or as loaded.
-  const baseValue = (row: (string | null)[], col: number) => {
-    const values = saved[rowId(row)]?.values
+  const baseValue = (r: number, col: number) => {
+    const values = saved[rowId(r)]?.values
     const source = columns[col].source
-    return values && source in values ? values[source] : row[col]
+    return values && source && source in values ? values[source] : rows[r][col]
   }
-  const shownValue = (row: (string | null)[], col: number) => {
-    const values = pending[rowId(row)]?.values
+  const shownValue = (r: number, col: number) => {
+    const values = pending[rowId(r)]?.values
     const source = columns[col].source
-    return values && source && source in values ? values[source] : baseValue(row, col)
+    return values && source && source in values ? values[source] : baseValue(r, col)
   }
-  const isChanged = (row: (string | null)[], col: number) => {
-    const values = pending[rowId(row)]?.values
-    return !!values && columns[col].source in values
+  const isChanged = (r: number, col: number) => {
+    const values = pending[rowId(r)]?.values
+    const source = columns[col].source
+    return !!values && !!source && source in values
   }
 
   const changedRows = Object.keys(pending).length
@@ -159,19 +174,22 @@ export default function DataGrid(props: Props) {
 
   // Returns `edits` with one cell set; setting it back to its base value drops the edit.
   const withCell = (edits: Edits, cell: Cell, value: string | null): Edits => {
-    const row = rows[cell.row]
-    const id = rowId(row)
+    const id = rowId(cell.row)
     const source = columns[cell.col].source
-    const entry = edits[id] ?? {
-      key: Object.fromEntries(keyIndexes.map((i) => [columns[i].source, baseValue(row, i)])),
-      values: {},
-    }
+    const base = baseValue(cell.row, cell.col)
+    const entry = edits[id] ?? { key: currentKey(cell.row), old: {}, values: {} }
     const values = { ...entry.values }
-    if (value === baseValue(row, cell.col)) delete values[source]
-    else values[source] = value
+    const old = { ...entry.old }
+    if (value === base) {
+      delete values[source]
+      delete old[source]
+    } else {
+      values[source] = value
+      old[source] = base
+    }
     const next = { ...edits }
     if (Object.keys(values).length === 0) delete next[id]
-    else next[id] = { key: entry.key, values }
+    else next[id] = { key: entry.key, old, values }
     return next
   }
 
@@ -180,12 +198,18 @@ export default function DataGrid(props: Props) {
     setSaving(true)
     setSaveError(null)
     try {
-      const rowEdits: RowEdit[] = Object.values(edits).map((e) => ({ key: e.key, values: e.values }))
-      const count = await DBService.SaveRows(target, rowEdits)
+      const ids = Object.keys(edits)
+      const rowEdits: RowEdit[] = ids.map((id) => edits[id])
+      const savedRows = (await DBService.SaveRows(target, rowEdits)) ?? []
+      const count = savedRows.length
       if (keepSavedValues) {
+        // One saved row per edit, in order: keep its new key and values.
         setSaved((current) => {
           const next = { ...current }
-          for (const [id, e] of Object.entries(edits)) next[id] = { key: e.key, values: { ...next[id]?.values, ...e.values } }
+          ids.forEach((id, k) => {
+            const row = savedRows[k] as { key: Values | null; values: Values | null } | undefined
+            next[id] = { key: row?.key ?? edits[id].key, values: { ...next[id]?.values, ...(row?.values ?? edits[id].values) } }
+          })
           return next
         })
       }
@@ -210,7 +234,7 @@ export default function DataGrid(props: Props) {
     if (isJson(cell.col)) return openJson(cell)
     if (!isEditable(cell.col)) return
     setSelected(cell)
-    setEditing({ cell, initial: typed ?? shownValue(rows[cell.row], cell.col) ?? '', typed: typed !== undefined })
+    setEditing({ cell, initial: typed ?? shownValue(cell.row, cell.col) ?? '', typed: typed !== undefined })
   }
 
   // result: the new value, or null when the edit was cancelled or left unchanged.
@@ -276,7 +300,7 @@ export default function DataGrid(props: Props) {
     copy(formatRows(format, columns, picked), `Copied ${picked.length} row${picked.length === 1 ? '' : 's'} as ${FORMAT_LABELS[format]}`)
   }
   const copyCell = (cell: Cell) =>
-    copy(formatValue(shownValue(rows[cell.row], cell.col), columns[cell.col].category), 'Copied value')
+    copy(formatValue(shownValue(cell.row, cell.col), columns[cell.col].category), 'Copied value')
 
   // Right-click: a row outside the selection becomes the selection, like Beekeeper.
   const openMenu = (e: MouseEvent, row: number, col: number | null) => {
@@ -309,7 +333,7 @@ export default function DataGrid(props: Props) {
     wrap.current?.focus({ preventScroll: true })
   }
   // Selected rows top to bottom, values as shown (unsaved edits included).
-  const shownRows = (indexes: number[]) => indexes.map((i) => rows[i].map((_, j) => shownValue(rows[i], j)))
+  const shownRows = (indexes: number[]) => indexes.map((i) => rows[i].map((_, j) => shownValue(i, j)))
 
   // Edited "View as JSON": changed fields become unsaved cell edits, like typed
   // ones. A rule broken (key removed, primary key changed…) comes back as a
@@ -478,13 +502,13 @@ export default function DataGrid(props: Props) {
                     {firstRowNumber + i}
                   </td>
                   {row.map((_, j) => {
-                    const value = shownValue(row, j)
+                    const value = shownValue(i, j)
                     const category = columns[j].category
                     const isSelected = selected?.row === i && selected?.col === j
                     const isEditing = editing?.cell.row === i && editing?.cell.col === j
                     const classes = [
                       cellClass(value, category),
-                      isChanged(row, j) && 'cell-changed',
+                      isChanged(i, j) && 'cell-changed',
                       isSelected && 'cell-selected',
                       isEditing && 'cell-editing',
                     ].filter(Boolean).join(' ')
@@ -544,7 +568,7 @@ export default function DataGrid(props: Props) {
             title={columns[jsonCell.col].name}
             tag={columns[jsonCell.col].type}
             note={`row ${(firstRowNumber + jsonCell.row).toLocaleString()}`}
-            value={shownValue(rows[jsonCell.row], jsonCell.col)}
+            value={shownValue(jsonCell.row, jsonCell.col)}
             readOnly={!isEditable(jsonCell.col)}
             onApply={(value) => applyJson(jsonCell, value)}
             onClose={closeJson}
@@ -559,7 +583,7 @@ export default function DataGrid(props: Props) {
             note={`${columns.length} column${columns.length === 1 ? '' : 's'}`}
             value={rowsAsJson(columns, shownRows(rowJson))}
             readOnly={!canEdit}
-            readOnlyNote={`This result can’t be edited (it needs one table and its primary key). ${shortcut('F')} to search; Copy still works.`}
+            readOnlyNote={`This result can’t be edited${props.readOnlyReason ? ` (${props.readOnlyReason})` : ''}. ${shortcut('F')} to search; Copy still works.`}
             hint={`Apply keeps changed fields as unsaved edits until you save (${shortcut('S')}). Keys and the primary key can’t change.`}
             allowNull={false}
             onApply={(text) => applyRowJson(rowJson, text)}

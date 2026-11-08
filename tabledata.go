@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,8 +40,11 @@ type TableColumn struct {
 // TablePage is one page of rows.
 type TablePage struct {
 	Columns    []TableColumn `json:"columns"`
-	Rows       [][]*string   `json:"rows"`    // values as text; nil is SQL NULL
-	HasMore    bool          `json:"hasMore"` // another page follows
+	Rows       [][]*string   `json:"rows"`     // values as text; nil is SQL NULL
+	Target     *EditTarget   `json:"target"`   // where edited cells save to; nil means read-only
+	ReadOnly   string        `json:"readOnly"` // why it's read-only, e.g. "a view"
+	Keys       [][]*string   `json:"keys"`     // per row, its key (Target.Key); empty when read-only
+	HasMore    bool          `json:"hasMore"`  // another page follows
 	DurationMs int           `json:"durationMs"`
 }
 
@@ -60,24 +64,38 @@ var filterOperators = map[string]string{
 	"is_not_null": "%s IS NOT NULL",
 }
 
+// The cast type is the column's type without its length or precision,
+// under its own schema and internal name (pg_catalog."varchar", not
+// character varying(3)), and for a domain its base type: an explicit cast to
+// varchar(3) or a domain over it silently cuts 'ABCDEF' to 'ABC', where
+// storing an unlimited varchar into the column raises "value too long".
 const columnsQuery = `
 SELECT a.attname,
-       format_type(a.atttypid, a.atttypmod),
+       pg_catalog.format_type(a.atttypid, a.atttypmod),
        t.typname,
        t.typcategory::text,
-       coalesce(a.attnum = ANY (i.indkey), false)
-FROM pg_attribute a
-JOIN pg_class c ON c.oid = a.attrelid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-JOIN pg_type t ON t.oid = a.atttypid
-LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary
+       coalesce(a.attnum = ANY ((i.indkey::int2[])[0:i.indnkeyatts - 1]), false),
+       (WITH RECURSIVE base(oid, depth) AS (
+            SELECT a.atttypid, 0
+            UNION ALL
+            SELECT bt.typbasetype, base.depth + 1 FROM base JOIN pg_catalog.pg_type bt ON bt.oid = base.oid WHERE bt.typtype = 'd')
+        SELECT pg_catalog.format('%I.%I', bn.nspname, bt.typname)
+        FROM base JOIN pg_catalog.pg_type bt ON bt.oid = base.oid JOIN pg_catalog.pg_namespace bn ON bn.oid = bt.typnamespace
+        ORDER BY base.depth DESC LIMIT 1)
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+LEFT JOIN pg_catalog.pg_index i ON i.indrelid = c.oid AND i.indisprimary
 WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY a.attnum`
 
-// column is a TableColumn plus its full SQL type, used for casts.
+// column is a TableColumn plus its SQL types.
 type column struct {
 	TableColumn
-	sqlType string // from format_type, e.g. "numeric(12,2)"
+	sqlType     string // from format_type, e.g. "numeric(12,2)"
+	castType    string // what edited values are cast to, e.g. pg_catalog."numeric"
+	typCategory string // pg_type.typcategory, e.g. D for dates and times
 }
 
 // TableData returns one page of a table or view, sorted and filtered, using
@@ -98,7 +116,36 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 	if err != nil {
 		return TablePage{}, err
 	}
-	sql, args, err := buildTableQuery(q, columns)
+
+	// Rows save back by primary key; a table without one gets each row's
+	// ctid and hash as extra columns, kept out of the grid.
+	page := TablePage{Rows: [][]*string{}, Keys: [][]*string{}}
+	rel, err := findRelation(ctx, pool, "n.nspname = $1 AND c.relname = $2", q.Schema, q.Table)
+	if err != nil {
+		return TablePage{}, toQueryError(err)
+	}
+	var extra []string
+	var keyAt []int // positions of the key values in each row
+	switch {
+	case rel == nil:
+		page.ReadOnly = "table not found"
+	case rel.readOnly() != "":
+		page.ReadOnly = rel.readOnly()
+	case rel.keyKind() == "ctid":
+		extra = rel.keyColumns(pgx.Identifier{q.Table}.Sanitize())
+		keyAt = []int{len(columns), len(columns) + 1}
+	default:
+		for _, name := range rel.primaryKey {
+			keyAt = append(keyAt, slices.IndexFunc(columns, func(c column) bool { return c.Name == name }))
+		}
+	}
+	if keyAt != nil && !slices.Contains(keyAt, -1) {
+		page.Target = &EditTarget{OID: rel.oid, Schema: rel.schema, Table: rel.name, Kind: rel.keyKind(), Key: rel.keyNames()}
+	} else if keyAt != nil {
+		page.ReadOnly, keyAt, extra = "SpyDB couldn't find the primary key", nil, nil
+	}
+
+	sql, args, err := buildTableQuery(q, columns, extra)
 	if err != nil {
 		return TablePage{}, err
 	}
@@ -110,7 +157,6 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 	}
 	defer rows.Close()
 
-	page := TablePage{Rows: [][]*string{}}
 	for _, c := range columns {
 		page.Columns = append(page.Columns, c.TableColumn)
 	}
@@ -123,7 +169,14 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 				row[i] = &text
 			}
 		}
-		page.Rows = append(page.Rows, row)
+		if page.Target != nil {
+			key := make([]*string, len(keyAt))
+			for j, at := range keyAt {
+				key[j] = row[at]
+			}
+			page.Keys = append(page.Keys, key)
+		}
+		page.Rows = append(page.Rows, row[:len(columns)])
 	}
 	if err := rows.Err(); err != nil {
 		return TablePage{}, toQueryError(err)
@@ -133,6 +186,12 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 	if len(page.Rows) > q.PageSize {
 		page.Rows = page.Rows[:q.PageSize]
 		page.HasMore = true
+		if page.Target != nil {
+			page.Keys = page.Keys[:q.PageSize]
+		}
+	}
+	if page.Target != nil && !distinctKeys(page.Keys) {
+		page.Target, page.Keys, page.ReadOnly = nil, [][]*string{}, "rows repeat"
 	}
 	page.DurationMs = int(time.Since(started).Milliseconds())
 	return page, nil
@@ -149,9 +208,10 @@ func tableColumns(ctx context.Context, q querier, schema, table string) ([]colum
 	for rows.Next() {
 		var c column
 		var typname, category string
-		if err := rows.Scan(&c.Name, &c.sqlType, &typname, &category, &c.PrimaryKey); err != nil {
+		if err := rows.Scan(&c.Name, &c.sqlType, &typname, &category, &c.PrimaryKey, &c.castType); err != nil {
 			return nil, err
 		}
+		c.typCategory = category
 		c.Type = shortType(c.sqlType, typname, category)
 		c.Category = valueCategory(typname, category)
 		columns = append(columns, c)
@@ -167,7 +227,8 @@ func tableColumns(ctx context.Context, q querier, schema, table string) ([]colum
 
 // buildTableQuery turns q into SQL plus parameters. Column names are only
 // ever taken from the catalog and quoted; typed values travel as parameters.
-func buildTableQuery(q TableQuery, columns []column) (string, []any, error) {
+// extra expressions are selected after the columns.
+func buildTableQuery(q TableQuery, columns []column, extra []string) (string, []any, error) {
 	byName := map[string]column{}
 	names := make([]string, len(columns))
 	var primaryKey []string
@@ -208,7 +269,7 @@ func buildTableQuery(q TableQuery, columns []column) (string, []any, error) {
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "SELECT %s FROM %s", strings.Join(names, ", "), pgx.Identifier{q.Schema, q.Table}.Sanitize())
+	fmt.Fprintf(&sb, "SELECT %s FROM %s", strings.Join(append(names, extra...), ", "), pgx.Identifier{q.Schema, q.Table}.Sanitize())
 	if len(where) > 0 {
 		sb.WriteString(" WHERE " + strings.Join(where, " AND "))
 	}

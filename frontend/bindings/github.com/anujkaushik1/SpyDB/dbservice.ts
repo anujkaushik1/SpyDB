@@ -109,7 +109,7 @@ export function ExportTable(e: $models.TableExport, path: string, format: string
  * FetchRows returns one page of a statement's rows from a tab's latest run,
  * starting at offset. The rows are already in memory; nothing goes to Postgres.
  */
-export function FetchRows(tab: string, runID: number, statement: number, offset: number): $CancellablePromise<((string | null)[] | null)[] | null> {
+export function FetchRows(tab: string, runID: number, statement: number, offset: number): $CancellablePromise<$models.ResultPage> {
     return $Call.ByID(439117188, tab, runID, statement, offset);
 }
 
@@ -185,12 +185,15 @@ export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.Sa
 }
 
 /**
- * SaveRows applies the grid's edits to target as UPDATEs, matching rows by
- * primary key, all in one transaction: either every row saves or none does.
- * It uses the pool, not the SQL editor's connection, so an open transaction
- * in the editor doesn't swallow or delay the save.
+ * SaveRows applies the grid's edits to target as UPDATEs, all in one
+ * transaction: either every row saves or none does. Each UPDATE must match
+ * exactly one row: by primary key, or by ctid plus the whole row's MD5; and
+ * every edited cell must still hold the value it had when loaded, so a row
+ * someone else changed meanwhile isn't overwritten. It uses the pool, not
+ * the SQL editor's connection, so an open transaction in the editor doesn't
+ * swallow or delay the save. It returns each row as saved.
  */
-export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<number> {
+export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<$models.SavedRow[] | null> {
     return $Call.ByID(2331632375, target, edits);
 }
 

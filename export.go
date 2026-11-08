@@ -102,6 +102,10 @@ func (s *DBService) ExportResult(ctx context.Context, tab string, runID, stateme
 		return 0, w.Abort(toQueryError(err))
 	}
 	defer tx.Rollback(ctx)
+	// As the editor ran it: same role, search_path and value formats.
+	if err := applySession(ctx, tx, run.session); err != nil {
+		return 0, w.Abort(toQueryError(err))
+	}
 	rows, err := tx.Query(ctx, run.sql, pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return 0, w.Abort(rerunError(err))
@@ -152,7 +156,7 @@ func (s *DBService) ExportTable(ctx context.Context, e TableExport, path, format
 	}
 	sql, args, err := buildTableQuery(TableQuery{
 		Schema: e.Schema, Table: e.Table, SortBy: e.SortBy, SortDesc: e.SortDesc, Filters: e.Filters,
-	}, columns)
+	}, columns, nil)
 	if err != nil {
 		return 0, err
 	}

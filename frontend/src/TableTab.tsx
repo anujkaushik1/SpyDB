@@ -141,6 +141,7 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
   const rows = data?.rows ?? []
   // A new array only when the data changes; the grid resets its selection on new rows.
   const gridRows = useMemo(() => (data?.rows ?? []).map((r) => r ?? []), [data])
+  const gridKeys = useMemo(() => (data?.keys ?? []).map((k) => k ?? []), [data])
   const filtered = applied.length > 0
 
   // Click a header: ascending → descending → back to primary-key order.
@@ -173,11 +174,10 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
     else setPageInput(String(page + 1))
   }
 
-  // Cells save to the table by primary key; views and keyless tables are read-only.
-  const isTable = table.kind === 'table' || table.kind === 'partitioned table'
-  const hasKey = columns.some((c) => c.primaryKey)
-  const target = isTable && hasKey ? { schema: table.schema, table: table.name } : null
-  const readOnlyReason = !isTable ? 'read-only' : columns.length > 0 && !hasKey ? 'read-only: no primary key' : null
+  // Cells save by primary key, or for a table without one by row address
+  // (data.target, data.keys); views and the like are read-only.
+  const target = data?.target ?? null
+  const readOnlyReason = data && !target ? data.readOnly : null
   const gridColumns: GridColumn[] = columns.map((c) => ({ ...c, source: c.name }))
 
   // Export: every page, in the order shown. Full table ignores the filters.
@@ -266,6 +266,8 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
         rows={gridRows}
         firstRowNumber={first}
         target={target}
+        rowKeys={gridKeys}
+        readOnlyReason={readOnlyReason ?? undefined}
         onSaved={() => setReloadToken((t) => t + 1)}
         onDirtyChange={onDirtyChange}
         sort={sort}
@@ -289,7 +291,8 @@ function TableView({ table, toggle, reloadSignal, top, notice, results, showResu
           {rows.length > 0 && ` · rows ${first.toLocaleString()}–${(first + rows.length - 1).toLocaleString()}`}
           {sort && ` · sorted by ${sort.column} ${sort.desc ? '↓' : '↑'}`}
           {data && ` · ${data.durationMs} ms`}
-          {readOnlyReason && ` · ${readOnlyReason}`}
+          {readOnlyReason && ` · read-only: ${readOnlyReason}`}
+          {target?.kind === 'ctid' && ' · no primary key: rows are matched by address'}
         </span>
         <div className="grid-pager">
           {columns.length > 0 && <ExportMenu choices={exportChoices} />}

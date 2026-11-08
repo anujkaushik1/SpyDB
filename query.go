@@ -31,7 +31,9 @@ type QueryResult struct {
 type StatementResult struct {
 	Columns    []Column    `json:"columns"`
 	Target     *EditTarget `json:"target"`     // where edited cells save to; nil means read-only
+	ReadOnly   string      `json:"readOnly"`   // why it's read-only, e.g. "a join"
 	Rows       [][]*string `json:"rows"`       // first page; values as text; nil is SQL NULL
+	Keys       [][]*string `json:"keys"`       // per row of Rows, its key (Target.Key); empty when read-only
 	RowCount   int         `json:"rowCount"`   // rows the statement returned
 	StoredRows int         `json:"storedRows"` // rows kept for paging (at most maxStoredRows)
 	Command    string      `json:"command"`    // e.g. "SELECT 3", "UPDATE 1", "CREATE TABLE"
@@ -59,10 +61,12 @@ func (e *QueryError) Error() string { return e.Message }
 // storedRun holds every kept row of one RunQuery, per statement.
 type storedRun struct {
 	id        int
-	sql       string        // the text that ran, for exporting a result too big to keep
-	columns   [][]Column    // per statement
-	rows      [][][]*string // per statement, at most maxStoredRows each
-	rowCounts []int         // per statement: rows the statement returned
+	sql       string            // the text that ran, for exporting a result too big to keep
+	session   map[string]string // the editor session's settings then (sessionOf), for that export
+	columns   [][]Column        // per statement
+	rows      [][][]*string     // per statement, at most maxStoredRows each
+	keys      [][][]*string     // per statement, each row's key when the result is editable, else nil
+	rowCounts []int             // per statement: rows the statement returned
 }
 
 // statementData is one statement's full output before it is split into pages.
@@ -113,12 +117,25 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		return QueryResult{}, &QueryError{Message: "The connection was lost. Disconnect and connect again."}
 	}
 
+	// A plain single-table SELECT may run with its table's key added as
+	// hidden columns (planEdit), so its rows can be edited.
+	conn := editor.Conn()
+	plan, toRun := planEdit(ctx, conn, sql)
 	started := time.Now()
-	statements, err := execute(ctx, editor.Conn(), sql)
+	statements, err := execute(ctx, conn, toRun)
 	if err != nil {
-		return QueryResult{}, toQueryError(err)
+		qe := toQueryError(err)
+		if plan.added != nil {
+			qe.Position = plan.insertion.originalPosition(qe.Position)
+		}
+		return QueryResult{}, qe
 	}
 	durationMs := int(time.Since(started).Milliseconds())
+	// The session's role and formats, for saves (and exports that run again).
+	var session map[string]string
+	if plan.reason == "" && len(statements) > 0 && len(statements[len(statements)-1].columns) > 0 {
+		session = sessionOf(ctx, conn)
+	}
 
 	// Work out which results can be edited. The catalog lookups use the pool,
 	// so a failed transaction in the editor's session can't break them.
@@ -126,21 +143,30 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	pool := s.pool
 	s.mu.Unlock()
 
-	run := &storedRun{sql: sql}
+	run := &storedRun{sql: sql, session: session}
 	results := []StatementResult{}
 	for i := range statements {
 		st := &statements[i]
 		var target *EditTarget
-		if pool != nil && len(st.columns) > 0 {
-			target = editTarget(ctx, pool, st)
+		var keys [][]*string
+		var readOnly string
+		if len(st.columns) > 0 {
+			if pool == nil {
+				readOnly = "not connected"
+			} else {
+				target, keys, readOnly = plan.resolve(ctx, pool, session, st)
+			}
 		}
 		run.rows = append(run.rows, st.rows)
+		run.keys = append(run.keys, keys)
 		run.columns = append(run.columns, st.columns)
 		run.rowCounts = append(run.rowCounts, st.rowCount)
 		results = append(results, StatementResult{
 			Columns:    st.columns,
 			Target:     target,
+			ReadOnly:   readOnly,
 			Rows:       page(st.rows, 0),
+			Keys:       page(keys, 0),
 			RowCount:   st.rowCount,
 			StoredRows: len(st.rows),
 			Command:    st.command,
@@ -160,19 +186,26 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	return QueryResult{RunID: run.id, PageSize: pageSize, Results: results, DurationMs: durationMs}, nil
 }
 
+// ResultPage is one page of a statement's rows, with their keys when the
+// result is editable.
+type ResultPage struct {
+	Rows [][]*string `json:"rows"`
+	Keys [][]*string `json:"keys"`
+}
+
 // FetchRows returns one page of a statement's rows from a tab's latest run,
 // starting at offset. The rows are already in memory; nothing goes to Postgres.
-func (s *DBService) FetchRows(tab string, runID, statement, offset int) ([][]*string, error) {
+func (s *DBService) FetchRows(tab string, runID, statement, offset int) (ResultPage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run := s.runs[tab]
 	if run == nil || run.id != runID {
-		return nil, errors.New("These results are no longer available. Run the query again.")
+		return ResultPage{}, errors.New("These results are no longer available. Run the query again.")
 	}
 	if statement < 0 || statement >= len(run.rows) {
-		return nil, errors.New("No such statement in this run.")
+		return ResultPage{}, errors.New("No such statement in this run.")
 	}
-	return page(run.rows[statement], offset), nil
+	return ResultPage{Rows: page(run.rows[statement], offset), Keys: page(run.keys[statement], offset)}, nil
 }
 
 // ForgetRun drops a tab's stored rows; the frontend calls it when a query tab closes.

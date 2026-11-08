@@ -56,11 +56,36 @@ export interface DBConfig {
 }
 
 /**
- * EditTarget is the table that edited cells are saved to.
+ * EditTarget is the table that edited cells are saved to, and how each row
+ * is found again.
  */
 export interface EditTarget {
+    /**
+     * the table's OID: a table dropped and re-created under the same name is another table
+     */
+    "oid": number;
     "schema": string;
     "table": string;
+
+    /**
+     * Kind is "pk" when rows are found by primary key, or "ctid" for a table
+     * without one: by the row's physical address plus an MD5 of the whole
+     * row, so a row that changed (or a new row in a reused address) never matches.
+     */
+    "kind": string;
+
+    /**
+     * Key names the values in each row's key, in order: the primary-key
+     * columns, or ["ctid", "md5"].
+     */
+    "key": string[] | null;
+
+    /**
+     * Session holds settings of the session the rows were read in (role,
+     * search_path, date/time and number formats); a save uses the same, so
+     * it runs with the same privileges and values compare and parse alike.
+     */
+    "session": { [_ in string]?: string } | null;
 }
 
 /**
@@ -81,13 +106,27 @@ export interface QueryResult {
 }
 
 /**
+ * ResultPage is one page of a statement's rows, with their keys when the
+ * result is editable.
+ */
+export interface ResultPage {
+    "rows": ((string | null)[] | null)[] | null;
+    "keys": ((string | null)[] | null)[] | null;
+}
+
+/**
  * RowEdit is one row's changed cells.
  */
 export interface RowEdit {
     /**
-     * primary-key column → its value as shown in the grid
+     * EditTarget.Key name → this row's value
      */
     "key": { [_ in string]?: string | null } | null;
+
+    /**
+     * column → its value when loaded; the save fails if it changed since
+     */
+    "old": { [_ in string]?: string | null } | null;
 
     /**
      * column → new value; nil sets NULL
@@ -135,6 +174,21 @@ export interface SavedQuery {
      * Unix milliseconds
      */
     "updatedAt": number;
+}
+
+/**
+ * SavedRow is one saved row as Postgres now holds it.
+ */
+export interface SavedRow {
+    /**
+     * the row's key after the save (a ctid changes on every update)
+     */
+    "key": { [_ in string]?: string | null } | null;
+
+    /**
+     * each saved column, as Postgres shows it now (1.5 may read 1.50)
+     */
+    "values": { [_ in string]?: string | null } | null;
 }
 
 /**
@@ -197,9 +251,19 @@ export interface StatementResult {
     "target": EditTarget | null;
 
     /**
+     * why it's read-only, e.g. "a join"
+     */
+    "readOnly": string;
+
+    /**
      * first page; values as text; nil is SQL NULL
      */
     "rows": ((string | null)[] | null)[] | null;
+
+    /**
+     * per row of Rows, its key (Target.Key); empty when read-only
+     */
+    "keys": ((string | null)[] | null)[] | null;
 
     /**
      * rows the statement returned
@@ -303,6 +367,21 @@ export interface TablePage {
      * values as text; nil is SQL NULL
      */
     "rows": ((string | null)[] | null)[] | null;
+
+    /**
+     * where edited cells save to; nil means read-only
+     */
+    "target": EditTarget | null;
+
+    /**
+     * why it's read-only, e.g. "a view"
+     */
+    "readOnly": string;
+
+    /**
+     * per row, its key (Target.Key); empty when read-only
+     */
+    "keys": ((string | null)[] | null)[] | null;
 
     /**
      * another page follows
