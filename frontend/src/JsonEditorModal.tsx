@@ -6,12 +6,13 @@ import { copyText } from './copyFormats'
 import { XIcon } from './icons'
 
 type Props = {
-  column: string
-  type: string // json or jsonb
-  rowNumber: number // as shown in the grid
+  title: string // the column name, or "Row 3"
+  tag: string // small label after it: jsonb, json, JSON
+  note: string // e.g. "row 3" or "6 columns"
   value: string | null
-  readOnly: boolean // query results that can't be saved back
-  onApply: (value: string | null) => void // becomes an unsaved edit, like a typed one
+  readOnly: boolean // query results that can't be saved back, or a whole-row view
+  readOnlyNote?: string // footer text when read-only
+  onApply?: (value: string | null) => void // becomes an unsaved edit, like a typed one
   onClose: () => void
 }
 
@@ -40,7 +41,7 @@ function pretty(value: string | null) {
 // vanilla-jsoneditor's code editor without its toolbar, so just line numbers,
 // folding, colours, error marks, ⌘F search and ⌘Z undo. Loaded on first use,
 // so the 1.2 MB editor doesn't slow down startup.
-export default function JsonEditorModal({ column, type, rowNumber, value, readOnly, onApply, onClose }: Props) {
+export default function JsonEditorModal({ title, tag, note, value, readOnly, readOnlyNote, onApply, onClose }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<JsonEditor | null>(null)
   const [invalid, setInvalid] = useState(false)
@@ -120,7 +121,7 @@ export default function JsonEditorModal({ column, type, rowNumber, value, readOn
         // The original wasn't valid JSON, so any valid value is a change.
       }
     }
-    onApply(next)
+    onApply?.(next)
   }
 
   const copy = async () => {
@@ -178,13 +179,13 @@ export default function JsonEditorModal({ column, type, rowNumber, value, readOn
 
   return (
     <div className="json-modal-backdrop" onMouseDown={requestClose}>
-      <div className="json-modal" role="dialog" aria-label={`JSON editor: ${column}`}
+      <div className="json-modal" role="dialog" aria-label={`JSON: ${title}`}
            onMouseDown={(e) => e.stopPropagation()} onKeyDownCapture={onKeyDownCapture}
            onInputCapture={noteEdit} onPasteCapture={noteEdit} onCutCapture={noteEdit} onDropCapture={noteEdit}>
         <div className="json-modal-header">
-          <span className="json-modal-title">{column}</span>
-          <span className="json-modal-type">{type}</span>
-          <span className="json-modal-row">row {rowNumber.toLocaleString()}</span>
+          <span className="json-modal-title">{title}</span>
+          <span className="json-modal-type">{tag}</span>
+          <span className="json-modal-row">{note}</span>
           {readOnly && <span className="json-modal-badge">read-only</span>}
           <button type="button" className="btn btn-secondary btn-sm json-modal-copy" onClick={copy}>
             {copied ? 'Copied' : 'Copy'}
@@ -205,7 +206,7 @@ export default function JsonEditorModal({ column, type, rowNumber, value, readOn
             </>
           ) : readOnly ? (
             <>
-              <span className="json-modal-status">This result can’t be edited. ⌘F to search; Copy and selecting text still work.</span>
+              <span className="json-modal-status">{readOnlyNote ?? 'This result can’t be edited. ⌘F to search; Copy and selecting text still work.'}</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Close</button>
             </>
           ) : (
@@ -213,7 +214,7 @@ export default function JsonEditorModal({ column, type, rowNumber, value, readOn
               <span className={error || invalid ? 'json-modal-status error' : 'json-modal-status'}>
                 {error ?? (invalid ? 'Fix the JSON before applying.' : '⌘F to search. Apply keeps the edit unsaved until you save (⌘S).')}
               </span>
-              <button type="button" className="link-btn json-modal-null" onClick={() => onApply(null)}>Set NULL</button>
+              <button type="button" className="link-btn json-modal-null" onClick={() => onApply?.(null)}>Set NULL</button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={requestClose}>Cancel</button>
               <button type="button" className="btn btn-primary btn-sm" onClick={apply} disabled={invalid} title="Apply (⌘Enter)">
                 Apply

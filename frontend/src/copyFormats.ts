@@ -49,27 +49,36 @@ const JSON_NUMBER = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/
 // (1000.00 stays 1000.00, big ids don't lose precision), booleans become
 // true/false and json / jsonb values are embedded as JSON.
 function toJson(columns: Column[], rows: Row[]) {
-  const keys = uniqueNames(columns.map((c) => c.name))
-  const literal = (value: string | null, category: string) => {
-    if (value === null) return 'null'
-    if (category === 'number' && JSON_NUMBER.test(value)) return value
-    if (category === 'bool' && (value === 't' || value === 'f')) return value === 't' ? 'true' : 'false'
-    if (category === 'json') {
-      try {
-        JSON.parse(value)
-        return value.trim()
-      } catch {
-        // not valid JSON after all: fall through to a string
-      }
-    }
-    return JSON.stringify(value)
-  }
   if (rows.length === 0) return '[]'
-  const objects = rows.map((row) => {
-    const fields = row.map((v, j) => `    ${JSON.stringify(keys[j])}: ${literal(v, columns[j].category)}`)
-    return `  {\n${fields.join(',\n')}\n  }`
+  return `[\n${jsonObjects(columns, rows, '  ').join(',\n')}\n]`
+}
+
+// One row as a JSON object, or several as an array: the grid's "View as JSON".
+export function rowsAsJson(columns: Column[], rows: Row[]) {
+  return rows.length === 1 ? jsonObjects(columns, rows, '')[0] : toJson(columns, rows)
+}
+
+function jsonObjects(columns: Column[], rows: Row[], indent: string) {
+  const keys = uniqueNames(columns.map((c) => c.name))
+  return rows.map((row) => {
+    const fields = row.map((v, j) => `${indent}  ${JSON.stringify(keys[j])}: ${jsonLiteral(v, columns[j].category)}`)
+    return `${indent}{\n${fields.join(',\n')}\n${indent}}`
   })
-  return `[\n${objects.join(',\n')}\n]`
+}
+
+function jsonLiteral(value: string | null, category: string) {
+  if (value === null) return 'null'
+  if (category === 'number' && JSON_NUMBER.test(value)) return value
+  if (category === 'bool' && (value === 't' || value === 'f')) return value === 't' ? 'true' : 'false'
+  if (category === 'json') {
+    try {
+      JSON.parse(value)
+      return value.trim()
+    } catch {
+      // not valid JSON after all: fall through to a string
+    }
+  }
+  return JSON.stringify(value)
 }
 
 // A Markdown table; pipes are escaped and line breaks become <br>.

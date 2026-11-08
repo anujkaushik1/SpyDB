@@ -2,13 +2,14 @@ import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type M
 import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
-import { copyText, formatRows, formatValue, type CopyFormat } from './copyFormats'
+import { copyText, formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { cellClass, cellText } from './tableMeta'
 
 // The JSON editor is 1.2 MB; load it the first time a json / jsonb cell is opened.
 const JsonEditorModal = lazy(() => import('./JsonEditorModal'))
+const loadingJson = <div className="json-modal-backdrop"><div className="json-modal-loading">Loading JSON editor…</div></div>
 
 export type GridColumn = {
   name: string
@@ -63,6 +64,7 @@ export default function DataGrid(props: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; cell: Cell | null } | null>(null)
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   const [jsonCell, setJsonCell] = useState<Cell | null>(null) // open in the JSON editor
+  const [rowJson, setRowJson] = useState<number[] | null>(null) // rows shown with "View as JSON"
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
   const table = useRef<HTMLTableElement>(null)
@@ -135,6 +137,7 @@ export default function DataGrid(props: Props) {
     lead.current = null
     setMenu(null)
     setJsonCell(null)
+    setRowJson(null)
   }, [rows])
 
   useEffect(() => {
@@ -266,7 +269,7 @@ export default function DataGrid(props: Props) {
   }
   // Selected rows top to bottom, as shown (unsaved edits included).
   const copyRows = (format: CopyFormat) => {
-    const picked = [...rowSelection].sort((a, b) => a - b).map((i) => rows[i].map((_, j) => shownValue(rows[i], j)))
+    const picked = shownRows([...rowSelection].sort((a, b) => a - b))
     copy(formatRows(format, columns, picked), `Copied ${picked.length} row${picked.length === 1 ? '' : 's'} as ${FORMAT_LABELS[format]}`)
   }
   const copyCell = (cell: Cell) =>
@@ -297,6 +300,13 @@ export default function DataGrid(props: Props) {
     setSavedMessage(null)
     closeJson()
   }
+
+  const closeRowJson = () => {
+    setRowJson(null)
+    wrap.current?.focus({ preventScroll: true })
+  }
+  // Selected rows top to bottom, values as shown (unsaved edits included).
+  const shownRows = (indexes: number[]) => indexes.map((i) => rows[i].map((_, j) => shownValue(rows[i], j)))
 
   const closeMenu = () => {
     setMenu(null)
@@ -445,7 +455,9 @@ export default function DataGrid(props: Props) {
                     }}>
                   <td className="grid-rownum"
                       onClick={(e) => { selectRow(i, e); setSelected(null); wrap.current?.focus({ preventScroll: true }) }}
-                      onContextMenu={(e) => openMenu(e, i, null)}>
+                      onDoubleClick={() => setRowJson([i])}
+                      onContextMenu={(e) => openMenu(e, i, null)}
+                      title="Click to select · double-click to view the row as JSON">
                     {firstRowNumber + i}
                   </td>
                   {row.map((_, j) => {
@@ -503,21 +515,35 @@ export default function DataGrid(props: Props) {
           rowCount={rowSelection.size}
           onCopyValue={menu.cell ? () => { copyCell(menu.cell!); closeMenu() } : undefined}
           onOpenJson={menu.cell && isJson(menu.cell.col) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
+          onViewJson={() => { closeMenu(); setRowJson([...rowSelection].sort((a, b) => a - b)) }}
           onCopy={(format) => { copyRows(format); closeMenu() }}
           onClose={closeMenu}
         />
       )}
       {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
       {jsonCell && (
-        <Suspense fallback={<div className="json-modal-backdrop"><div className="json-modal-loading">Loading JSON editor…</div></div>}>
+        <Suspense fallback={loadingJson}>
           <JsonEditorModal
-            column={columns[jsonCell.col].name}
-            type={columns[jsonCell.col].type}
-            rowNumber={firstRowNumber + jsonCell.row}
+            title={columns[jsonCell.col].name}
+            tag={columns[jsonCell.col].type}
+            note={`row ${(firstRowNumber + jsonCell.row).toLocaleString()}`}
             value={shownValue(rows[jsonCell.row], jsonCell.col)}
             readOnly={!isEditable(jsonCell.col)}
             onApply={(value) => applyJson(jsonCell, value)}
             onClose={closeJson}
+          />
+        </Suspense>
+      )}
+      {rowJson && (
+        <Suspense fallback={loadingJson}>
+          <JsonEditorModal
+            title={rowJson.length === 1 ? `Row ${(firstRowNumber + rowJson[0]).toLocaleString()}` : `${rowJson.length.toLocaleString()} rows`}
+            tag="JSON"
+            note={`${columns.length} column${columns.length === 1 ? '' : 's'}`}
+            value={rowsAsJson(columns, shownRows(rowJson))}
+            readOnly
+            readOnlyNote="A read-only view of the row. ⌘F to search; Copy and selecting text still work."
+            onClose={closeRowJson}
           />
         </Suspense>
       )}
