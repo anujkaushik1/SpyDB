@@ -3,6 +3,7 @@ import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.c
 import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
+import { isMac } from './platform'
 
 type Props = {
   databasePicker: ReactNode // shown at the very top
@@ -121,7 +122,7 @@ export default function SchemaSidebar(props: Props) {
           autoCorrect="off"
           autoComplete="off"
         />
-        <button type="button" className="kbd-hint" onClick={onOpenPalette} title="Go to table (Ctrl+P or ⌘P)">
+        <button type="button" className="kbd-hint" onClick={onOpenPalette} title={isMac ? 'Go to table (Ctrl+P or ⌘P)' : 'Go to table (Ctrl+P)'}>
           <kbd>Ctrl P</kbd>
         </button>
       </div>

@@ -1,0 +1,8 @@
+# What Dockerfile.ubuntu doesn't need from the repo. db.config.json can hold a
+# password, so it never goes into a build.
+.git
+.task
+bin
+db.config.json
+frontend/node_modules
+frontend/dist

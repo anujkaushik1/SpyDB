@@ -149,13 +149,13 @@ function App() {
     reconnected(await DBService.SwitchDatabase(database))
   }
 
-  // Connect to a saved or recent connection while connected: Connect opens
-  // the new one before closing this one, so a failure keeps everything.
-  const switchConnection = async (c: SavedConnection, saved: boolean) => {
+  // Connect to a saved connection while connected: Connect opens the new one
+  // before closing this one, so a failure keeps everything.
+  const switchConnection = async (c: SavedConnection) => {
     reconnected(await DBService.Connect(c.config))
     // The connect screen shows this connection (with its password) after a disconnect.
-    setSelectedSaved(saved ? c.id : null)
-    setFormRequest((r) => ({ config: c.config, savedId: saved ? c.id : null, name: saved ? c.name : '', connect: false, seq: (r?.seq ?? 0) + 1 }))
+    setSelectedSaved(c.id)
+    setFormRequest((r) => ({ config: c.config, savedId: c.id, name: c.name, connect: false, seq: (r?.seq ?? 0) + 1 }))
   }
 
   const disconnect = async () => {
@@ -265,8 +265,8 @@ function App() {
               <span className="workspace-empty-icon"><TableIcon /></span>
               <p className="workspace-empty-title">Open a table</p>
               <p className="workspace-empty-text">
-                Pick one from the sidebar, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <kbd>Ctrl</kbd> <kbd>P</kbd>.
-                Press <kbd>Ctrl</kbd> <kbd>T</kbd> for a new query, or click <kbd>&lt;/&gt;</kbd> in a table to write SQL.
+                Pick one from the sidebar, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
+                Press <span className="keys"><kbd>Ctrl</kbd> <kbd>T</kbd></span> for a new query, or click <kbd>&lt;/&gt;</kbd> in a table to write SQL.
               </p>
             </div>
           )}

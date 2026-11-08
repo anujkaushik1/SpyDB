@@ -4,6 +4,7 @@ import Banner, { errorDetail, errorMessage, type Notice } from './Banner'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
 import { parseConnectionUrl } from './connectionUrl'
 import { DatabaseIcon, EyeIcon, EyeOffIcon, Spinner } from './icons'
+import { isMac } from './platform'
 
 type FieldName = 'host' | 'port' | 'user' | 'password' | 'database'
 
@@ -363,7 +364,7 @@ export default function ConnectionForm({ connection, onConnectionChange, request
           <p className={saveState?.kind === 'error' ? 'save-connection-note error' : 'save-connection-note'}>
             {saveState?.kind === 'saved' ? '✓ Saved. It’s in the sidebar under Saved.'
               : saveState?.kind === 'error' ? saveState.message
-              : 'Saved connections, including the password, are kept on this Mac, readable only by your user.'}
+              : `Saved connections, including the password, are kept on this ${isMac ? 'Mac' : 'computer'}, readable only by your user.`}
           </p>
         </div>
       </form>

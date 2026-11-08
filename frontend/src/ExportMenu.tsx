@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DBService } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { errorMessage } from './Banner'
 import { DownloadIcon, Spinner } from './icons'
+import { fileManager } from './platform'
 import { useDismiss } from './useDismiss'
 
 export type ExportFormat = 'csv' | 'xlsx'
@@ -60,7 +61,7 @@ export default function ExportMenu({ choices }: { choices: ExportChoice[] }) {
         <span className={result.error ? 'export-status error' : 'export-status'} title={result.text}>
           {result.text}
           {result.path && (
-            <button type="button" className="link-btn" onClick={() => DBService.RevealFile(result.path!)}>Show in Finder</button>
+            <button type="button" className="link-btn" onClick={() => DBService.RevealFile(result.path!)}>Show in {fileManager()}</button>
           )}
         </span>
       )}

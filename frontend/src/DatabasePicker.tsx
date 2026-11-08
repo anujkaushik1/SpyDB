@@ -8,17 +8,17 @@ import { useDismiss } from './useDismiss'
 type Props = {
   connection: ConnectionInfo
   onSwitchDatabase: (database: string) => Promise<void> // throws if the switch fails
-  onSwitchConnection: (connection: SavedConnection, saved: boolean) => Promise<void> // likewise
+  onSwitchConnection: (connection: SavedConnection) => Promise<void> // likewise
 }
 
 type Choice =
   | { kind: 'database'; database: string }
-  | { kind: 'connection'; connection: SavedConnection; saved: boolean }
+  | { kind: 'connection'; connection: SavedConnection }
 
 const choiceKey = (c: Choice) => (c.kind === 'database' ? `db:${c.database}` : `conn:${c.connection.id}`)
 
 // The switcher at the top of the sidebar: other databases on this server
-// (DBService.ListDatabases) and saved / recent connections to other servers,
+// (DBService.ListDatabases) and saved connections to other servers,
 // with one search for both. Picking either reconnects (the old connection
 // stays open until the new one works); each connection keeps its own tabs.
 export default function DatabasePicker({ connection, onSwitchDatabase, onSwitchConnection }: Props) {
@@ -49,8 +49,7 @@ export default function DatabasePicker({ connection, onSwitchDatabase, onSwitchC
   const sections = pickerSections(databases ?? [], lists, filter)
   const choices: Choice[] = [
     ...sections.databases.map((database): Choice => ({ kind: 'database', database })),
-    ...sections.saved.map((c): Choice => ({ kind: 'connection', connection: c, saved: true })),
-    ...sections.recent.map((c): Choice => ({ kind: 'connection', connection: c, saved: false })),
+    ...sections.saved.map((c): Choice => ({ kind: 'connection', connection: c })),
   ]
   const isCurrent = (c: Choice) =>
     c.kind === 'database' ? c.database === connection.database : sameTarget(c.connection.config, connection)
@@ -69,7 +68,7 @@ export default function DatabasePicker({ connection, onSwitchDatabase, onSwitchC
     setError(null)
     try {
       if (choice.kind === 'database') await onSwitchDatabase(choice.database)
-      else await onSwitchConnection(choice.connection, choice.saved)
+      else await onSwitchConnection(choice.connection)
       setOpen(false)
     } catch (err) {
       setError(errorMessage(err))
@@ -132,7 +131,7 @@ export default function DatabasePicker({ connection, onSwitchDatabase, onSwitchC
           <div className="db-menu-search">
             <SearchIcon />
             <input value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={onSearchKeyDown}
-                   placeholder="Search databases and connections" aria-label="Search databases and connections"
+                   placeholder="Search" aria-label="Search databases and connections"
                    autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" />
           </div>
 
@@ -141,9 +140,7 @@ export default function DatabasePicker({ connection, onSwitchDatabase, onSwitchC
             {nDb > 0 && <li className="db-menu-section" role="presentation">Databases on this server</li>}
             {choices.slice(0, nDb).map((c, i) => item(c, i))}
             {nSaved > 0 && <li className="db-menu-section" role="presentation">Saved connections</li>}
-            {choices.slice(nDb, nDb + nSaved).map((c, i) => item(c, nDb + i))}
-            {sections.recent.length > 0 && <li className="db-menu-section" role="presentation">Recent</li>}
-            {choices.slice(nDb + nSaved).map((c, i) => item(c, nDb + nSaved + i))}
+            {choices.slice(nDb).map((c, i) => item(c, nDb + i))}
             {!loading && choices.length === 0 && (
               <li className="db-menu-note">{filter.trim() ? `Nothing matches “${filter.trim()}”` : 'Nothing to switch to'}</li>
             )}

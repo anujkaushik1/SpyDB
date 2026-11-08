@@ -8,6 +8,7 @@ import { dragX } from './resize'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { rowJsonEdits } from './rowJsonEdits'
 import { cellClass, cellText } from './cellValues'
+import { shortcut } from './platform'
 
 // The JSON editor is 1.2 MB; load it the first time a json / jsonb cell is opened.
 const JsonEditorModal = lazy(() => import('./JsonEditorModal'))
@@ -429,7 +430,7 @@ export default function DataGrid(props: Props) {
             )}
             <thead>
               <tr>
-                <th className="grid-rownum" aria-label="Select all rows" title={allSelected ? 'Clear selection' : 'Select all rows (⌘A)'}
+                <th className="grid-rownum" aria-label="Select all rows" title={allSelected ? 'Clear selection' : `Select all rows (${shortcut('A')})`}
                     onClick={() => (allSelected ? setRowSelection(new Set()) : selectAll())} />
                 {columns.map((c, i) => {
                   const sorted = sort?.column === c.name ? (sort.desc ? 'desc' : 'asc') : null
@@ -558,8 +559,8 @@ export default function DataGrid(props: Props) {
             note={`${columns.length} column${columns.length === 1 ? '' : 's'}`}
             value={rowsAsJson(columns, shownRows(rowJson))}
             readOnly={!canEdit}
-            readOnlyNote="This result can’t be edited (it needs one table and its primary key). ⌘F to search; Copy still works."
-            hint="Apply keeps changed fields as unsaved edits until you save (⌘S). Keys and the primary key can’t change."
+            readOnlyNote={`This result can’t be edited (it needs one table and its primary key). ${shortcut('F')} to search; Copy still works.`}
+            hint={`Apply keeps changed fields as unsaved edits until you save (${shortcut('S')}). Keys and the primary key can’t change.`}
             allowNull={false}
             onApply={(text) => applyRowJson(rowJson, text)}
             onClose={closeRowJson}
@@ -578,7 +579,7 @@ export default function DataGrid(props: Props) {
           <span className="changes-text">
             <strong>{changedCells}</strong> unsaved change{changedCells === 1 ? '' : 's'} in {changedRows} row{changedRows === 1 ? '' : 's'}
           </span>
-          <span className="changes-hint">⌘S to save</span>
+          <span className="changes-hint">{shortcut('S')} to save</span>
           <button type="button" className="btn btn-secondary btn-sm" onClick={discard} disabled={saving}>Discard</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => save()} disabled={saving}>
             {saving ? <><Spinner /> Saving…</> : 'Save changes'}

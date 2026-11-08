@@ -32,8 +32,10 @@ func main() {
 		},
 	})
 
-	// The title bar is hidden so the frontend's own header (.titlebar) sits
-	// under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
+	// On macOS the title bar is hidden so the frontend's own header (.titlebar)
+	// sits under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
+	// Linux and Windows keep the system title bar, and the frontend hides its
+	// header there (see main.tsx / style.css).
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "SpyDB",
 		Width:     1120,

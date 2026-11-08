@@ -4,6 +4,7 @@ import { createJSONEditor, Mode, type JSONParser, type JsonEditor } from './vend
 import './vendor/vanilla-jsoneditor/jse-theme-dark.css'
 import { copyText } from './clipboard'
 import { normalize, pretty } from './jsonText'
+import { shortcut } from './platform'
 import { XIcon } from './icons'
 
 type Props = {
@@ -198,17 +199,17 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
             </>
           ) : readOnly ? (
             <>
-              <span className="json-modal-status">{readOnlyNote ?? 'This result can’t be edited. ⌘F to search; Copy and selecting text still work.'}</span>
+              <span className="json-modal-status">{readOnlyNote ?? `This result can’t be edited. ${shortcut('F')} to search; Copy and selecting text still work.`}</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Close</button>
             </>
           ) : (
             <>
               <span className={error || invalid ? 'json-modal-status error' : 'json-modal-status'}>
-                {error ?? (invalid ? 'Fix the JSON before applying.' : hint ?? '⌘F to search. Apply keeps the edit unsaved until you save (⌘S).')}
+                {error ?? (invalid ? 'Fix the JSON before applying.' : hint ?? `${shortcut('F')} to search. Apply keeps the edit unsaved until you save (${shortcut('S')}).`)}
               </span>
               {allowNull && <button type="button" className="link-btn json-modal-null" onClick={() => onApply?.(null)}>Set NULL</button>}
               <button type="button" className="btn btn-secondary btn-sm" onClick={requestClose}>Cancel</button>
-              <button type="button" className="btn btn-primary btn-sm" onClick={apply} disabled={invalid} title="Apply (⌘Enter)">
+              <button type="button" className="btn btn-primary btn-sm" onClick={apply} disabled={invalid} title={`Apply (${shortcut('Enter')})`}>
                 Apply
               </button>
             </>

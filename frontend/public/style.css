@@ -37,7 +37,13 @@
     --radius: 8px;
     --radius-lg: 14px;
 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /* macOS fonts first, then Windows and Linux ones. DejaVu Sans Mono shares
+       Menlo's design (both come from Bitstream Vera), so values take the same
+       space on Ubuntu as on a Mac. */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+    font-family: var(--font-ui);
     font-size: 14px;
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
@@ -86,6 +92,9 @@ body {
     border-bottom: 1px solid var(--border);
     --wails-draggable: drag;
 }
+/* Only on macOS, where the window has no system title bar; elsewhere the
+   system's title bar already shows the app name. */
+html:not([data-platform="mac"]) .titlebar { display: none; }
 .titlebar-title {
     font-size: 13px;
     font-weight: 600;
@@ -529,7 +538,7 @@ body {
     padding: 10px 12px;
     max-height: 160px;
     overflow-y: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 11.5px;
     line-height: 1.55;
     color: var(--text-muted);
@@ -543,7 +552,7 @@ body {
 /* ----- Footer + buttons ---------------------------------------------------- */
 .card-footer {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap; /* the hint shortens instead (see .card-footer .hint) */
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -555,7 +564,13 @@ body {
     font-size: 12px;
     color: var(--text-subtle);
 }
+/* Room above and below, so overflow: hidden doesn't clip the ↵ badge's border. */
+.card-footer .hint { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-block: 3px; }
+/* Keeps a key combination like Ctrl P on one line. */
+.keys { white-space: nowrap; }
+.card-footer .actions { flex: 0 0 auto; }
 kbd {
+    white-space: nowrap;
     padding: 1px 6px;
     font-family: inherit;
     font-size: 11px;
@@ -651,7 +666,7 @@ kbd {
     max-height: 50vh;
     padding: 9px 12px;
     resize: vertical;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     line-height: 1.55;
     tab-size: 2;
@@ -683,8 +698,8 @@ kbd {
     border-bottom: 1px solid var(--border);
 }
 .tab-notice svg { width: 13px; height: 13px; }
-.tab-notice.ok { color: var(--ok); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.tab-notice-meta { color: var(--text-subtle); font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+.tab-notice.ok { color: var(--ok); font-family: var(--font-mono); font-size: 12px; }
+.tab-notice-meta { color: var(--text-subtle); font-family: var(--font-ui); }
 .tab-notice-action { margin-left: auto; font-size: 12px; }
 .tab-notice-banner {
     flex: 0 0 auto;
@@ -732,7 +747,7 @@ kbd {
 .page-error { color: var(--error); }
 .command-tag {
     margin: 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
     color: var(--ok);
     -webkit-user-select: text;
@@ -840,7 +855,7 @@ kbd {
 .table tbody tr:last-child td { border-bottom: none; }
 .table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .table .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
 }
 .table .num { font-variant-numeric: tabular-nums; }
@@ -1119,7 +1134,7 @@ kbd {
 .grid-key svg { width: 12px; height: 12px; }
 .grid-col-name { font-size: 12.5px; font-weight: 600; color: #e6e6ea; }
 .grid-col-type {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 10.5px;
     font-weight: 400;
     color: var(--text-subtle);
@@ -1136,7 +1151,7 @@ kbd {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     color: var(--v-text);
     background: var(--grid-row);
@@ -1385,7 +1400,7 @@ kbd {
     min-width: 0;
     height: 100%;
     padding: 0 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text);
     background: transparent;
@@ -1398,7 +1413,7 @@ kbd {
     flex: 0 0 auto;
     margin-right: 5px;
     padding: 2px 6px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-subtle);
     background: rgba(255, 255, 255, 0.05);
@@ -1676,7 +1691,7 @@ kbd {
     margin: -8px 0 20px;
 }
 .import-url-input {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 12.5px;
 }
 
@@ -1884,7 +1899,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     border-bottom: 1px solid var(--border);
 }
 .json-modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
-.json-modal-type { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-subtle); }
+.json-modal-type { font-family: var(--font-mono); font-size: 11px; color: var(--text-subtle); }
 .json-modal-row { font-size: 12px; color: var(--text-muted); }
 .json-modal-badge {
     padding: 1px 7px;
@@ -1925,7 +1940,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
 /* SpyDB's colours on top of the editor's dark theme. */
 .json-modal-editor.jse-theme-dark {
     --jse-font-family: inherit;
-    --jse-font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --jse-font-family-mono: var(--font-mono);
     --jse-font-size-mono: 13.5px;
     --jse-theme-color: #1c2234;
     --jse-theme-color-highlight: #26304a;

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { CopyFormat } from './copyFormats'
+import { shortcut } from './platform'
 import { useDismiss } from './useDismiss'
 
 export const FORMAT_LABELS: Record<CopyFormat, string> = { json: 'JSON', csv: 'CSV', text: 'Text', markdown: 'Markdown' }
@@ -7,7 +8,7 @@ export const FORMAT_LABELS: Record<CopyFormat, string> = { json: 'JSON', csv: 'C
 const FORMATS: { format: CopyFormat; hint?: string }[] = [
   { format: 'json' },
   { format: 'csv' },
-  { format: 'text', hint: '⌘C' },
+  { format: 'text', hint: shortcut('C') },
   { format: 'markdown' },
 ]
 

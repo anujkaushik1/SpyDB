@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+#
+# Builds the SpyDB Linux binary (production flags) inside Ubuntu, so it links
+# against the same glibc / GTK / WebKitGTK as the Ubuntu release it targets.
+# Run it through build/linux/build-docker.sh; the build context is the repo
+# root, filtered by Dockerfile.ubuntu.dockerignore.
+#
+#   GTK=gtk3 UBUNTU=22.04: GTK3 + WebKit2GTK 4.1 (Wails' legacy backend, -tags gtk3).
+#                          Runs on Ubuntu 22.04 and newer.
+#   GTK=gtk4 UBUNTU=24.04: GTK4 + WebKitGTK 6.0 (Wails' default backend).
+#                          Needs Ubuntu 24.04 or newer.
+
+ARG UBUNTU=24.04
+# Any official golang 1.26 image works; only /usr/local/go is copied out of it.
+ARG GO_IMAGE=golang:1.26-trixie
+
+# 1) Frontend, built once on the host's own architecture (the output is plain
+#    JS/CSS). npm ci installs exactly package-lock.json. Vite 8 needs Node 22.12+,
+#    newer than Ubuntu's own nodejs package.
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS frontend
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+# 2) Go toolchain for the target architecture (statically linked, so it runs
+#    inside Ubuntu as is).
+FROM ${GO_IMAGE} AS gotool
+
+# 3) The Go build, inside the target Ubuntu release.
+FROM ubuntu:${UBUNTU} AS build
+ARG GTK=gtk4
+RUN apt-get update \
+ && if [ "$GTK" = "gtk3" ]; then PKGS="libgtk-3-dev libwebkit2gtk-4.1-dev"; \
+    else PKGS="libgtk-4-dev libwebkitgtk-6.0-dev"; fi \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates gcc libc6-dev pkg-config $PKGS \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=gotool /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local CGO_ENABLED=1 GOOS=linux
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/go/pkg/mod go mod download
+COPY . .
+COPY --from=frontend /src/frontend/dist ./frontend/dist
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    TAGS=production; [ "$GTK" = "gtk3" ] && TAGS=production,gtk3; \
+    go build -tags "$TAGS" -trimpath -buildvcs=false -ldflags="-w -s" -o /out/spydb . \
+ && ls -l /out/spydb
+
+# Only the binary leaves the build (docker buildx --output type=local).
+FROM scratch AS export
+COPY --from=build /out/ /

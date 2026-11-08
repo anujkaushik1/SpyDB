@@ -5,6 +5,7 @@ import DataGrid, { type GridColumn } from './DataGrid'
 import ExportMenu, { type ExportChoice } from './ExportMenu'
 import { ChevronIcon, ChevronLeftIcon, PlayIcon, Spinner } from './icons'
 import { typeCategory } from './tableMeta'
+import { shortcut } from './platform'
 
 type QueryFailure = { message: string; hint?: string; detail?: string; line?: number; column?: number }
 
@@ -161,7 +162,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
           autoComplete="off"
         />
         <p className="sql-bar-hint">
-          {running ? 'Esc to cancel' : '⌘↵ to run · select text to run part of it · runs on the shared connection, so SET and transactions carry over'}
+          {running ? 'Esc to cancel' : `${shortcut('↵')} to run · select text to run part of it · runs on the shared connection, so SET and transactions carry over`}
         </p>
       </div>
       {running ? (

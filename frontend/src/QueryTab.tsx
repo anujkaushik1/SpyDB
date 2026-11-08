@@ -1,5 +1,6 @@
 import SqlEditor from './SqlEditor'
 import { CodeIcon } from './icons'
+import { modKey } from './platform'
 
 type Props = {
   tabId: string
@@ -30,7 +31,7 @@ export default function QueryTab({ tabId, active, onSchemaChange, onDirtyChange 
               <span className="workspace-empty-icon query"><CodeIcon /></span>
               <p className="workspace-empty-title">Write a query</p>
               <p className="workspace-empty-text">
-                Press <kbd>⌘</kbd> <kbd>↵</kbd> to run it. If the result comes straight from one table and includes its
+                Press <span className="keys"><kbd>{modKey()}</kbd> <kbd>↵</kbd></span> to run it. If the result comes straight from one table and includes its
                 primary key, you can edit its cells and save them.
               </p>
             </div>
