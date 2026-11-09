@@ -345,3 +345,49 @@ func TestImportWindows1252(t *testing.T) {
 		t.Fatalf("table %v", got)
 	}
 }
+
+func TestLooksLikeHeader(t *testing.T) {
+	cases := []struct {
+		rows [][]string
+		want bool
+	}{
+		{[][]string{{"id", "balance"}, {"1", "100.5"}, {"2", "20"}}, true},        // names above numbers
+		{[][]string{{"1", "asha", "100.5"}, {"2", "ben", "20"}}, false},           // numbers all the way down
+		{[][]string{{"joined", "name"}, {"2026-10-05", "asha"}}, true},            // a name above dates
+		{[][]string{{"Full Name", "City"}, {"Asha Rao", "Pune"}}, true},           // all text: filled, different names
+		{[][]string{{"asha", ""}, {"ben", "pune"}}, false},                        // all text, a blank: data
+		{[][]string{{"x", "x"}, {"a", "b"}}, false},                               // all text, repeated: data
+		{[][]string{{"active", "code"}, {"true", "007"}, {"false", "012"}}, true}, // a name above true/false
+		{[][]string{{"name"}}, true},                                              // one row of names
+	}
+	for _, c := range cases {
+		var stats []columnStats
+		for _, row := range c.rows[1:] {
+			for len(stats) < len(row) {
+				stats = append(stats, newColumnStats())
+			}
+			for j, v := range row {
+				stats[j].add(v)
+			}
+		}
+		if got := looksLikeHeader(c.rows[0], stats); got != c.want {
+			t.Errorf("%q: got %v, want %v", c.rows, got, c.want)
+		}
+	}
+}
+
+func TestPreviewWithoutHeader(t *testing.T) {
+	path := writeFile(t, "plain.csv", "1,asha,100.5\n2,ben,20\n3,chen,7\n")
+	p, err := (&DBService{}).PreviewImport(ImportOptions{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names, types []string
+	for _, c := range p.Columns {
+		names, types = append(names, c.Name), append(types, c.Type)
+	}
+	if p.HasHeader || p.RowCount != 3 || p.Rows[0][1] != "asha" || p.KeyColumn != -1 ||
+		!slices.Equal(names, []string{"column_1", "column_2", "column_3"}) || !slices.Equal(types, []string{"bigint", "text", "numeric"}) {
+		t.Fatalf("got header %v rows %d %v names %v types %v key %d", p.HasHeader, p.RowCount, p.Rows, names, types, p.KeyColumn)
+	}
+}

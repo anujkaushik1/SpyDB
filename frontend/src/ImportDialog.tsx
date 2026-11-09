@@ -26,7 +26,6 @@ const SEPARATORS: [string, string][] = [[',', 'Comma'], [';', 'Semicolon'], ['\t
 export default function ImportDialog({ mode, schema: initialSchema, table, schemas, onClose, onImported }: Props) {
   const isNew = mode === 'new'
   const [path, setPath] = useState('')
-  const [hasHeader, setHasHeader] = useState(true)
   const [emptyAsNull, setEmptyAsNull] = useState(true)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const [loading, setLoading] = useState(false)
@@ -50,15 +49,16 @@ export default function ImportDialog({ mode, schema: initialSchema, table, schem
       .catch((err) => setError(errorMessage(err)))
   }, [isNew, initialSchema, table])
 
-  // Reads the file again with these options (sheet, separator, header row).
-  const load = async (file: string, opts: { sheet?: string; delimiter?: string; header?: boolean; fresh?: boolean } = {}) => {
+  // Reads the file again with these options (sheet, separator). Go works out
+  // whether the first row is column names.
+  const load = async (file: string, opts: { sheet?: string; delimiter?: string; fresh?: boolean } = {}) => {
     if (!file.trim()) return
     setLoading(true)
     setError(null)
     setResult(null)
     try {
       const p = await DBService.PreviewImport({
-        path: file.trim(), sheet: opts.sheet ?? '', delimiter: opts.delimiter ?? '', hasHeader: opts.header ?? hasHeader,
+        path: file.trim(), sheet: opts.sheet ?? '', delimiter: opts.delimiter ?? '', hasHeader: false,
       })
       if (opts.fresh) setTableName(p.tableName)
       setPreview(p)
@@ -75,8 +75,7 @@ export default function ImportDialog({ mode, schema: initialSchema, table, schem
       const file = await DBService.ChooseImportFile()
       if (!file) return
       setPath(file)
-      setHasHeader(true)
-      await load(file, { header: true, fresh: true })
+      await load(file, { fresh: true })
     } catch (err) {
       setError(errorMessage(err))
     }
@@ -126,7 +125,7 @@ export default function ImportDialog({ mode, schema: initialSchema, table, schem
     setError(null)
     cancelled.current = false
     const call = DBService.RunImport({
-      path: path.trim(), sheet: preview.sheet, delimiter: preview.delimiter, hasHeader, emptyAsNull,
+      path: path.trim(), sheet: preview.sheet, delimiter: preview.delimiter, hasHeader: preview.hasHeader, emptyAsNull,
       schema: isNew ? schema : initialSchema,
       table: isNew ? tableName.trim() : table ?? '',
       newTable: isNew,
@@ -213,14 +212,6 @@ export default function ImportDialog({ mode, schema: initialSchema, table, schem
                   </label>
                 )}
                 <label className="import-check">
-                  <input type="checkbox" checked={hasHeader} disabled={importing}
-                         onChange={(e) => {
-                           setHasHeader(e.target.checked)
-                           load(path, { sheet: preview.sheet, delimiter: preview.delimiter, header: e.target.checked })
-                         }} />
-                  First row has column names
-                </label>
-                <label className="import-check">
                   <input type="checkbox" checked={emptyAsNull} disabled={importing} onChange={(e) => setEmptyAsNull(e.target.checked)} />
                   Empty cells become NULL
                 </label>
@@ -228,6 +219,9 @@ export default function ImportDialog({ mode, schema: initialSchema, table, schem
                   {preview.rowCount.toLocaleString()} row{preview.rowCount === 1 ? '' : 's'} · {columns.length} column{columns.length === 1 ? '' : 's'}
                 </span>
               </div>
+              {!preview.hasHeader && (
+                <p className="import-note">The first row looks like data, not column names, so it's imported too and the columns are numbered.</p>
+              )}
               {(preview.notes ?? []).map((note) => <p key={note} className="import-note">{note}</p>)}
 
               {isNew && (

@@ -145,7 +145,7 @@ export interface ImportOptions {
     "delimiter": string;
 
     /**
-     * the first row holds column names
+     * RunImport: the first row holds column names (PreviewImport works it out)
      */
     "hasHeader": boolean;
 }
@@ -174,6 +174,11 @@ export interface ImportPreview {
      */
     "delimiter": string;
     "columns": ImportColumn[] | null;
+
+    /**
+     * the first row is column names (detected)
+     */
+    "hasHeader": boolean;
 
     /**
      * the first rows, as they'll be imported
@@ -218,7 +223,7 @@ export interface ImportRequest {
     "delimiter": string;
 
     /**
-     * the first row holds column names
+     * RunImport: the first row holds column names (PreviewImport works it out)
      */
     "hasHeader": boolean;
 

@@ -159,7 +159,8 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
 
 /**
  * PreviewImport reads the whole file: the first rows to show, the row
- * count, and for a new table suggested names, types and a primary key.
+ * count, whether the first row is column names, and for a new table
+ * suggested names, types and a primary key.
  */
 export function PreviewImport(opts: $models.ImportOptions): $CancellablePromise<$models.ImportPreview> {
     return $Call.ByID(2233282824, opts);

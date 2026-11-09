@@ -36,7 +36,7 @@ type ImportOptions struct {
 	Path      string `json:"path"`
 	Sheet     string `json:"sheet"`     // Excel: the sheet; "" for the first
 	Delimiter string `json:"delimiter"` // CSV: the separator; "" to detect it
-	HasHeader bool   `json:"hasHeader"` // the first row holds column names
+	HasHeader bool   `json:"hasHeader"` // RunImport: the first row holds column names (PreviewImport works it out)
 }
 
 // ImportColumn is one column of the file, with suggestions for a new table.
@@ -54,6 +54,7 @@ type ImportPreview struct {
 	Sheet     string         `json:"sheet"`     // Excel: the sheet read
 	Delimiter string         `json:"delimiter"` // CSV: the separator used
 	Columns   []ImportColumn `json:"columns"`
+	HasHeader bool           `json:"hasHeader"` // the first row is column names (detected)
 	Rows      [][]string     `json:"rows"`      // the first rows, as they'll be imported
 	RowCount  int            `json:"rowCount"`  // data rows (not counting the header)
 	TableName string         `json:"tableName"` // suggested name for a new table
@@ -115,7 +116,8 @@ func (s *DBService) ChooseImportFile() (string, error) {
 }
 
 // PreviewImport reads the whole file: the first rows to show, the row
-// count, and for a new table suggested names, types and a primary key.
+// count, whether the first row is column names, and for a new table
+// suggested names, types and a primary key.
 func (s *DBService) PreviewImport(opts ImportOptions) (ImportPreview, error) {
 	src, info, err := openImportRows(opts)
 	if err != nil {
@@ -125,16 +127,15 @@ func (s *DBService) PreviewImport(opts ImportOptions) (ImportPreview, error) {
 
 	preview := ImportPreview{Format: info.format, Sheets: info.sheets, Sheet: info.sheet, Delimiter: info.delimiter,
 		Rows: [][]string{}, KeyColumn: -1, Notes: info.notes}
-	var header []string
-	if opts.HasHeader {
-		header, err = src.Read()
-		if errors.Is(err, io.EOF) {
-			return ImportPreview{}, errors.New("The file is empty.")
-		}
-		if err != nil {
-			return ImportPreview{}, readError(err)
-		}
+	// The first row may be column names or data: decided once the rest is read.
+	first, err := src.Read()
+	if errors.Is(err, io.EOF) {
+		return ImportPreview{}, errors.New("The file is empty.")
 	}
+	if err != nil {
+		return ImportPreview{}, readError(err)
+	}
+	header := first
 	var stats []columnStats
 	idColumn := -1 // a header column named id: checked for being a usable key
 	for j, h := range header {
@@ -169,6 +170,23 @@ func (s *DBService) PreviewImport(opts ImportOptions) (ImportPreview, error) {
 		}
 		if len(preview.Rows) < importPreviewRows {
 			preview.Rows = append(preview.Rows, append([]string(nil), rec...))
+		}
+	}
+	preview.HasHeader = looksLikeHeader(first, stats)
+	if !preview.HasHeader {
+		// The first row is data: count it, show it first, let it shape the types.
+		header = nil
+		idUnique = false
+		preview.RowCount++
+		for len(stats) < len(first) {
+			stats = append(stats, newColumnStats())
+		}
+		for j, v := range first {
+			stats[j].add(v)
+		}
+		preview.Rows = append([][]string{append([]string(nil), first...)}, preview.Rows...)
+		if len(preview.Rows) > importPreviewRows {
+			preview.Rows = preview.Rows[:importPreviewRows]
 		}
 	}
 	width := max(len(header), len(stats))
@@ -842,6 +860,53 @@ func excelFormatKind(id int, custom string) excelKind {
 		return excelTime
 	}
 	return excelPlain
+}
+
+// looksLikeHeader decides whether the first row is column names, from the
+// rows after it. Above a column of numbers, dates or true/false, a value
+// that isn't one is a name ("balance" over 100.5). When every column is
+// text, the row is names if each is filled in and different.
+func looksLikeHeader(first []string, stats []columnStats) bool {
+	typed := false
+	for j, v := range first {
+		if j >= len(stats) || stats[j].filled == 0 {
+			continue
+		}
+		t := stats[j].pgType()
+		if t == "text" {
+			continue
+		}
+		typed = true
+		if !valueFits(v, t) {
+			return true
+		}
+	}
+	if typed {
+		return false // every typed column's first value is like the rest: data
+	}
+	seen := map[string]bool{}
+	for _, v := range first {
+		if strings.TrimSpace(v) == "" || seen[v] {
+			return false
+		}
+		seen[v] = true
+	}
+	return len(first) > 0
+}
+
+// valueFits reports whether v could be a value of a column of type t.
+func valueFits(v, t string) bool {
+	probe := newColumnStats()
+	probe.add(v)
+	switch t { // any number above numbers, any date or time above dates or times
+	case "bigint", "numeric":
+		return probe.isNum
+	case "boolean":
+		return probe.isBool
+	case "date", "timestamp", "timestamptz":
+		return probe.isDate || probe.isTS
+	}
+	return true
 }
 
 // ---- suggestions for a new table ----
