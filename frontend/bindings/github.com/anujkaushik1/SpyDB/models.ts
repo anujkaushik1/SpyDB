@@ -89,6 +89,23 @@ export interface EditTarget {
 }
 
 /**
+ * ForeignKey is one FOREIGN KEY constraint of a table: its Columns point at
+ * RefColumns of RefSchema.RefTable, pair by pair.
+ */
+export interface ForeignKey {
+    "name": string;
+    "columns": string[] | null;
+    "refSchema": string;
+    "refTable": string;
+    "refColumns": string[] | null;
+
+    /**
+     * RefSchema.RefTable quoted only where SQL needs it, like TableInfo.QualifiedName
+     */
+    "refQualifiedName": string;
+}
+
+/**
  * ImportChoice is what happens to one file column.
  */
 export interface ImportChoice {

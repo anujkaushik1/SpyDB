@@ -11,7 +11,7 @@ import SchemaSidebar from './SchemaSidebar'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
 import TabBar, { type Tab } from './TabBar'
 import TablePalette from './TablePalette'
-import TableTab from './TableTab'
+import TableTab, { type FollowTarget } from './TableTab'
 import { targetKey } from './connectionSearch'
 import { CodeIcon, TableIcon } from './icons'
 import { upsertQuery } from './savedQueries'
@@ -213,6 +213,21 @@ function App() {
   const openTable = (table: TableInfo) => {
     if (workspace) openTab({ id: `${workspace}|table:${table.qualifiedName}`, workspace, kind: 'table', title: table.name, table })
   }
+  // A foreign key value clicked in a grid: open the table it points at (or
+  // switch to its tab) filtered to that row. A table the sidebar doesn't list
+  // (a partition) opens all the same.
+  const presetSeq = useRef(0)
+  const followKey = ({ schema, table: name, qualifiedName, filters }: FollowTarget) => {
+    if (!workspace) return
+    const table = schemas?.find((s) => s.name === schema)?.tables?.find((t) => t.name === name)
+      ?? { schema, name, kind: 'table', qualifiedName, estimatedRows: null }
+    const id = `${workspace}|table:${table.qualifiedName}`
+    const preset = { filters, seq: ++presetSeq.current }
+    setTabs((current) => current.some((t) => t.id === id)
+      ? current.map((t) => (t.id === id && t.kind === 'table' ? { ...t, preset } : t))
+      : [...current, { id, workspace, kind: 'table', title: table.name, table, preset }])
+    setActiveTab(id)
+  }
   const openConnections = () => {
     if (!connection || !workspace) return
     const config = { host: connection.host, port: connection.port, user: connection.user, password: '', database: connection.database }
@@ -381,8 +396,8 @@ function App() {
             return (
               <div key={tab.id} role="tabpanel" className={`tab-panel tab-panel-${tab.kind}`} hidden={!shown}>
                 {tab.kind === 'table' && (
-                  <TableTab table={tab.table} tabId={tab.id} onSchemaChange={loadSchemas}
-                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                  <TableTab table={tab.table} tabId={tab.id} preset={tab.preset} onSchemaChange={loadSchemas}
+                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} onFollow={followKey} />
                 )}
                 {tab.kind === 'query' && (
                   <QueryTab tabId={tab.id} title={tab.title} initialSql={tab.initialSql ?? ''} linked={!!tab.savedQueryId}

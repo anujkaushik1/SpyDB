@@ -2,13 +2,14 @@ import type { KeyboardEvent, MouseEvent } from 'react'
 import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
 import { ActivityIcon, CodeIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
+import type { FilterPreset } from './TableTab'
 
 // workspace: the connection the tab belongs to (targetKey); other
 // connections' tabs stay open but hidden.
 export type Tab =
   | { id: string; workspace: string; kind: 'query'; title: string; savedQueryId?: string; initialSql?: string }
   | { id: string; workspace: string; kind: 'connections'; title: string; config: DBConfig }
-  | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo }
+  | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo; preset?: FilterPreset }
 
 type Props = {
   tabs: Tab[]

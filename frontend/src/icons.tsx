@@ -94,6 +94,22 @@ export const KeyIcon = () => (
   </Icon>
 )
 
+// A foreign key column (chain link).
+export const LinkIcon = () => (
+  <Icon>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+  </Icon>
+)
+
+// Go to the row a foreign key value points at.
+export const ArrowUpRightIcon = () => (
+  <Icon>
+    <path d="M7 7h10v10"/>
+    <path d="M7 17 17 7"/>
+  </Icon>
+)
+
 export const CodeIcon = () => (
   <Icon>
     <polyline points="16 18 22 12 16 6"/>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DBService, type TableFilter, type TableInfo, type TablePage } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
-import DataGrid, { type GridColumn, type Sort } from './DataGrid'
+import DataGrid, { type GridColumn, type GridForeignKey, type Sort } from './DataGrid'
 import ExportMenu, { type ExportChoice } from './ExportMenu'
 import ImportDialog from './ImportDialog'
 import SqlEditor from './SqlEditor'
@@ -28,17 +28,26 @@ type DraftFilter = TableFilter & { key: number }
 
 const emptyFilter = (key: number): DraftFilter => ({ key, column: '', operator: 'eq', value: '' })
 
+// Filters to show the tab with, e.g. from following a foreign key; a new seq
+// applies them again (the tab may already be open).
+export type FilterPreset = { filters: TableFilter[]; seq: number }
+
+// Where a foreign key value points: the table and the filters that find its row.
+export type FollowTarget = { schema: string; table: string; qualifiedName: string; filters: TableFilter[] }
+
 type Props = {
   table: TableInfo
   tabId: string
+  preset?: FilterPreset
   onSchemaChange: () => void
   onDirtyChange: (dirty: boolean) => void // unsaved cell edits in this tab
+  onFollow: (target: FollowTarget) => void
 }
 
 // One table or view: rows a page at a time with sorting and filters
 // (DBService.TableData). Clicking </> swaps the filter bar for a SQL editor;
 // the rows stay below until a query returns rows of its own.
-export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }: Props) {
+export default function TableTab({ table, tabId, preset, onSchemaChange, onDirtyChange, onFollow }: Props) {
   const [sqlMode, setSqlMode] = useState(false)
   // Unsaved edits in the table's rows and in query results, shown as a dot on the tab.
   const [rowsDirty, setRowsDirty] = useState(false)
@@ -66,6 +75,8 @@ export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }
       {(sql) => (
         <TableView
           table={table}
+          preset={preset}
+          onFollow={onFollow}
           onImported={onSchemaChange}
           toggle={<SqlModeToggle on={false} onToggle={toggleSql} />}
           reloadSignal={reloadSignal}
@@ -82,6 +93,8 @@ export default function TableTab({ table, tabId, onSchemaChange, onDirtyChange }
 
 type TableViewProps = {
   table: TableInfo
+  preset?: FilterPreset
+  onFollow: (target: FollowTarget) => void
   onImported: () => void // rows were imported: refresh the sidebar's counts
   toggle: ReactNode // the </> button, at the start of the filter bar
   reloadSignal: number // a change reloads the rows
@@ -92,19 +105,50 @@ type TableViewProps = {
   onDirtyChange: (dirty: boolean) => void
 }
 
-function TableView({ table, onImported, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
+function TableView({ table, preset, onFollow, onImported, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
   const [importOpen, setImportOpen] = useState(false)
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<Sort>(null)
-  const [draft, setDraft] = useState<DraftFilter[]>([emptyFilter(1)])
-  const [applied, setApplied] = useState<TableFilter[]>([])
+  const nextKey = useRef(1)
+  const draftOf = (filters: TableFilter[]) =>
+    filters.length > 0 ? filters.map((f) => ({ ...f, key: nextKey.current++ })) : [emptyFilter(nextKey.current++)]
+  const [draft, setDraft] = useState<DraftFilter[]>(() => draftOf(preset?.filters ?? []))
+  const [applied, setApplied] = useState<TableFilter[]>(preset?.filters ?? [])
+  const [foreignKeys, setForeignKeys] = useState<GridForeignKey[]>([])
   const [reloadToken, setReloadToken] = useState(0)
   const [data, setData] = useState<TablePage | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<{ message: string; detail?: string } | null>(null)
   const [pageInput, setPageInput] = useState('1')
-  const nextKey = useRef(2)
   const grid = useRef<HTMLDivElement>(null)
+
+  // A foreign key followed into this tab while it was open: show its row.
+  const presetSeq = useRef(preset?.seq)
+  useEffect(() => {
+    if (!preset || preset.seq === presetSeq.current) return
+    presetSeq.current = preset.seq
+    setDraft(draftOf(preset.filters))
+    setApplied(preset.filters)
+    setPage(0)
+  }, [preset])
+
+  // The table's foreign keys, once (and again after SQL ran here, which may
+  // have changed them), not per page. Without them the grid just has no links.
+  useEffect(() => {
+    let current = true
+    const call = DBService.ForeignKeys(table.schema, table.name)
+    call
+      .then((keys) => {
+        if (current) setForeignKeys((keys ?? []).map((k) => ({ ...k, columns: k.columns ?? [], refColumns: k.refColumns ?? [] })))
+      })
+      .catch(() => {
+        if (current) setForeignKeys([])
+      })
+    return () => {
+      current = false
+      call.cancel()
+    }
+  }, [table.schema, table.name, reloadSignal])
 
   // Reload when the page, sort or applied filters change. Closing the tab or
   // asking again cancels the request still running.
@@ -205,8 +249,14 @@ function TableView({ table, onImported, toggle, reloadSignal, top, notice, resul
   const totalPages = estimate != null ? Math.max(1, Math.ceil(estimate / PAGE_SIZE)) : null
   const first = page * PAGE_SIZE + 1
 
+  // Enter in any field of a filter (the column and operator lists too) applies them.
   const filterBar = (
-    <div className="filter-bar">
+    <div className="filter-bar" onKeyDown={(e) => {
+      if (e.key === 'Enter' && (e.target as HTMLElement).matches('select, input')) {
+        e.preventDefault()
+        applyFilters()
+      }
+    }}>
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
           {i === 0 ? toggle : <span className="filter-indent" aria-hidden="true" />}
@@ -225,7 +275,6 @@ function TableView({ table, onImported, toggle, reloadSignal, top, notice, resul
             disabled={NO_VALUE.has(f.operator)}
             placeholder={NO_VALUE.has(f.operator) ? '' : 'Enter value'}
             onChange={(e) => updateDraft(f.key, { value: e.target.value })}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyFilters() }}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -276,6 +325,13 @@ function TableView({ table, onImported, toggle, reloadSignal, top, notice, resul
         onDirtyChange={onDirtyChange}
         sort={sort}
         onSort={toggleSort}
+        foreignKeys={foreignKeys}
+        onFollow={(key, values) => onFollow({
+          schema: key.refSchema,
+          table: key.refTable,
+          qualifiedName: key.refQualifiedName,
+          filters: key.refColumns.map((column, k) => ({ column, operator: 'eq', value: values[k] })),
+        })}
         wrapClass={loading && data ? 'grid-wrap loading' : 'grid-wrap'}
         wrapRef={grid}
       >

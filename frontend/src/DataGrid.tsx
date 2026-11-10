@@ -1,16 +1,18 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { DBService, type EditTarget, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB'
 import Banner, { errorDetail, errorMessage } from './Banner'
-import { ArrowDownIcon, ArrowUpIcon, KeyIcon, Spinner } from './icons'
+import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner } from './icons'
 import { copyText } from './clipboard'
 import { formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { rowJsonEdits } from './rowJsonEdits'
 import { cellClass, cellText } from './cellValues'
+import { arrayElement, arrayToJson, jsonToArray } from './pgArray'
 import { shortcut } from './platform'
+import { useDismiss } from './useDismiss'
 
-// The JSON editor is 1.2 MB; load it the first time a json / jsonb cell is opened.
+// The JSON editor is 1.2 MB; load it the first time a json / jsonb / array cell is opened.
 const JsonEditorModal = lazy(() => import('./JsonEditorModal'))
 const loadingJson = <div className="json-modal-backdrop"><div className="json-modal-loading">Loading JSON editor…</div></div>
 
@@ -55,7 +57,15 @@ type Props = {
   wrapClass: string
   wrapRef?: RefObject<HTMLDivElement>
   children?: ReactNode // shown under the table, e.g. "This table is empty."
+  foreignKeys?: GridForeignKey[] // the table's foreign keys: their columns get a link mark
+  onFollow?: (key: GridForeignKey, values: string[]) => void // open the row a value points at
 }
+
+// A foreign key (DBService.ForeignKeys), its column lists never null.
+export type GridForeignKey = Omit<ForeignKey, 'columns' | 'refColumns'> & { columns: string[]; refColumns: string[] }
+
+// A foreign key a cell can follow, with this row's values for its columns.
+type Link = { key: GridForeignKey; values: string[] }
 
 // The grid of rows. When `target` is set, every row comes with its key
 // (rowKeys: primary key, or ctid + row hash; the key columns may not be
@@ -78,6 +88,7 @@ export default function DataGrid(props: Props) {
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   const [jsonCell, setJsonCell] = useState<Cell | null>(null) // open in the JSON editor
   const [rowJson, setRowJson] = useState<number[] | null>(null) // rows shown with "View as JSON"
+  const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; links: Link[] } | null>(null) // a value that points at rows in several tables
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
   const table = useRef<HTMLTableElement>(null)
@@ -120,6 +131,43 @@ export default function DataGrid(props: Props) {
   const canEdit = target !== null && keyNames.length > 0 && rowKeys.length === rows.length
   const isEditable = (col: number) => canEdit && columns[col]?.source !== ''
   const isJson = (col: number) => columns[col]?.category === 'json'
+  const arrayOf = (col: number) => arrayElement(columns[col]?.type ?? '')
+  // json / jsonb, and arrays (text[], int[] …) shown as JSON arrays, open in
+  // the JSON editor; an array Postgres printed some other way ([0:1]={a,b})
+  // edits as text.
+  const opensJson = (cell: Cell) => {
+    if (isJson(cell.col)) return true
+    const element = arrayOf(cell.col)
+    const value = shownValue(cell.row, cell.col)
+    return element !== null && (value === null || arrayToJson(value, element) !== null)
+  }
+
+  // Each column's foreign keys, one per table and columns they point at.
+  const keysOf = (col: number) => {
+    const seen = new Set<string>()
+    return (props.foreignKeys ?? []).filter((k) => {
+      const id = JSON.stringify([k.columns, k.refSchema, k.refTable, k.refColumns])
+      if (!k.columns.includes(columns[col]?.name) || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+  }
+  const columnKeys = columns.map((_, j) => keysOf(j))
+  // The keys this row's cell can follow: every column of the key has a value
+  // (a NULL in any of them points nowhere).
+  const linksOf = (row: number, col: number): Link[] => columnKeys[col].flatMap((key) => {
+    const values = key.columns.map((name) => {
+      const j = columns.findIndex((c) => c.name === name)
+      return j < 0 ? null : shownValue(row, j)
+    })
+    return values.every((v): v is string => v !== null) ? [{ key, values }] : []
+  })
+  const follow = (e: MouseEvent<HTMLButtonElement>, links: Link[]) => {
+    e.stopPropagation()
+    if (links.length === 1) return props.onFollow?.(links[0].key, links[0].values)
+    const box = e.currentTarget.getBoundingClientRect()
+    setLinkMenu({ x: box.left, y: box.bottom + 4, links })
+  }
 
   // Rows are told apart by their key as loaded; after a save, `saved` holds
   // the key that finds the row now.
@@ -156,6 +204,7 @@ export default function DataGrid(props: Props) {
     setMenu(null)
     setJsonCell(null)
     setRowJson(null)
+    setLinkMenu(null)
   }, [rows])
 
   useEffect(() => {
@@ -230,8 +279,8 @@ export default function DataGrid(props: Props) {
   }
 
   const startEdit = (cell: Cell, typed?: string) => {
-    // json / jsonb values open the JSON editor instead (read-only when they can't be saved).
-    if (isJson(cell.col)) return openJson(cell)
+    // json / jsonb and array values open the JSON editor instead (read-only when they can't be saved).
+    if (opensJson(cell)) return openJson(cell)
     if (!isEditable(cell.col)) return
     setSelected(cell)
     setEditing({ cell, initial: typed ?? shownValue(cell.row, cell.col) ?? '', typed: typed !== undefined })
@@ -322,7 +371,14 @@ export default function DataGrid(props: Props) {
     setJsonCell(null)
     wrap.current?.focus({ preventScroll: true })
   }
+  // An array's JSON goes back to Postgres's form ({a,b}); a problem stays in the editor.
   const applyJson = (cell: Cell, value: string | null) => {
+    const element = arrayOf(cell.col)
+    if (element && value !== null) {
+      const result = jsonToArray(value, element)
+      if ('error' in result) return result.error
+      value = result.value
+    }
     setPending(withCell(pending, cell, value))
     setSavedMessage(null)
     closeJson()
@@ -458,9 +514,12 @@ export default function DataGrid(props: Props) {
                     onClick={() => (allSelected ? setRowSelection(new Set()) : selectAll())} />
                 {columns.map((c, i) => {
                   const sorted = sort?.column === c.name ? (sort.desc ? 'desc' : 'asc') : null
+                  const keys = columnKeys[i]
+                  const points = keys.map((k) => `${k.refTable}.${k.refColumns.join(', ')}`).join(', ')
                   const label = (
                     <>
                       {c.primaryKey && <span className="grid-key" aria-label="Primary key"><KeyIcon /></span>}
+                      {keys.length > 0 && <span className="grid-fk" aria-label={`Foreign key to ${points}`}><LinkIcon /></span>}
                       <span className="grid-col-name">{c.name}</span>
                       {c.type && <span className="grid-col-type">{c.type}</span>}
                     </>
@@ -469,14 +528,14 @@ export default function DataGrid(props: Props) {
                     <th key={i} aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}>
                       {onSort ? (
                         <button type="button" className="grid-head" onClick={() => onSort(c.name)}
-                                title={`${c.name} · ${c.type}${c.primaryKey ? ' · primary key' : ''} — click to sort`}>
+                                title={`${c.name} · ${c.type}${c.primaryKey ? ' · primary key' : ''}${keys.length ? ` · foreign key → ${points}` : ''} — click to sort`}>
                           {label}
                           <span className={sorted ? 'grid-sort active' : 'grid-sort'}>
                             {sorted === 'desc' ? <ArrowDownIcon /> : <ArrowUpIcon />}
                           </span>
                         </button>
                       ) : (
-                        <div className="grid-head static">{label}</div>
+                        <div className="grid-head static" title={keys.length ? `Foreign key → ${points}` : undefined}>{label}</div>
                       )}
                       <span className={resizing === i ? 'col-resizer dragging' : 'col-resizer'} aria-hidden="true"
                             title="Drag to resize · double-click to fit"
@@ -506,18 +565,20 @@ export default function DataGrid(props: Props) {
                     const category = columns[j].category
                     const isSelected = selected?.row === i && selected?.col === j
                     const isEditing = editing?.cell.row === i && editing?.cell.col === j
+                    const links = props.onFollow && !isEditing ? linksOf(i, j) : []
                     const classes = [
                       cellClass(value, category),
                       isChanged(i, j) && 'cell-changed',
                       isSelected && 'cell-selected',
                       isEditing && 'cell-editing',
+                      columnKeys[j].length > 0 && 'cell-fk',
                     ].filter(Boolean).join(' ')
                     return (
                       <td
                         key={j}
                         data-cell={`${i}-${j}`}
                         className={classes}
-                        title={isJson(j) ? `${value ?? 'NULL'} — double-click to open the JSON editor`
+                        title={isJson(j) || arrayOf(j) ? `${value ?? 'NULL'} — double-click to open the JSON editor`
                           : isEditable(j) ? `${value ?? 'NULL'} — double-click to edit` : value ?? 'NULL'}
                         onClick={(e) => {
                           // Clicks inside the cell editor place the cursor; moving focus would end the edit.
@@ -537,6 +598,14 @@ export default function DataGrid(props: Props) {
                         {isEditing && editing ? (
                           <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit} />
                         ) : value === null ? 'NULL' : cellText(value, category)}
+                        {links.length > 0 && (
+                          <button type="button" className="cell-link" tabIndex={-1}
+                                  title={links.length === 1 ? linkTitle(links[0]) : `Open the row it points to (${links.length} tables)`}
+                                  onMouseDown={(e) => e.preventDefault()} onClick={(e) => follow(e, links)}
+                                  onDoubleClick={(e) => e.stopPropagation()}>
+                            <ArrowUpRightIcon />
+                          </button>
+                        )}
                       </td>
                     )
                   })}
@@ -555,20 +624,25 @@ export default function DataGrid(props: Props) {
           y={menu.y}
           rowCount={rowSelection.size}
           onCopyValue={menu.cell ? () => { copyCell(menu.cell!); closeMenu() } : undefined}
-          onOpenJson={menu.cell && isJson(menu.cell.col) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
+          onOpenJson={menu.cell && opensJson(menu.cell) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
           onViewJson={() => { closeMenu(); setRowJson([...rowSelection].sort((a, b) => a - b)) }}
           onCopy={(format) => { copyRows(format); closeMenu() }}
           onClose={closeMenu}
         />
       )}
       {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
+      {linkMenu && (
+        <LinkMenu x={linkMenu.x} y={linkMenu.y} links={linkMenu.links}
+                  onPick={(link) => { setLinkMenu(null); props.onFollow?.(link.key, link.values) }}
+                  onClose={() => setLinkMenu(null)} />
+      )}
       {jsonCell && (
         <Suspense fallback={loadingJson}>
           <JsonEditorModal
             title={columns[jsonCell.col].name}
             tag={columns[jsonCell.col].type}
             note={`row ${(firstRowNumber + jsonCell.row).toLocaleString()}`}
-            value={shownValue(jsonCell.row, jsonCell.col)}
+            value={jsonValue(shownValue(jsonCell.row, jsonCell.col), arrayOf(jsonCell.col))}
             readOnly={!isEditable(jsonCell.col)}
             onApply={(value) => applyJson(jsonCell, value)}
             onClose={closeJson}
@@ -629,10 +703,39 @@ function contentWidth(cell: HTMLTableCellElement) {
     return parts.reduce((sum, p) => sum + p.offsetWidth, 0) + gaps
       + parseFloat(headStyle.paddingLeft) + parseFloat(headStyle.paddingRight) + edges + 1
   }
-  // Value: the text's laid-out width, which ignores the cell's clipping.
+  // Value: the text's laid-out width, which ignores the cell's clipping. A
+  // foreign key's link button sits in the cell's right padding, so it's left out.
   const range = document.createRange()
   range.selectNodeContents(cell)
+  const link = cell.querySelector('.cell-link')
+  if (link) range.setEndBefore(link)
   return Math.ceil(range.getBoundingClientRect().width + edges) + 1
+}
+
+// What the JSON editor opens with: an array's value as a JSON array.
+function jsonValue(value: string | null, element: ReturnType<typeof arrayElement>) {
+  return value === null || element === null ? value : arrayToJson(value, element) ?? value
+}
+
+const linkTitle = ({ key, values }: Link) =>
+  `Open ${key.refTable} where ${key.refColumns.map((c, k) => `${c} = ${values[k]}`).join(' and ')}`
+
+// Picks the table to open when a value points at rows in more than one.
+function LinkMenu({ x, y, links, onPick, onClose }: { x: number; y: number; links: Link[]; onPick: (link: Link) => void; onClose: () => void }) {
+  const root = useRef<HTMLDivElement>(null)
+  useDismiss(true, root, onClose)
+  useEffect(() => root.current?.querySelector('button')?.focus(), [])
+  return (
+    <div className="row-menu link-menu" role="menu" ref={root} style={{ left: Math.min(x, window.innerWidth - 260), top: y }}>
+      <p className="row-menu-title">Open the row it points to in</p>
+      {links.map((link, k) => (
+        <button key={k} type="button" role="menuitem" className="row-menu-item" onClick={() => onPick(link)}>
+          {link.key.refSchema}.{link.key.refTable}
+          <kbd>{link.key.refColumns.join(', ')}</kbd>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 type EditorProps = {

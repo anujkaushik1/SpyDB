@@ -121,6 +121,15 @@ export function FetchRows(tab: string, runID: number, statement: number, offset:
 }
 
 /**
+ * ForeignKeys lists a table's foreign keys, so the grid can mark those
+ * columns and link each value to the row it points at. One catalog query on
+ * the pool, once per table tab (not per page).
+ */
+export function ForeignKeys(schema: string, table: string): $CancellablePromise<$models.ForeignKey[] | null> {
+    return $Call.ByID(3532834509, schema, table);
+}
+
+/**
  * ForgetRun drops a tab's stored rows; the frontend calls it when a query tab closes.
  */
 export function ForgetRun(tab: string): $CancellablePromise<void> {

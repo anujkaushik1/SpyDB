@@ -12,6 +12,7 @@ export type {
     ConnectionLists,
     DBConfig,
     EditTarget,
+    ForeignKey,
     ImportChoice,
     ImportColumn,
     ImportOptions,
