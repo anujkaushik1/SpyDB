@@ -2,6 +2,7 @@ package dynamo
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -44,10 +45,10 @@ var awsCLIPlaces = []string{
 }
 
 // ownAWSCLIPath is where SpyDB keeps its own copy:
-// ~/Library/Application Support/SpyDB/aws-cli/bin/aws on macOS,
-// ~/.config/SpyDB/aws-cli/bin/aws on Linux.
+// ~/Library/Application Support/SpyDB/aws-cli/aws on macOS (AWS's
+// installer always makes an aws-cli folder in the folder it's given).
 func ownAWSCLIPath() (string, error) {
-	return appdata.Path(filepath.Join("aws-cli", "bin", "aws"))
+	return appdata.Path(filepath.Join("aws-cli", "aws"))
 }
 
 // findAWSCLI returns the AWS CLI to sign in with, at least version min (see
@@ -121,21 +122,34 @@ func versionAtLeast(version, min string) bool {
 // it's a version 2 SpyDB can use. It prints e.g.
 // "aws-cli/2.27.6 Python/3.13.3 Darwin/25.5.0 source/arm64".
 func awsCLIVersion(ctx context.Context, path string) (string, bool) {
+	version, err := awsCLIVersionWithin(ctx, path, 10*time.Second)
+	return version, err == nil
+}
+
+// awsCLIVersionWithin is awsCLIVersion with a time limit, saying why it
+// can't use the program. A CLI just installed needs longer the first time:
+// macOS checks new programs when they first run (seconds, sometimes more).
+func awsCLIVersionWithin(ctx context.Context, path string, limit time.Duration) (string, error) {
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		return "", false
+		return "", fmt.Errorf("there's no program at %s", path)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("it didn't answer within %s", limit)
+	}
 	if err != nil {
-		return "", false
+		return "", fmt.Errorf("%v: %s", err, lastLine(out))
 	}
 	m := awsCLIVersionText.FindSubmatch(out)
 	if m == nil {
-		return "", false
+		return "", fmt.Errorf("it printed %q, not an AWS CLI version", lastLine(out))
 	}
-	major, _ := strconv.Atoi(string(m[1]))
-	return string(m[1]) + string(m[2]), major == 2
+	if string(m[1]) != "2" {
+		return string(m[1]) + string(m[2]), fmt.Errorf("it's version %s%s; SpyDB needs version 2", m[1], m[2])
+	}
+	return string(m[1]) + string(m[2]), nil
 }
 
 var awsCLIVersionText = regexp.MustCompile(`aws-cli/(\d+)(\.\d+\.\d+)`)
@@ -156,15 +170,15 @@ var amazonPkgSignature = []string{
 	"1. Developer ID Installer: AMZN Mobile LLC (94KV3E626L)",
 }
 
-// downloadAWSCLI downloads AWS's installer into SpyDB's aws-cli folder and
+// downloadAWSCLI downloads AWS's installer into SpyDB's downloads folder and
 // checks it's genuinely Amazon's, returning its path; one that fails the
 // check is deleted. progress, if given, hears bytes done and the total (-1
-// if unknown). It installs nothing.
+// if unknown). It installs nothing (see installAWSCLI).
 func downloadAWSCLI(ctx context.Context, progress func(done, total int64)) (string, error) {
 	if runtime.GOOS != "darwin" {
 		return "", errors.New("SpyDB can't install the AWS CLI on this system yet. Install it yourself (https://aws.amazon.com/cli/), then try again.")
 	}
-	dir, err := appdata.Path("aws-cli")
+	dir, err := appdata.Path("downloads")
 	if err != nil {
 		return "", err
 	}
@@ -258,4 +272,70 @@ func pkgSignatureProblem(report string) error {
 		}
 	}
 	return nil
+}
+
+// installAWSCLI installs AWS's installer at pkg into SpyDB's settings folder,
+// just for you (no administrator password), then deletes the installer. It
+// should come from downloadAWSCLI, which checks it's Amazon's. The CLI lands
+// in an aws-cli folder there (see ownAWSCLIPath); a copy already there is
+// replaced. It's AWS's documented "Command line - Current user" install:
+//
+//	installer -pkg AWSCLIV2.pkg -target CurrentUserHomeDirectory -applyChoiceChangesXML choices.xml
+func installAWSCLI(ctx context.Context, pkg string) (AWSCLI, error) {
+	defer os.Remove(pkg)
+	if runtime.GOOS != "darwin" {
+		return AWSCLI{}, errors.New("SpyDB can't install the AWS CLI on this system yet. Install it yourself (https://aws.amazon.com/cli/), then try again.")
+	}
+	own, err := ownAWSCLIPath()
+	if err != nil {
+		return AWSCLI{}, err
+	}
+	folder := filepath.Dir(filepath.Dir(own))          // SpyDB's settings folder; the installer adds aws-cli/
+	if err := os.MkdirAll(folder, 0o700); err != nil { // AWS: "The folder must already exist"
+		return AWSCLI{}, err
+	}
+	tmp, err := os.MkdirTemp("", "spydb-aws-cli-")
+	if err != nil {
+		return AWSCLI{}, err
+	}
+	defer os.RemoveAll(tmp)
+	choices := filepath.Join(tmp, "choices.xml")
+	if err := os.WriteFile(choices, []byte(installChoices(folder)), 0o600); err != nil {
+		return AWSCLI{}, err
+	}
+	out, err := exec.CommandContext(ctx, "/usr/sbin/installer", "-pkg", pkg,
+		"-target", "CurrentUserHomeDirectory", "-applyChoiceChangesXML", choices).CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return AWSCLI{}, errors.New("Installing the AWS CLI was cancelled.")
+		}
+		return AWSCLI{}, fmt.Errorf("Couldn't install the AWS CLI: %s", lastLine(out))
+	}
+	version, err := awsCLIVersionWithin(ctx, own, 2*time.Minute)
+	if err != nil {
+		return AWSCLI{}, fmt.Errorf("The AWS CLI installed, but SpyDB couldn't run it: %v", err)
+	}
+	return AWSCLI{Path: own, Version: version, Own: true}, nil
+}
+
+// installChoices is AWS's choices.xml for a current-user install into
+// folder (verbatim from AWS's guide, with folder in place of /Users/myusername).
+func installChoices(folder string) string {
+	var escaped strings.Builder
+	xml.EscapeText(&escaped, []byte(folder))
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <array>
+    <dict>
+      <key>choiceAttribute</key>
+      <string>customLocation</string>
+      <key>attributeSetting</key>
+      <string>` + escaped.String() + `</string>
+      <key>choiceIdentifier</key>
+      <string>default</string>
+    </dict>
+  </array>
+</plist>
+`
 }
