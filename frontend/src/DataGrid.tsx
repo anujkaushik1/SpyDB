@@ -290,6 +290,8 @@ export default function DataGrid(props: Props) {
   }
 
   const startEdit = (cell: Cell, typed?: string) => {
+    // While a save runs, new edits would be cleared when it finishes.
+    if (saving) return
     // json / jsonb and array values open the JSON editor instead (read-only when they can't be saved).
     if (opensJson(cell)) return openJson(cell)
     if (!isEditable(cell.col)) return
