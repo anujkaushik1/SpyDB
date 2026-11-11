@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { DBService, type ConnectionInfo, type DBConfig, type SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type DBConfig, type SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage, type Notice } from './Banner'
 import ServerConnectionsPanel from './ServerConnectionsPanel'
 import { parseConnectionUrl } from './connectionUrl'

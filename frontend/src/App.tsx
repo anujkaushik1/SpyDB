@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'

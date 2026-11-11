@@ -1,4 +1,4 @@
-import type { TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { EyeIcon, LayersIcon, TableIcon } from './icons'
 
 // Shared by the sidebar, the ⌘P / Ctrl+P switcher and the tab bar.

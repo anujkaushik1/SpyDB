@@ -1,4 +1,4 @@
-package main
+package postgres
 
 import (
 	"crypto/rand"
@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/anujkaushik1/SpyDB/appdata"
 )
 
 // maxRecent is how many recent connections are remembered.
@@ -31,9 +33,9 @@ type ConnectionLists struct {
 	Recent []SavedConnection `json:"recent"` // newest first
 }
 
-// connectionsFile is connections.json in SpyDB's settings folder (configPath).
+// connectionsFile is connections.json in SpyDB's settings folder (appdata.Path).
 func connectionsFile() (string, error) {
-	return configPath("connections.json")
+	return appdata.Path("connections.json")
 }
 
 // SavedConnections returns the saved and recent connections.
@@ -164,13 +166,13 @@ func loadConnections() (ConnectionLists, error) {
 }
 
 // writeConnections replaces the file in one step, readable only by the
-// current user, since it holds passwords (see writePrivateJSON).
+// current user, since it holds passwords (see appdata.WritePrivateJSON).
 func writeConnections(lists ConnectionLists) error {
 	path, err := connectionsFile()
 	if err != nil {
 		return err
 	}
-	return writePrivateJSON(path, lists)
+	return appdata.WritePrivateJSON(path, lists)
 }
 
 func newID() string {

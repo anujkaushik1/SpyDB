@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ConnectionLists, SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { ConnectionLists, SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { DatabaseIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
 import { timeAgo } from './timeAgo'

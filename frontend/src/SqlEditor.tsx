@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DBService, type QueryResult, type StatementResult } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type QueryResult, type StatementResult } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorMessage } from './Banner'
 import DataGrid, { type GridColumn } from './DataGrid'
 import ExportMenu, { type ExportChoice } from './ExportMenu'

@@ -1,5 +1,5 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
-import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { ActivityIcon, CodeIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 import type { FilterPreset } from './TableTab'

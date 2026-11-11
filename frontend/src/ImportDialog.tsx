@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DBService, type ImportPreview, type ImportResult, type ImportTargetColumn } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ImportPreview, type ImportResult, type ImportTargetColumn } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import { Spinner, UploadIcon, XIcon } from './icons'
 import { IMPORT_TYPES, missingRequired, nameProblem, suggestTargets } from './importMapping'

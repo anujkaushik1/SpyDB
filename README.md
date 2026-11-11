@@ -190,14 +190,16 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 
 | Go (backend) | |
 |---|---|
-| `dbservice.go` | `DBService`: connect, disconnect, the editor connection and pool, active connections |
-| `query.go` | Runs SQL, keeps results for paging |
-| `editable.go`, `edits.go` | Decides which results are editable; saves edits safely |
-| `tabledata.go`, `schema.go` | Table pages; the sidebar's schemas, tables and columns |
-| `export.go`, `importer.go` | CSV and Excel export; import into a table or a new one |
-| `returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
-| `connections.go`, `queries.go`, `files.go` | Saved connections and queries on disk |
-| `dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
+| `main.go` | Starts the app and registers each database's service |
+| `appdata/` | SpyDB's settings folder, shared by every database |
+| `postgres/dbservice.go` | `DBService`: connect, disconnect, the editor connection and pool, active connections |
+| `postgres/query.go` | Runs SQL, keeps results for paging |
+| `postgres/editable.go`, `edits.go` | Decides which results are editable; saves edits safely |
+| `postgres/tabledata.go`, `schema.go`, `foreignkeys.go` | Table pages; the sidebar's schemas, tables and columns; foreign keys |
+| `postgres/export.go`, `importer.go` | CSV and Excel export; import into a table or a new one |
+| `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
+| `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
+| `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
 
 | React (window), in `frontend/src/` | |
 |---|---|

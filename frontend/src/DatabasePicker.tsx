@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import { connectionDetail, connectionTitle, pickerSections, sameTarget } from './connectionSearch'
 import { ChevronDownIcon, DatabaseIcon, SearchIcon, Spinner, TickIcon } from './icons'

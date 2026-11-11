@@ -19,7 +19,7 @@ import * as $models from "./models.js";
  * frontend calls it on load, since a page reload doesn't reset the Go side.
  */
 export function ActiveConnection(): $CancellablePromise<$models.ConnectionInfo | null> {
-    return $Call.ByID(2229860629);
+    return $Call.ByID(470902409);
 }
 
 /**
@@ -28,7 +28,7 @@ export function ActiveConnection(): $CancellablePromise<$models.ConnectionInfo |
  * a temporary connection with cfg and closes it afterwards.
  */
 export function ActiveConnections(cfg: $models.DBConfig): $CancellablePromise<$models.ServerConnections> {
-    return $Call.ByID(2696977298, cfg);
+    return $Call.ByID(694492046, cfg);
 }
 
 /**
@@ -36,21 +36,21 @@ export function ActiveConnections(cfg: $models.DBConfig): $CancellablePromise<$m
  * suggestedName. format is "csv" or "xlsx". It returns "" if the user cancels.
  */
 export function ChooseExportFile(suggestedName: string, format: string): $CancellablePromise<string> {
-    return $Call.ByID(59199622, suggestedName, format);
+    return $Call.ByID(1209136258, suggestedName, format);
 }
 
 /**
  * ChooseImportFile shows the Open dialog for a CSV or Excel file; "" if cancelled.
  */
 export function ChooseImportFile(): $CancellablePromise<string> {
-    return $Call.ByID(3959967681);
+    return $Call.ByID(2379639197);
 }
 
 /**
  * ClearRecent empties the Recent list.
  */
 export function ClearRecent(): $CancellablePromise<void> {
-    return $Call.ByID(1471484819);
+    return $Call.ByID(3903960687);
 }
 
 /**
@@ -61,28 +61,28 @@ export function ClearRecent(): $CancellablePromise<void> {
  * current connection as it was. A successful Connect is added to Recent.
  */
 export function Connect(cfg: $models.DBConfig): $CancellablePromise<$models.ConnectionInfo> {
-    return $Call.ByID(1121424107, cfg);
+    return $Call.ByID(474393615, cfg);
 }
 
 /**
  * DefaultConfig returns the values that pre-fill the connection form.
  */
 export function DefaultConfig(): $CancellablePromise<$models.DBConfig> {
-    return $Call.ByID(2589731038);
+    return $Call.ByID(1488180570);
 }
 
 /**
  * DeleteConnection removes a saved connection.
  */
 export function DeleteConnection(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1563168100, id);
+    return $Call.ByID(644268096, id);
 }
 
 /**
  * DeleteQuery removes a saved query; deleting one that's already gone is fine.
  */
 export function DeleteQuery(id: string): $CancellablePromise<void> {
-    return $Call.ByID(3493450992, id);
+    return $Call.ByID(3771278604, id);
 }
 
 /**
@@ -90,7 +90,7 @@ export function DeleteQuery(id: string): $CancellablePromise<void> {
  * nothing if none is open.
  */
 export function Disconnect(): $CancellablePromise<void> {
-    return $Call.ByID(1927077453);
+    return $Call.ByID(2992495617);
 }
 
 /**
@@ -101,7 +101,7 @@ export function Disconnect(): $CancellablePromise<void> {
  * so a query that changes data can never run twice, and streamed to the file.
  */
 export function ExportResult(tab: string, runID: number, statement: number, path: string, format: string): $CancellablePromise<number> {
-    return $Call.ByID(1151194676, tab, runID, statement, path, format);
+    return $Call.ByID(3105409088, tab, runID, statement, path, format);
 }
 
 /**
@@ -109,7 +109,7 @@ export function ExportResult(tab: string, runID: number, statement: number, path
  * chosen order) to path, using the pool. Nothing is held in memory.
  */
 export function ExportTable(e: $models.TableExport, path: string, format: string): $CancellablePromise<number> {
-    return $Call.ByID(1713099567, e, path, format);
+    return $Call.ByID(3878319083, e, path, format);
 }
 
 /**
@@ -117,7 +117,7 @@ export function ExportTable(e: $models.TableExport, path: string, format: string
  * starting at offset. The rows are already in memory; nothing goes to Postgres.
  */
 export function FetchRows(tab: string, runID: number, statement: number, offset: number): $CancellablePromise<$models.ResultPage> {
-    return $Call.ByID(439117188, tab, runID, statement, offset);
+    return $Call.ByID(3985414136, tab, runID, statement, offset);
 }
 
 /**
@@ -126,21 +126,21 @@ export function FetchRows(tab: string, runID: number, statement: number, offset:
  * the pool, once per table tab (not per page).
  */
 export function ForeignKeys(schema: string, table: string): $CancellablePromise<$models.ForeignKey[] | null> {
-    return $Call.ByID(3532834509, schema, table);
+    return $Call.ByID(3295207225, schema, table);
 }
 
 /**
  * ForgetRun drops a tab's stored rows; the frontend calls it when a query tab closes.
  */
 export function ForgetRun(tab: string): $CancellablePromise<void> {
-    return $Call.ByID(2303925015, tab);
+    return $Call.ByID(1598590923, tab);
 }
 
 /**
  * ImportTargetColumns lists an existing table's columns for matching.
  */
 export function ImportTargetColumns(schema: string, table: string): $CancellablePromise<$models.ImportTargetColumn[] | null> {
-    return $Call.ByID(3115908994, schema, table);
+    return $Call.ByID(2834704046, schema, table);
 }
 
 /**
@@ -148,14 +148,14 @@ export function ImportTargetColumns(schema: string, table: string): $Cancellable
  * ListTables lists), in one catalog query on the pool.
  */
 export function ListColumns(): $CancellablePromise<$models.TableColumns[] | null> {
-    return $Call.ByID(980899690);
+    return $Call.ByID(3773391470);
 }
 
 /**
  * ListDatabases returns the databases on the server that the user can connect to.
  */
 export function ListDatabases(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(739820843);
+    return $Call.ByID(1768427615);
 }
 
 /**
@@ -163,7 +163,7 @@ export function ListDatabases(): $CancellablePromise<string[] | null> {
  * using the open pool.
  */
 export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
-    return $Call.ByID(1987107542);
+    return $Call.ByID(3190087810);
 }
 
 /**
@@ -172,21 +172,21 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
  * suggested names, types and a primary key.
  */
 export function PreviewImport(opts: $models.ImportOptions): $CancellablePromise<$models.ImportPreview> {
-    return $Call.ByID(2233282824, opts);
+    return $Call.ByID(516227852, opts);
 }
 
 /**
  * RenameQuery changes only a saved query's name.
  */
 export function RenameQuery(id: string, name: string): $CancellablePromise<$models.SavedQuery> {
-    return $Call.ByID(2822217659, id, name);
+    return $Call.ByID(2939609191, id, name);
 }
 
 /**
  * RevealFile shows a file in Finder.
  */
 export function RevealFile(path: string): $CancellablePromise<void> {
-    return $Call.ByID(2947400668, path);
+    return $Call.ByID(3757743736, path);
 }
 
 /**
@@ -195,7 +195,7 @@ export function RevealFile(path: string): $CancellablePromise<void> {
  * with the editor session's role and formats when it's free to ask.
  */
 export function RunImport(req: $models.ImportRequest): $CancellablePromise<$models.ImportResult> {
-    return $Call.ByID(565754781, req);
+    return $Call.ByID(355902641, req);
 }
 
 /**
@@ -206,14 +206,14 @@ export function RunImport(req: $models.ImportRequest): $CancellablePromise<$mode
  * frontend cancels the call (the Cancel button); Disconnect cancels it too.
  */
 export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.QueryResult> {
-    return $Call.ByID(2683527108, tab, sql);
+    return $Call.ByID(320031448, tab, sql);
 }
 
 /**
  * SaveConnection adds c to Saved, or updates the saved connection with c.ID.
  */
 export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<$models.SavedConnection> {
-    return $Call.ByID(1085621238, c);
+    return $Call.ByID(106705906, c);
 }
 
 /**
@@ -222,7 +222,7 @@ export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<
  * you're connected to, and returns the saved query.
  */
 export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.SavedQuery> {
-    return $Call.ByID(2725652286, q);
+    return $Call.ByID(3020983034, q);
 }
 
 /**
@@ -235,21 +235,21 @@ export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.Sa
  * swallow or delay the save. It returns each row as saved.
  */
 export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<$models.SavedRow[] | null> {
-    return $Call.ByID(2331632375, target, edits);
+    return $Call.ByID(2977464731, target, edits);
 }
 
 /**
  * SavedConnections returns the saved and recent connections.
  */
 export function SavedConnections(): $CancellablePromise<$models.ConnectionLists> {
-    return $Call.ByID(3993605935);
+    return $Call.ByID(3515133619);
 }
 
 /**
  * SavedQueries returns every saved query, most recently saved first.
  */
 export function SavedQueries(): $CancellablePromise<$models.SavedQuery[] | null> {
-    return $Call.ByID(2912482006);
+    return $Call.ByID(4116626858);
 }
 
 /**
@@ -257,7 +257,7 @@ export function SavedQueries(): $CancellablePromise<$models.SavedQuery[] | null>
  * same login. If it fails, the current connection stays open.
  */
 export function SwitchDatabase(database: string): $CancellablePromise<$models.ConnectionInfo> {
-    return $Call.ByID(2301968434, database);
+    return $Call.ByID(3400387614, database);
 }
 
 /**
@@ -265,7 +265,7 @@ export function SwitchDatabase(database: string): $CancellablePromise<$models.Co
  * the open pool. Wails cancels ctx when the frontend cancels the call.
  */
 export function TableData(q: $models.TableQuery): $CancellablePromise<$models.TablePage> {
-    return $Call.ByID(2537943209, q);
+    return $Call.ByID(4100510109, q);
 }
 
 /**
@@ -273,5 +273,5 @@ export function TableData(q: $models.TableQuery): $CancellablePromise<$models.Ta
  * A nil error means the database is reachable; the error text is shown in the UI.
  */
 export function TestConnection(cfg: $models.DBConfig): $CancellablePromise<string> {
-    return $Call.ByID(3354703523, cfg);
+    return $Call.ByID(3082525927, cfg);
 }

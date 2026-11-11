@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { SavedQuery } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { SavedQuery } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import { CodeIcon, PencilIcon, RefreshIcon, SearchIcon, Spinner, TrashIcon } from './icons'
 import { shortcut } from './platform'

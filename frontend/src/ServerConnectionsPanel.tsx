@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { DBService, type DBConfig, type ServerConnections } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService, type DBConfig, type ServerConnections } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { RefreshIcon, Spinner } from './icons'
 

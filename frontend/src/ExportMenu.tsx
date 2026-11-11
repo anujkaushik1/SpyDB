@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { DBService } from '../bindings/github.com/anujkaushik1/SpyDB'
+import { DBService } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import { DownloadIcon, Spinner } from './icons'
 import { fileManager } from './platform'
