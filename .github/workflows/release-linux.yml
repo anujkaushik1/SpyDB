@@ -41,9 +41,7 @@ jobs:
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="0.0.0~test"; fi
           export VERSION GOARCH=amd64
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
-          wails3 tool package -name spydb -format deb -config build/linux/nfpm/nfpm.yaml -out bin
-          mv bin/spydb.deb "bin/spydb_${VERSION}_amd64.deb"
+          go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0 package -f build/linux/nfpm/nfpm.yaml -p deb -t "bin/spydb_${VERSION}_amd64.deb"
 
       - name: Keep it on this run's page (test runs)
         uses: actions/upload-artifact@v7
