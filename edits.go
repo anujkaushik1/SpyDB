@@ -106,21 +106,27 @@ type relation struct {
 	persistence string // t for a temporary table
 	hasChildren bool   // other tables inherit from it (or it's partitioned)
 	primaryKey  []string
-	pkAttnums   []int16  // primaryKey's column numbers, same order
-	pkTypes     []string // and their types (typname)
-	columns     int      // how many columns it has
-	sendable    bool     // every column type has a binary form, so rowHash works
+	pkAttnums   []int16 // primaryKey's column numbers, same order
+	columns     int     // how many columns it has
+	sendable    bool    // every column type has a binary form, so rowHash works
 	// Privileges of the role that looked it up (the editor's, before a run).
 	canSelect    bool // SELECT on the whole table (needed for rowHash)
 	canSelectKey bool // SELECT on the primary-key columns
 	canUpdate    bool // UPDATE on the table or some of its columns
+	// pg_catalog types the primary key is made of, through domains, arrays,
+	// ranges and composite types (see inexactKey).
+	pkBaseTypes []string
+	// The server's version, and the settings of the session that looked it up.
+	serverVersion int // server_version_num, e.g. 150015
+	floatDigits   string
+	dateStyle     string
 }
 
 // The primary key's columns: only the key part of the index, not INCLUDE columns.
 const relationQuery = `
 SELECT c.oid, n.nspname, c.relname, c.relkind::text, c.relpersistence::text,
        EXISTS (SELECT 1 FROM pg_catalog.pg_inherits h WHERE h.inhparent = c.oid),
-       coalesce(k.names, '{}'), coalesce(k.nums, '{}'), coalesce(k.types, '{}'),
+       coalesce(k.names, '{}'), coalesce(k.nums, '{}'),
        (SELECT pg_catalog.count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)::int,
        coalesce((WITH RECURSIVE types(oid) AS (
            SELECT a.atttypid FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
@@ -135,15 +141,31 @@ SELECT c.oid, n.nspname, c.relname, c.relkind::text, c.relpersistence::text,
          SELECT pg_catalog.bool_and(t.typsend <> 0) FROM types JOIN pg_catalog.pg_type t ON t.oid = types.oid), true),
        pg_catalog.has_table_privilege(c.oid, 'SELECT'),
        coalesce(k.readable, true),
-       pg_catalog.has_any_column_privilege(c.oid, 'UPDATE')
+       pg_catalog.has_any_column_privilege(c.oid, 'UPDATE'),
+       coalesce((WITH RECURSIVE types(oid) AS (
+           SELECT a.atttypid FROM pg_catalog.pg_index i
+           JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY ((i.indkey::int2[])[0:i.indnkeyatts - 1])
+           WHERE i.indrelid = c.oid AND i.indisprimary
+           UNION
+           SELECT inner_type.oid FROM types JOIN pg_catalog.pg_type t ON t.oid = types.oid, LATERAL (
+               SELECT t.typelem WHERE t.typcategory = 'A' AND t.typelem <> 0
+               UNION ALL SELECT t.typbasetype WHERE t.typtype = 'd'
+               UNION ALL SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid
+               UNION ALL SELECT a.atttypid FROM pg_catalog.pg_attribute a
+                         WHERE t.typtype = 'c' AND a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+           ) inner_type(oid))
+         SELECT pg_catalog.array_agg(DISTINCT t.typname::text) FROM types
+         JOIN pg_catalog.pg_type t ON t.oid = types.oid
+         JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace AND tn.nspname = 'pg_catalog'), '{}'),
+       pg_catalog.current_setting('server_version_num')::int,
+       pg_catalog.current_setting('extra_float_digits'),
+       pg_catalog.current_setting('DateStyle')
 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN LATERAL (
     SELECT pg_catalog.array_agg(a.attname::text ORDER BY a.attnum) AS names, pg_catalog.array_agg(a.attnum ORDER BY a.attnum) AS nums,
-           pg_catalog.array_agg(t.typname::text ORDER BY a.attnum) AS types,
            pg_catalog.bool_and(pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT')) AS readable
     FROM pg_catalog.pg_index i
     JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY ((i.indkey::int2[])[0:i.indnkeyatts - 1])
-    JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
     WHERE i.indrelid = c.oid AND i.indisprimary) k ON true
 WHERE `
 
@@ -151,8 +173,9 @@ WHERE `
 func findRelation(ctx context.Context, q querier, where string, args ...any) (*relation, error) {
 	var r relation
 	err := q.QueryRow(ctx, relationQuery+where, args...).Scan(
-		&r.oid, &r.schema, &r.name, &r.kind, &r.persistence, &r.hasChildren, &r.primaryKey, &r.pkAttnums, &r.pkTypes,
-		&r.columns, &r.sendable, &r.canSelect, &r.canSelectKey, &r.canUpdate)
+		&r.oid, &r.schema, &r.name, &r.kind, &r.persistence, &r.hasChildren, &r.primaryKey, &r.pkAttnums,
+		&r.columns, &r.sendable, &r.canSelect, &r.canSelectKey, &r.canUpdate,
+		&r.pkBaseTypes, &r.serverVersion, &r.floatDigits, &r.dateStyle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -199,6 +222,33 @@ func (r *relation) privilegeProblem() string {
 		return "no permission to read the primary key"
 	case r.keyKind() == "ctid" && !r.canSelect:
 		return "no permission to read every column, which rows without a primary key need"
+	}
+	return ""
+}
+
+// inexactKey says why r's primary key, printed with these session settings
+// (extra_float_digits, DateStyle), may not name one row, or "". A save finds
+// a row by its key as shown, read back: if two rows print the same, it can
+// find the other one. Floats need enough digits (Postgres 12 prints the
+// shortest exact form from extra_float_digits 1; older servers need 3), and
+// timestamptz needs ISO, whose numeric offsets don't repeat: zone names do
+// (Moscow's 01:30 MSK meant 21:30 UTC, then an hour later 22:30 UTC).
+func (r *relation) inexactKey(settings map[string]string) string {
+	for _, t := range r.pkBaseTypes {
+		switch t {
+		case "float4", "float8":
+			need := 1
+			if r.serverVersion < 120000 {
+				need = 3
+			}
+			if digits, err := strconv.Atoi(settings["extra_float_digits"]); err != nil || digits < need {
+				return "a floating-point key shown rounded (extra_float_digits)"
+			}
+		case "timestamptz":
+			if !strings.HasPrefix(settings["DateStyle"], "ISO") {
+				return "a timestamptz key shown with a zone name (DateStyle isn't ISO)"
+			}
+		}
 	}
 	return ""
 }
@@ -458,13 +508,10 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		clearSources()
 		return nil, nil, "rows repeat"
 	}
-	// With extra_float_digits below 1, floats print rounded: 1.1 and
-	// 1.1000000000000003 both show as 1.1, so a float key could name either.
-	if rel.keyKind() == "pk" && slices.ContainsFunc(rel.pkTypes, func(t string) bool { return t == "float4" || t == "float8" }) {
-		if digits, err := strconv.Atoi(session["extra_float_digits"]); err != nil || digits < 1 {
-			clearSources()
-			return nil, nil, "a floating-point key shown rounded (extra_float_digits)"
-		}
+	// Keys shown inexactly (rounded floats, zone names) could name another row.
+	if reason := rel.inexactKey(session); reason != "" {
+		clearSources()
+		return nil, nil, reason
 	}
 	return &EditTarget{OID: rel.oid, Schema: rel.schema, Table: rel.name, Kind: rel.keyKind(), Key: rel.keyNames(), Session: session}, keys, ""
 }

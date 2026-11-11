@@ -1088,6 +1088,11 @@ func TestAdvTimestamptzKeyWrongRow(t *testing.T) {
 	advSQL(t, s, `SET TimeZone = 'Asia/Kolkata'`)
 	advSQL(t, s, `SET DateStyle = 'SQL, DMY'`)
 	r := advRun(t, s, `SELECT sensor, ts, status FROM spydb_adv.readings ORDER BY ts`)
+	// Fixed twice over: a timestamptz key shown with a zone name is now
+	// read-only before any edit (zone names can repeat: see inexactKey).
+	if r.Target == nil && strings.Contains(r.ReadOnly, "DateStyle") {
+		return
+	}
 	if r.Target == nil {
 		t.Fatalf("read-only: %s", r.ReadOnly)
 	}

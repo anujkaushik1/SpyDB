@@ -138,6 +138,10 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 		for _, name := range rel.primaryKey {
 			keyAt = append(keyAt, slices.IndexFunc(columns, func(c column) bool { return c.Name == name }))
 		}
+		// The pool's own settings print the keys (and saves read them back).
+		if reason := rel.inexactKey(map[string]string{"extra_float_digits": rel.floatDigits, "DateStyle": rel.dateStyle}); reason != "" {
+			page.ReadOnly, keyAt = reason, nil
+		}
 	}
 	if keyAt != nil && !slices.Contains(keyAt, -1) {
 		page.Target = &EditTarget{OID: rel.oid, Schema: rel.schema, Table: rel.name, Kind: rel.keyKind(), Key: rel.keyNames()}

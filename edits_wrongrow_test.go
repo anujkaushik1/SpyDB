@@ -114,3 +114,55 @@ func TestWrongRowReadInWritingTransaction(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// Keys whose text isn't exact: two rows can print the same, and the save
+// then finds the other one. Floats rounded by extra_float_digits (also behind
+// a domain or in an array), and timestamptz named by an ambiguous zone
+// abbreviation (Moscow's 2014 change: 21:30Z and 22:30Z both read 01:30 MSK).
+func TestWrongRowInexactKeys(t *testing.T) {
+	s := editFixture(t,
+		`CREATE DOMAIN `+testSchema+`.f AS float8`,
+		`CREATE TABLE `+testSchema+`.fd (id `+testSchema+`.f PRIMARY KEY, label text, status text)`,
+		`INSERT INTO `+testSchema+`.fd VALUES (1.1, 'a', 'x'), (1.1000000000000003, 'b', 'x')`,
+		`CREATE TABLE `+testSchema+`.fa (id float8[] PRIMARY KEY, label text, status text)`,
+		`INSERT INTO `+testSchema+`.fa VALUES ('{1.1}', 'a', 'x'), ('{1.1000000000000003}', 'b', 'x')`,
+		`CREATE TABLE `+testSchema+`.ts (at timestamptz PRIMARY KEY, label text, status text)`,
+		`INSERT INTO `+testSchema+`.ts VALUES ('2014-10-25 21:30:00+00', 'a', 'x'), ('2014-10-25 22:30:00+00', 'b', 'x')`)
+	query(t, s, "SET extra_float_digits = 0")
+	for _, table := range []string{"fd", "fa"} {
+		if r := query(t, s, `SELECT id, status FROM `+testSchema+`.`+table+` WHERE label = 'b'`); r.Target != nil {
+			t.Errorf("%s: a float key shown rounded (%s) is editable", table, *r.Rows[0][0])
+		}
+	}
+	query(t, s, "RESET extra_float_digits")
+	for _, table := range []string{"fd", "fa"} {
+		editable(t, query(t, s, `SELECT id, status FROM `+testSchema+`.`+table+` WHERE label = 'b'`), "pk", "id")
+	}
+
+	query(t, s, "SET TimeZone = 'Europe/Moscow'")
+	query(t, s, "SET DateStyle = 'SQL, DMY'")
+	if r := query(t, s, `SELECT at, status FROM `+testSchema+`.ts WHERE label = 'b'`); r.Target != nil {
+		t.Errorf("a timestamptz key shown with a zone name (%s) is editable", *r.Rows[0][0])
+	}
+	query(t, s, "SET DateStyle = 'ISO, DMY'")
+	editable(t, query(t, s, `SELECT at, status FROM `+testSchema+`.ts WHERE label = 'b'`), "pk", "at")
+	query(t, s, "RESET ALL")
+}
+
+// Table tabs read with the pool's own settings, which can round floats too
+// (extra_float_digits = 0 is the default before Postgres 12, or set for a
+// role or database).
+func TestWrongRowInexactKeysTableTab(t *testing.T) {
+	t.Setenv("PGOPTIONS", "-c extra_float_digits=0")
+	s := editFixture(t,
+		`CREATE TABLE `+testSchema+`.fk (id float8 PRIMARY KEY, label text, status text)`,
+		`INSERT INTO `+testSchema+`.fk VALUES (1.1, 'a', 'x'), (1.1000000000000003, 'b', 'x')`)
+	page, err := s.TableData(t.Context(), TableQuery{Schema: testSchema, Table: "fk", PageSize: 100,
+		Filters: []TableFilter{{Column: "label", Operator: "eq", Value: "b"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Target != nil {
+		t.Errorf("a float key shown rounded (%s) is editable in a table tab", *page.Rows[0][0])
+	}
+}
