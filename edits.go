@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -332,14 +333,25 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		return nil, nil, p.reason
 	}
 
+	// own is how many columns, from the first, are the edited table's row.
+	// Rows an UPDATE returned (RETURNING *) list the updated table's columns
+	// first, then any FROM tables' (UPDATE … FROM): those are other rows,
+	// maybe of the same table, so they're shown but can't be edited.
 	var oid uint32
-	for _, o := range st.tableOIDs {
-		switch {
-		case o == 0:
-		case oid == 0:
-			oid = o
-		case o != oid:
-			return nil, nil, "columns from more than one table"
+	own := len(st.columns)
+	if p.returning {
+		if len(st.tableOIDs) > 0 {
+			oid = st.tableOIDs[0]
+		}
+	} else {
+		for _, o := range st.tableOIDs {
+			switch {
+			case o == 0:
+			case oid == 0:
+				oid = o
+			case o != oid:
+				return nil, nil, "columns from more than one table"
+			}
 		}
 	}
 	if oid == 0 {
@@ -358,7 +370,20 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 	if err != nil {
 		return nil, nil, "SpyDB couldn't look up the table"
 	}
-	for i := range st.columns {
+	if p.returning {
+		// The first columns must be exactly the table's, in order.
+		nums := slices.Sorted(maps.Keys(attrs))
+		own = len(nums)
+		if len(st.columns) < own {
+			return nil, nil, "SpyDB couldn't match result rows to table rows"
+		}
+		for i, num := range nums {
+			if st.tableOIDs[i] != oid || int16(st.attNums[i]) != num {
+				return nil, nil, "SpyDB couldn't match result rows to table rows"
+			}
+		}
+	}
+	for i := range st.columns[:own] {
 		if a, ok := attrs[int16(st.attNums[i])]; ok && st.tableOIDs[i] == oid {
 			st.columns[i].Source = a
 			st.columns[i].PrimaryKey = slices.Contains(rel.primaryKey, a)
@@ -404,7 +429,7 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		at := make([]int, len(rel.pkAttnums))
 		for j, num := range rel.pkAttnums {
 			at[j] = -1
-			for i := range st.columns {
+			for i := range st.columns[:own] {
 				if st.tableOIDs[i] == oid && int16(st.attNums[i]) == num {
 					at[j] = i
 					break
