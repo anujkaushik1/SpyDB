@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Events } from '@wailsio/runtime'
 import { DynamoAwsCliSetup } from '../../bindings/events'
-import { Service as Dynamo, type AWSCLISetup, type AWSIdentity, type AWSProfile } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import { Service as Dynamo, type AWSCLISetup, type AWSIdentity, type AWSProfile, type Connection } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
 import { CloudIcon, Spinner } from '../icons'
 import { setupFraction, setupText } from './setupText'
@@ -26,20 +26,19 @@ const REGIONS = [
   'me-south-1', 'af-south-1',
 ]
 
-type Result = { identity: AWSIdentity } | { error: string }
-
 // The DynamoDB side of the connect screen: sign in to AWS with one of your
 // profiles from ~/.aws (dynamo.Service.AWSSignIn), or with your AWS console
 // account through the browser (AWSBrowserSignIn), which needs no setup.
 // Either may first install SpyDB's own AWS CLI, with its progress shown.
-// Listing tables comes next.
-export default function DynamoSignIn() {
+// Once signed in, it connects to that profile's DynamoDB (Connect) and
+// onConnect opens its tables.
+export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Connection, identity: AWSIdentity) => void }) {
   const [profiles, setProfiles] = useState<AWSProfile[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [region, setRegion] = useState('us-east-1')
   const [busy, setBusy] = useState<'profile' | 'browser' | null>(null)
-  const [result, setResult] = useState<Result | null>(null)
+  const [error, setError] = useState<string | null>(null)
   // SpyDB installing its own AWS CLI first (none, or too old): Go reports how it goes.
   const [setup, setSetup] = useState<AWSCLISetup | null>(null)
 
@@ -66,13 +65,13 @@ export default function DynamoSignIn() {
 
   const run = async (which: 'profile' | 'browser', call: Promise<AWSIdentity>) => {
     setBusy(which)
-    setResult(null)
+    setError(null)
     try {
       const identity = await call
-      setResult({ identity })
       if (which === 'browser') loadProfiles(identity.profile) // it's a profile now
+      onConnect(await Dynamo.Connect(identity.profile), identity) // this screen gives way to the tables
     } catch (err) {
-      setResult({ error: errorMessage(err) }) // "Sign-in cancelled." after Cancel
+      setError(errorMessage(err)) // "Sign-in cancelled." after Cancel
     } finally {
       setBusy(null)
       setSetup(null)
@@ -104,7 +103,7 @@ export default function DynamoSignIn() {
         <div className="field">
           <label className="label" htmlFor="aws-profile">AWS profile</label>
           <select id="aws-profile" className="select" value={name} disabled={busy !== null}
-                  onChange={(e) => { setName(e.target.value); setResult(null) }}>
+                  onChange={(e) => { setName(e.target.value); setError(null) }}>
             {profiles.map((p) => (
               <option key={p.name} value={p.name}>{p.name} · {KINDS[p.kind]?.label ?? p.kind}</option>
             ))}
@@ -124,10 +123,7 @@ export default function DynamoSignIn() {
           </div>
         </div>
       )}
-      {result && 'identity' in result && (
-        <Banner tone="ok" title="Signed in" message={`${result.identity.arn} · account ${result.identity.account}`} />
-      )}
-      {result && 'error' in result && <Banner tone="error" title="Couldn’t sign in" message={result.error} />}
+      {error && <Banner tone="error" title="Couldn’t sign in" message={error} />}
 
       {profiles && profiles.length > 0 && (
         <footer className="card-footer">

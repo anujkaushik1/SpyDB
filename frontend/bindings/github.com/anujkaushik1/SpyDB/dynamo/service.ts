@@ -56,3 +56,30 @@ export function AWSSignIn(profile: string): $CancellablePromise<$models.AWSIdent
 export function CancelSignIn(): $CancellablePromise<void> {
     return $Call.ByID(1887117614);
 }
+
+/**
+ * Connect starts showing DynamoDB with a profile you've signed in with, in
+ * that profile's region. From here SpyDB talks to DynamoDB with Go's AWS
+ * library, not the AWS CLI: the library reads the same profile from ~/.aws,
+ * with the keys or the sign-in the CLI left there, so SpyDB copies and
+ * stores nothing. Nothing goes to AWS yet; ListTables is the first call.
+ */
+export function Connect(profile: string): $CancellablePromise<$models.Connection> {
+    return $Call.ByID(1299537164, profile);
+}
+
+/**
+ * Disconnect stops showing DynamoDB; you're back on the sign-in screen.
+ */
+export function Disconnect(): $CancellablePromise<void> {
+    return $Call.ByID(1556250112);
+}
+
+/**
+ * ListTables lists the tables in the connected region by name, in AWS's
+ * (alphabetical) order. AWS gives up to 100 names per call; this asks
+ * until it has them all.
+ */
+export function ListTables(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(53529079);
+}

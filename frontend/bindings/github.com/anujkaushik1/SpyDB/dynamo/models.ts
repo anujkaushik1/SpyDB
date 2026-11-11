@@ -61,3 +61,15 @@ export interface AWSProfile {
      */
     "region": string;
 }
+
+/**
+ * Connection is the AWS profile and region whose DynamoDB tables SpyDB shows.
+ */
+export interface Connection {
+    "profile": string;
+
+    /**
+     * e.g. "ap-south-1": every DynamoDB table lives in one region
+     */
+    "region": string;
+}

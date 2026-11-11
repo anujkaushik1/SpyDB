@@ -330,6 +330,9 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 }
 /* Tables sit under their schema, past the chevron. */
 .tree-item { padding-left: 28px; }
+/* DynamoDB tables: one flat list (no schemas), not clickable yet. */
+.dynamo-sidebar .tree-item { padding-left: 8px; cursor: default; }
+.dynamo-sidebar .tree-item:hover { background: transparent; color: var(--text-muted); }
 .tree-empty {
     margin: 0 0 4px;
     padding: 4px 8px 4px 28px;

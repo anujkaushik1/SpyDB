@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
+import { Service as Dynamo, type AWSIdentity, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
+import DynamoSidebar from './dynamo/DynamoSidebar'
 import DynamoSignIn from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
 import ImportDialog from './ImportDialog'
@@ -37,6 +39,9 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   // Which database the connect screen is for.
   const [engine, setEngine] = useState<'postgres' | 'dynamo'>('postgres')
+  // Signed in to AWS and showing its DynamoDB tables, or null. Either this or
+  // connection is open, never both: each replaces the connect screen.
+  const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
   // The Import a file as a new table dialog.
   const [importOpen, setImportOpen] = useState(false)
   // Tabs with unsaved cell edits.
@@ -206,6 +211,17 @@ function App() {
     }
   }
 
+  // Back to the DynamoDB sign-in screen.
+  const disconnectDynamo = async () => {
+    setDisconnecting(true)
+    try {
+      await Dynamo.Disconnect()
+      setDynamo(null)
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
   // Opens a tab, or switches to it if it's already open.
   const openTab = (tab: Tab) => {
     setTabs((current) => (current.some((t) => t.id === tab.id) ? current : [...current, tab]))
@@ -314,10 +330,16 @@ function App() {
             {connection.database}
           </span>
         )}
+        {dynamo && (
+          <span className="titlebar-status">
+            <span className="status-dot" aria-hidden="true" />
+            {dynamo.connection.profile} · {dynamo.connection.region}
+          </span>
+        )}
       </header>
 
       <div className="workspace">
-        {!connection && (
+        {!connection && !dynamo && (
           <ConnectionsSidebar
             lists={lists}
             error={listsError}
@@ -370,9 +392,13 @@ function App() {
             disconnecting={disconnecting}
           />
         )}
+        {dynamo && (
+          <DynamoSidebar connection={dynamo.connection} identity={dynamo.identity}
+                         onDisconnect={disconnectDynamo} disconnecting={disconnecting} />
+        )}
         <SqlSchemaContext.Provider value={completion}>
-        <main className={connection ? 'main-area' : 'content'}>
-          {!connection && (
+        <main className={connection || dynamo ? 'main-area' : 'content'}>
+          {!connection && !dynamo && (
             <div className="engine-switch" role="tablist" aria-label="Database">
               {([['postgres', 'PostgreSQL'], ['dynamo', 'DynamoDB']] as const).map(([value, label]) => (
                 <button key={value} type="button" role="tab" aria-selected={engine === value}
@@ -390,7 +416,19 @@ function App() {
             onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
             hidden={engine !== 'postgres'}
           />
-          {!connection && engine === 'dynamo' && <DynamoSignIn />}
+          {!connection && !dynamo && engine === 'dynamo' && (
+            <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} />
+          )}
+          {dynamo && (
+            <div className="workspace-empty">
+              <span className="workspace-empty-icon"><TableIcon /></span>
+              <p className="workspace-empty-title">DynamoDB · {dynamo.connection.region}</p>
+              <p className="workspace-empty-text">
+                Signed in as {dynamo.identity.arn.split('/').pop()} (account {dynamo.identity.account}) with the profile “{dynamo.connection.profile}”.
+                Your tables are on the left.
+              </p>
+            </div>
+          )}
           {connection && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>

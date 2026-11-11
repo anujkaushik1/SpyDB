@@ -1,6 +1,6 @@
 // Package dynamo is SpyDB's DynamoDB side: signing in to AWS (with the AWS
-// CLI's browser login) and, later, tables and items. The app's screens call
-// it through Service.
+// CLI's browser login), then its tables (with Go's AWS library). The app's
+// screens call it through Service.
 package dynamo
 
 import (
@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 // Service is what the app's screens call for DynamoDB.
@@ -26,6 +28,9 @@ type Service struct {
 	mu           sync.Mutex         // guards the fields below
 	cancelSignIn context.CancelFunc // stops the sign-in running, if any (CancelSignIn)
 	signInSeq    int                // counts sign-ins, so one ending clears only its own cancel
+	client       *dynamodb.Client   // the connected profile's DynamoDB (Connect); nil when not connected
+
+	endpoint string // tests: a fake DynamoDB to talk to instead of AWS's
 }
 
 // CancelSignIn stops the sign-in running: downloading or installing the AWS
