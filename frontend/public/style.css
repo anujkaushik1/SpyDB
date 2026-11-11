@@ -404,6 +404,13 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 .engine-option:hover { color: var(--text); }
 .engine-option.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 .aws-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-subtle); }
+/* SpyDB installing its own AWS CLI: what it's doing, and a bar (moving when there's no size yet). */
+.aws-setup { margin-top: 16px; padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 8px; }
+.aws-setup p { margin: 0 0 8px; font-size: 12.5px; color: var(--text-muted); }
+.aws-setup-bar { height: 4px; overflow: hidden; background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+.aws-setup-bar span { display: block; height: 100%; background: #f5b45c; border-radius: 2px; transition: width 0.2s; }
+.aws-setup-bar span.busy { width: 30% !important; animation: aws-setup-busy 1.2s ease-in-out infinite; }
+@keyframes aws-setup-busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .aws-card .banner { margin-top: 16px; }
 .card-title {
     margin: 0;

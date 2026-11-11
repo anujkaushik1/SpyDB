@@ -14,10 +14,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Service is what the app's screens call for DynamoDB.
-type Service struct{}
+type Service struct {
+	setupMu sync.Mutex // one AWS CLI setup at a time (see awsCLI)
+}
 
 // AWSProfile is a profile from ~/.aws/config or ~/.aws/credentials: its name
 // and how it gets credentials. Keys and other settings are never read out.
@@ -43,8 +46,9 @@ func (s *Service) AWSProfiles() ([]AWSProfile, error) {
 // profile's temporary credentials last some hours: if they still work,
 // that's it; otherwise it runs the AWS CLI's browser login (aws sso login),
 // which opens AWS's sign-in page and waits until you've signed in there. A
-// profile with keys needs no login. The CLI keeps the credentials in ~/.aws;
-// SpyDB stores nothing.
+// profile with keys needs no login. With no AWS CLI version 2 at all, SpyDB
+// first installs its own (ensureAWSCLI). The CLI keeps the credentials in
+// ~/.aws; SpyDB stores nothing.
 func (s *Service) AWSSignIn(ctx context.Context, profile string) (AWSIdentity, error) {
 	profiles, err := awsProfiles()
 	if err != nil {
@@ -54,9 +58,9 @@ func (s *Service) AWSSignIn(ctx context.Context, profile string) (AWSIdentity, e
 	if i < 0 {
 		return AWSIdentity{}, fmt.Errorf("There's no AWS profile named %q in ~/.aws.", profile)
 	}
-	cli := findAWSCLI(ctx, anyCLI)
-	if cli.Path == "" {
-		return AWSIdentity{}, errors.New("No AWS CLI version 2 found. Install it (https://aws.amazon.com/cli/), then try again.")
+	cli, err := s.awsCLI(ctx, anyCLI) // none: SpyDB installs its own
+	if err != nil {
+		return AWSIdentity{}, err
 	}
 	if profiles[i].Kind == "sso" {
 		// Signed in recently: the credentials still work, no browser.

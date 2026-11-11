@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Service as Dynamo, type AWSIdentity, type AWSProfile } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import { Events } from '@wailsio/runtime'
+import { DynamoAwsCliSetup } from '../../bindings/events'
+import { Service as Dynamo, type AWSCLISetup, type AWSIdentity, type AWSProfile } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
 import { CloudIcon, Spinner } from '../icons'
+import { setupFraction, setupText } from './setupText'
 
 // What signing in does for each kind of profile (AWSProfile.kind).
 const KINDS: Record<string, { label: string; hint: string }> = {
@@ -21,6 +24,8 @@ export default function DynamoSignIn() {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
+  // SpyDB installing its own AWS CLI first (none, or too old): Go reports how it goes.
+  const [setup, setSetup] = useState<AWSCLISetup | null>(null)
   const pending = useRef<{ cancel: () => void } | null>(null)
   const cancelled = useRef(false)
 
@@ -32,7 +37,11 @@ export default function DynamoSignIn() {
         setName((all.find((p) => p.name === 'default') ?? all[0])?.name ?? '')
       })
       .catch((err) => setLoadError(errorMessage(err)))
-    return () => pending.current?.cancel() // leaving the screen stops a sign-in still waiting
+    const stopListening = Events.On(DynamoAwsCliSetup, (event) => setSetup(event.data))
+    return () => {
+      stopListening()
+      pending.current?.cancel() // leaving the screen stops a sign-in still waiting
+    }
   }, [])
 
   const signIn = async () => {
@@ -48,6 +57,7 @@ export default function DynamoSignIn() {
     } finally {
       pending.current = null
       setBusy(false)
+      setSetup(null)
     }
   }
   const cancel = () => {
@@ -90,13 +100,23 @@ export default function DynamoSignIn() {
             </p>
           </div>
 
+          {busy && setup && setup.stage !== 'done' && (
+            <div className="aws-setup" role="status">
+              <p>{setupText(setup)}</p>
+              <div className="aws-setup-bar">
+                <span style={{ width: `${(setupFraction(setup) ?? 0) * 100}%` }}
+                      className={setupFraction(setup) === null ? 'busy' : undefined} />
+              </div>
+            </div>
+          )}
+
           {result && 'identity' in result && (
             <Banner tone="ok" title="Signed in" message={`${result.identity.arn} · account ${result.identity.account}`} />
           )}
           {result && 'error' in result && <Banner tone="error" title="Couldn’t sign in" message={result.error} />}
 
           <footer className="card-footer">
-            <span className="hint">{busy && profile?.kind === 'sso' ? 'Finish signing in in your browser…' : kind.hint}</span>
+            <span className="hint">{busy && setup && setup.stage !== 'done' ? 'Getting the AWS CLI first…' : busy && profile?.kind === 'sso' ? 'Finish signing in in your browser…' : kind.hint}</span>
             <div className="actions">
               {busy && <button type="button" className="btn btn-secondary" onClick={cancel}>Cancel</button>}
               <button type="button" className="btn btn-primary" onClick={signIn} disabled={busy || !name}>

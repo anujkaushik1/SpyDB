@@ -7,6 +7,7 @@ export {
 };
 
 export type {
+    AWSCLISetup,
     AWSIdentity,
     AWSProfile
 } from "./models.js";

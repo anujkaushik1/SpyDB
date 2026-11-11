@@ -26,8 +26,9 @@ export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[] | null> 
  * profile's temporary credentials last some hours: if they still work,
  * that's it; otherwise it runs the AWS CLI's browser login (aws sso login),
  * which opens AWS's sign-in page and waits until you've signed in there. A
- * profile with keys needs no login. The CLI keeps the credentials in ~/.aws;
- * SpyDB stores nothing.
+ * profile with keys needs no login. With no AWS CLI version 2 at all, SpyDB
+ * first installs its own (ensureAWSCLI). The CLI keeps the credentials in
+ * ~/.aws; SpyDB stores nothing.
  */
 export function AWSSignIn(profile: string): $CancellablePromise<$models.AWSIdentity> {
     return $Call.ByID(593297805, profile);
