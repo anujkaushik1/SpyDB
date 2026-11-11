@@ -30,6 +30,10 @@ type EditTarget struct {
 	// search_path, date/time and number formats); a save uses the same, so
 	// it runs with the same privileges and values compare and parse alike.
 	Session map[string]string `json:"session"`
+	// Conn is the connection the rows were read over (DBService.generation).
+	// After a reconnect, maybe to another server through the same tunnel port
+	// with the same table OIDs, their keys mean nothing: saves are refused.
+	Conn uint64 `json:"conn"`
 }
 
 // RowEdit is one row's changed cells.
@@ -568,10 +572,13 @@ func sourceColumns(ctx context.Context, q querier, oid uint32) (map[int16]string
 // swallow or delay the save. It returns each row as saved.
 func (s *DBService) SaveRows(ctx context.Context, target EditTarget, edits []RowEdit) ([]SavedRow, error) {
 	s.mu.Lock()
-	pool := s.pool
+	pool, generation := s.pool, s.generation
 	s.mu.Unlock()
 	if pool == nil {
 		return nil, errors.New("Not connected.")
+	}
+	if target.Conn != generation {
+		return nil, errors.New("These rows were loaded over an earlier connection (you've reconnected since). Nothing was saved. Reload and edit them again.")
 	}
 	if len(edits) == 0 {
 		return []SavedRow{}, nil

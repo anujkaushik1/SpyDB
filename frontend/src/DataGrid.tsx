@@ -77,6 +77,16 @@ export default function DataGrid(props: Props) {
   const [selected, setSelected] = useState<Cell | null>(null)
   const [editing, setEditing] = useState<{ cell: Cell; initial: string; typed: boolean } | null>(null)
   const [pending, setPending] = useState<Edits>({})
+  // The target the unsaved edits were made against, saved to whatever the
+  // rows show by then: if a reload brings another (the table dropped and
+  // created again, or another connection, maybe another server through the
+  // same tunnel), Go refuses rather than applying them there.
+  const editedTarget = useRef<EditTarget | null>(null)
+  const changePending = (next: Edits) => {
+    if (Object.keys(next).length === 0) editedTarget.current = null
+    else editedTarget.current ??= target
+    setPending(next)
+  }
   const [saved, setSaved] = useState<Saved>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<{ message: string; detail?: string } | null>(null)
@@ -243,13 +253,14 @@ export default function DataGrid(props: Props) {
   }
 
   const save = async (edits: Edits = pending) => {
-    if (!target || saving || Object.keys(edits).length === 0) return
+    const to = editedTarget.current ?? target
+    if (!to || saving || Object.keys(edits).length === 0) return
     setSaving(true)
     setSaveError(null)
     try {
       const ids = Object.keys(edits)
       const rowEdits: RowEdit[] = ids.map((id) => edits[id])
-      const savedRows = (await DBService.SaveRows(target, rowEdits)) ?? []
+      const savedRows = (await DBService.SaveRows(to, rowEdits)) ?? []
       const count = savedRows.length
       if (keepSavedValues) {
         // One saved row per edit, in order: keep its new key and values.
@@ -262,11 +273,11 @@ export default function DataGrid(props: Props) {
           return next
         })
       }
-      setPending({})
-      setSavedMessage(`Saved ${count} row${count === 1 ? '' : 's'} to ${target.schema}.${target.table}`)
+      changePending({})
+      setSavedMessage(`Saved ${count} row${count === 1 ? '' : 's'} to ${to.schema}.${to.table}`)
       onSaved?.()
     } catch (err) {
-      setPending(edits) // keep them, so nothing typed is lost
+      changePending(edits) // keep them, so nothing typed is lost
       setSaveError({ message: errorMessage(err), detail: errorDetail(err) })
     } finally {
       setSaving(false)
@@ -274,7 +285,7 @@ export default function DataGrid(props: Props) {
   }
 
   const discard = () => {
-    setPending({})
+    changePending({})
     setSaveError(null)
   }
 
@@ -292,7 +303,7 @@ export default function DataGrid(props: Props) {
     const { cell } = editing
     const next = result ? withCell(pending, cell, result.value) : pending
     if (result) {
-      setPending(next)
+      changePending(next)
       setSavedMessage(null)
     }
     setEditing(null)
@@ -379,7 +390,7 @@ export default function DataGrid(props: Props) {
       if ('error' in result) return result.error
       value = result.value
     }
-    setPending(withCell(pending, cell, value))
+    changePending(withCell(pending, cell, value))
     setSavedMessage(null)
     closeJson()
   }
@@ -400,7 +411,7 @@ export default function DataGrid(props: Props) {
     if ('error' in result) return result.error
     let next = pending
     for (const e of result.edits) next = withCell(next, { row: indexes[e.row], col: e.col }, e.value)
-    setPending(next)
+    changePending(next)
     setSavedMessage(null)
     closeRowJson()
   }

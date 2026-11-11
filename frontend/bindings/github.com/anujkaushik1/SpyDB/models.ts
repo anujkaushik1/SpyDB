@@ -86,6 +86,13 @@ export interface EditTarget {
      * it runs with the same privileges and values compare and parse alike.
      */
     "session": { [_ in string]?: string } | null;
+
+    /**
+     * Conn is the connection the rows were read over (DBService.generation).
+     * After a reconnect, maybe to another server through the same tunnel port
+     * with the same table OIDs, their keys mean nothing: saves are refused.
+     */
+    "conn": number;
 }
 
 /**

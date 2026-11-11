@@ -102,7 +102,7 @@ type column struct {
 // the open pool. Wails cancels ctx when the frontend cancels the call.
 func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, error) {
 	s.mu.Lock()
-	pool := s.pool
+	pool, generation := s.pool, s.generation
 	s.mu.Unlock()
 	if pool == nil {
 		return TablePage{}, errors.New("Not connected.")
@@ -144,7 +144,7 @@ func (s *DBService) TableData(ctx context.Context, q TableQuery) (TablePage, err
 		}
 	}
 	if keyAt != nil && !slices.Contains(keyAt, -1) {
-		page.Target = &EditTarget{OID: rel.oid, Schema: rel.schema, Table: rel.name, Kind: rel.keyKind(), Key: rel.keyNames()}
+		page.Target = &EditTarget{OID: rel.oid, Schema: rel.schema, Table: rel.name, Kind: rel.keyKind(), Key: rel.keyNames(), Conn: generation}
 	} else if keyAt != nil {
 		page.ReadOnly, keyAt, extra = "SpyDB couldn't find the primary key", nil, nil
 	}

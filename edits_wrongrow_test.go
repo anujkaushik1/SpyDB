@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -164,5 +165,35 @@ func TestWrongRowInexactKeysTableTab(t *testing.T) {
 	}
 	if page.Target != nil {
 		t.Errorf("a float key shown rounded (%s) is editable in a table tab", *page.Rows[0][0])
+	}
+}
+
+// Edits made over one connection must never be saved over another: after a
+// reconnect (maybe another server reached through the same tunnel port, with
+// the same table OIDs from the same dump) the old rows' keys mean nothing.
+func TestWrongRowAfterReconnect(t *testing.T) {
+	s := editFixture(t,
+		`CREATE TABLE `+testSchema+`.t (id int PRIMARY KEY, v text)`,
+		`INSERT INTO `+testSchema+`.t VALUES (1, 'a')`)
+	r := editable(t, query(t, s, `SELECT * FROM `+testSchema+`.t`), "pk", "id")
+	page, err := s.TableData(t.Context(), TableQuery{Schema: testSchema, Table: "t", PageSize: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	cfg := s.cfg
+	s.mu.Unlock()
+	if _, err := s.Connect(cfg); err != nil {
+		t.Fatal(err)
+	}
+	v := "b"
+	edit := []RowEdit{{Key: keyOf(r, 0), Old: map[string]*string{"v": r.Rows[0][1]}, Values: map[string]*string{"v": &v}}}
+	for name, target := range map[string]*EditTarget{"query results": r.Target, "table tab": page.Target} {
+		if _, err := s.SaveRows(context.Background(), *target, edit); err == nil || !strings.Contains(err.Error(), "connection") {
+			t.Errorf("%s: saved over a new connection (%v)", name, err)
+		}
+	}
+	if got := table(t, s, `SELECT v FROM `+testSchema+`.t`); got[0] != "a" {
+		t.Fatalf("v = %s", got[0])
 	}
 }

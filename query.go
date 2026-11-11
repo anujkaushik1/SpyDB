@@ -163,7 +163,7 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	// Work out which results can be edited. The catalog lookups use the pool,
 	// so a failed transaction in the editor's session can't break them.
 	s.mu.Lock()
-	pool := s.pool
+	pool, generation := s.pool, s.generation
 	s.mu.Unlock()
 
 	run := &storedRun{sql: sql, session: session}
@@ -194,6 +194,9 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 				target, keys, readOnly = editPlan{returning: true}.resolve(ctx, pool, session, st)
 			default:
 				target, keys, readOnly = plan.resolve(ctx, pool, session, st)
+			}
+			if target != nil {
+				target.Conn = generation
 			}
 		}
 		run.rows = append(run.rows, st.rows)

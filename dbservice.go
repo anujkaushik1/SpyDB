@@ -31,6 +31,7 @@ type DBService struct {
 	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows (see closeLocked)
 	runSeq      int                   // last RunID handed out
 	cfg         DBConfig              // settings of the open connection, for SwitchDatabase
+	generation  uint64                // counts connections opened; rows read over one save only over it (EditTarget.Conn)
 
 	fileMu sync.Mutex // guards connections.json (see connections.go)
 }
@@ -134,6 +135,7 @@ func (s *DBService) Connect(cfg DBConfig) (ConnectionInfo, error) {
 	s.editor = opened.editor
 	s.info = &opened.info
 	s.cfg = cfg
+	s.generation++
 
 	s.recordRecent(cfg) // best effort: a failed write doesn't fail the connect
 	return opened.info, nil
