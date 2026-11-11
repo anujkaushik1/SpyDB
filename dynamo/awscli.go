@@ -24,7 +24,14 @@ type AWSCLI struct {
 	Path    string `json:"path"`    // the aws program; "" when none was found
 	Version string `json:"version"` // e.g. "2.27.6"
 	Own     bool   `json:"own"`     // SpyDB's own copy, not one you installed
+	Older   string `json:"older"`   // when none was new enough: the newest version found anyway, e.g. "2.27.6"
 }
+
+// The AWS CLI versions each way of signing in needs.
+const (
+	anyCLI          = "2.0.0"  // aws sso login, and "who am I" (aws sts get-caller-identity)
+	browserLoginCLI = "2.32.0" // aws login: your AWS console sign-in, in the browser
+)
 
 // Where an AWS CLI is usually installed. An app opened from the Dock or
 // Finder doesn't get your terminal's PATH (no /opt/homebrew/bin), so these
@@ -43,10 +50,11 @@ func ownAWSCLIPath() (string, error) {
 	return appdata.Path(filepath.Join("aws-cli", "bin", "aws"))
 }
 
-// findAWSCLI returns the AWS CLI to sign in with: yours if you have version
-// 2 (version 1 can't sign in through the browser), else SpyDB's own copy;
-// Path is "" when there's neither, and SpyDB has to install its copy.
-func findAWSCLI(ctx context.Context) AWSCLI {
+// findAWSCLI returns the AWS CLI to sign in with, at least version min (see
+// anyCLI and browserLoginCLI; version 1 can't sign in through the browser
+// at all): yours if it's new enough, else SpyDB's own copy. Path is "" when
+// neither is, and SpyDB has to install its copy.
+func findAWSCLI(ctx context.Context, min string) AWSCLI {
 	var yours []string
 	if p, err := exec.LookPath("aws"); err == nil {
 		yours = append(yours, p)
@@ -56,23 +64,57 @@ func findAWSCLI(ctx context.Context) AWSCLI {
 		yours = append(yours, filepath.Join(home, ".local", "bin", "aws")) // AWS's Linux installer, per user
 	}
 	own, _ := ownAWSCLIPath()
-	return pickAWSCLI(ctx, yours, own)
+	return pickAWSCLI(ctx, yours, own, min)
 }
 
-// pickAWSCLI is findAWSCLI for given places: the first of yours that is
-// version 2, else own if it is.
-func pickAWSCLI(ctx context.Context, yours []string, own string) AWSCLI {
+// pickAWSCLI is findAWSCLI for given places: the first of yours that is at
+// least version min, else own if it is; else the newest version 2 found, as
+// Older (to say yours is too old).
+func pickAWSCLI(ctx context.Context, yours []string, own, min string) AWSCLI {
+	older := ""
+	try := func(path string) (string, bool) {
+		version, ok := awsCLIVersion(ctx, path)
+		if !ok {
+			return "", false
+		}
+		if versionAtLeast(version, min) {
+			return version, true
+		}
+		if older == "" || versionAtLeast(version, older) {
+			older = version
+		}
+		return "", false
+	}
 	for _, path := range yours {
-		if version, ok := awsCLIVersion(ctx, path); ok {
+		if version, ok := try(path); ok {
 			return AWSCLI{Path: path, Version: version}
 		}
 	}
 	if own != "" {
-		if version, ok := awsCLIVersion(ctx, own); ok {
+		if version, ok := try(own); ok {
 			return AWSCLI{Path: own, Version: version, Own: true}
 		}
 	}
-	return AWSCLI{}
+	return AWSCLI{Older: older}
+}
+
+// versionAtLeast reports whether version (like "2.27.6") is min or newer,
+// comparing each number in turn: 2.32.0 is newer than 2.4.9.
+func versionAtLeast(version, min string) bool {
+	v, m := strings.Split(version, "."), strings.Split(min, ".")
+	for i := range max(len(v), len(m)) {
+		a, b := 0, 0
+		if i < len(v) {
+			a, _ = strconv.Atoi(v[i])
+		}
+		if i < len(m) {
+			b, _ = strconv.Atoi(m[i])
+		}
+		if a != b {
+			return a > b
+		}
+	}
+	return true
 }
 
 // awsCLIVersion runs `path --version` and returns its version, and whether

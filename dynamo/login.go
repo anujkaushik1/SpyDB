@@ -54,7 +54,7 @@ func (s *Service) AWSSignIn(ctx context.Context, profile string) (AWSIdentity, e
 	if i < 0 {
 		return AWSIdentity{}, fmt.Errorf("There's no AWS profile named %q in ~/.aws.", profile)
 	}
-	cli := findAWSCLI(ctx)
+	cli := findAWSCLI(ctx, anyCLI)
 	if cli.Path == "" {
 		return AWSIdentity{}, errors.New("No AWS CLI version 2 found. Install it (https://aws.amazon.com/cli/), then try again.")
 	}

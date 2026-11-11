@@ -24,25 +24,51 @@ func fakeAWS(t *testing.T, version string) string {
 }
 
 func TestPickAWSCLI(t *testing.T) {
-	v1, v2, own := fakeAWS(t, "1.29.0"), fakeAWS(t, "2.27.6"), fakeAWS(t, "2.31.0")
+	v1, v2, own := fakeAWS(t, "1.29.0"), fakeAWS(t, "2.27.6"), fakeAWS(t, "2.33.1")
 	missing := filepath.Join(t.TempDir(), "aws")
 	for _, c := range []struct {
 		name  string
 		yours []string
 		own   string
+		min   string
 		want  AWSCLI
 	}{
-		{"yours, version 2", []string{missing, v2}, own, AWSCLI{Path: v2, Version: "2.27.6"}},
-		{"yours is version 1: SpyDB's own copy", []string{v1}, own, AWSCLI{Path: own, Version: "2.31.0", Own: true}},
-		{"none of yours: SpyDB's own copy", []string{missing}, own, AWSCLI{Path: own, Version: "2.31.0", Own: true}},
-		{"nothing at all: install needed", []string{missing, v1}, missing, AWSCLI{}},
-		{"a folder named aws isn't a program", []string{t.TempDir()}, "", AWSCLI{}},
+		{"yours, version 2", []string{missing, v2}, own, anyCLI, AWSCLI{Path: v2, Version: "2.27.6"}},
+		{"yours is version 1: SpyDB's own copy", []string{v1}, own, anyCLI, AWSCLI{Path: own, Version: "2.33.1", Own: true}},
+		{"none of yours: SpyDB's own copy", []string{missing}, own, anyCLI, AWSCLI{Path: own, Version: "2.33.1", Own: true}},
+		{"nothing at all: install needed", []string{missing, v1}, missing, anyCLI, AWSCLI{}},
+		{"a folder named aws isn't a program", []string{t.TempDir()}, "", anyCLI, AWSCLI{}},
+		{"browser login: yours too old, SpyDB's own copy", []string{v2}, own, browserLoginCLI, AWSCLI{Path: own, Version: "2.33.1", Own: true}},
+		{"browser login: yours too old, no copy: says which", []string{v1, v2}, missing, browserLoginCLI, AWSCLI{Older: "2.27.6"}},
+		{"browser login: exactly 2.32.0 is enough", []string{fakeAWS(t, "2.32.0")}, "", browserLoginCLI, AWSCLI{Path: "", Version: "2.32.0"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if got := pickAWSCLI(t.Context(), c.yours, c.own); got != c.want {
+			got := pickAWSCLI(t.Context(), c.yours, c.own, c.min)
+			if c.want.Path == "" && c.want.Version != "" { // the path is a temp file: check the rest
+				got.Path = ""
+			}
+			if got != c.want {
 				t.Fatalf("got %+v, want %+v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestVersionAtLeast(t *testing.T) {
+	for _, c := range []struct {
+		version, min string
+		want         bool
+	}{
+		{"2.32.0", "2.32.0", true},
+		{"2.32.10", "2.32.9", true},
+		{"2.27.6", "2.32.0", false},
+		{"2.4.0", "2.32.0", false}, // compared as numbers, not text
+		{"3.0.0", "2.32.0", true},
+		{"2.32", "2.32.0", true},
+	} {
+		if got := versionAtLeast(c.version, c.min); got != c.want {
+			t.Errorf("versionAtLeast(%s, %s) = %v", c.version, c.min, got)
+		}
 	}
 }
 
