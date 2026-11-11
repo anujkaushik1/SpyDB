@@ -87,3 +87,30 @@ func TestWrongRowRolledBackReturning(t *testing.T) {
 	}
 	editable(t, result.Results[1], "pk", "pos")
 }
+
+// A SELECT inside a transaction that has written shows its uncommitted rows;
+// after a rollback (another tab, a timeout) their keys can name other rows.
+// Before it has written anything, what it shows is committed: still editable.
+func TestWrongRowReadInWritingTransaction(t *testing.T) {
+	s := editFixture(t,
+		`CREATE TABLE `+testSchema+`.menu (pos int PRIMARY KEY, name text, visible bool)`,
+		`INSERT INTO `+testSchema+`.menu VALUES (1, 'Home', true), (2, 'Blog', true)`)
+	m := testSchema + ".menu"
+	query(t, s, "BEGIN")
+	clean := editable(t, query(t, s, `SELECT * FROM `+m+` ORDER BY pos`), "pk", "pos")
+	if _, err := s.RunQuery(t.Context(), "tab", `UPDATE `+m+` SET pos = -1 WHERE pos = 1; UPDATE `+m+` SET pos = 1 WHERE pos = 2; UPDATE `+m+` SET pos = 2 WHERE pos = -1`); err != nil {
+		t.Fatal(err)
+	}
+	if r := query(t, s, `SELECT * FROM `+m+` ORDER BY pos`); r.Target != nil {
+		t.Errorf("rows read after the transaction wrote are editable (pos 1 shows %s)", *r.Rows[0][1])
+	}
+	query(t, s, "ROLLBACK")
+	// The rows read before the writes were committed rows: they save right.
+	hidden := "f"
+	if _, err := s.SaveRows(t.Context(), *clean.Target, []RowEdit{{Key: keyOf(clean, 1), Old: map[string]*string{"visible": clean.Rows[1][2]}, Values: map[string]*string{"visible": &hidden}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := table(t, s, `SELECT pos, name, visible FROM `+m+` ORDER BY pos`); strings.Join(got, ";") != "1|Home|true;2|Blog|false" {
+		t.Fatalf("got %v", got)
+	}
+}

@@ -1511,13 +1511,17 @@ func TestAdvInTransactionAndLocks(t *testing.T) {
 	if r := advRun(t, s, `SELECT v FROM spydb_adv.txn`); r.Target != nil {
 		t.Errorf("no PK inside a transaction, but editable")
 	}
-	advSQL(t, s, `INSERT INTO spydb_adv.tx VALUES (9, 'uncommitted')`)
+	// Read before the transaction wrote anything: committed rows, editable.
 	r := advRun(t, s, `SELECT id, v FROM spydb_adv.tx ORDER BY id`)
 	if r.Target == nil {
 		t.Fatalf("PK shown inside a transaction: read-only %s", r.ReadOnly)
 	}
-	if _, err := advSave(t, s, r, advEdit(t, r, advRowWhere(t, r, "v", "uncommitted"), map[string]*string{"v": p("x")})); err == nil {
-		t.Errorf("saved a row only the editor's open transaction can see")
+	// Once it has written, rows read in it may be its own uncommitted ones
+	// (here row 9): read-only, since a rollback would leave their keys
+	// naming other rows.
+	advSQL(t, s, `INSERT INTO spydb_adv.tx VALUES (9, 'uncommitted')`)
+	if after := advRun(t, s, `SELECT id, v FROM spydb_adv.tx ORDER BY id`); after.Target != nil {
+		t.Errorf("rows read after the transaction wrote (row 9 is uncommitted) are editable")
 	}
 	// A row the editor's transaction has locked: the save gives up after lock_timeout.
 	advSQL(t, s, `UPDATE spydb_adv.tx SET v = v WHERE id = 1`)

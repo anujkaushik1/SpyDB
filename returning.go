@@ -27,6 +27,8 @@ const (
 	returningUncommitted = "your transaction isn't committed yet"
 	// Rolled back, the rows never existed as shown: their keys can name others.
 	returningRolledBack = "rolled back"
+	// Read in a transaction that has written or locked rows (see wroteInTransaction).
+	transactionWrote = "your open transaction has changed or locked rows"
 )
 
 // returnable is an UPDATE in a run that could get RETURNING *.

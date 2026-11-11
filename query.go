@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,6 +148,11 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		return strings.HasPrefix(st.command, "ROLLBACK") || st.command == "PREPARE TRANSACTION"
 	})
 	committed := conn.PgConn().TxStatus() == 'I' && !rolledBack
+	// Rows read in a transaction that has written may be its own uncommitted
+	// changes: if it rolls back, their keys can name other rows.
+	if plan.reason == "" && plan.inTransaction && conn.PgConn().TxStatus() == 'T' && wroteInTransaction(ctx, conn) {
+		plan.reason = transactionWrote
+	}
 	// The session's role and formats, for saves (and exports that run again).
 	var session map[string]string
 	if plan.reason == "" && len(statements) > 0 && len(statements[len(statements)-1].columns) > 0 ||
@@ -326,4 +332,29 @@ func toQueryError(err error) *QueryError {
 		return &QueryError{Message: "Query cancelled."}
 	}
 	return &QueryError{Message: sentence(err.Error())}
+}
+
+// wroteInTransaction reports whether the editor's open transaction has
+// written or locked rows (it has a transaction ID), so rows read in it may be
+// uncommitted. Before Postgres 10 there's no way to ask without assigning
+// one, so it counts as yes; so does any error (the read can't fail the
+// transaction: it only runs on a healthy one).
+func wroteInTransaction(ctx context.Context, conn *pgx.Conn) bool {
+	if serverMajor(conn.PgConn().ParameterStatus("server_version")) < 10 {
+		return true
+	}
+	var xid *int64
+	err := conn.QueryRow(ctx, "SELECT pg_catalog.txid_current_if_assigned()", pgx.QueryExecModeExec).Scan(&xid)
+	return err != nil || xid != nil
+}
+
+// serverMajor is the major version in a server_version like "15.15",
+// "9.6.24" or "17beta1"; 0 if unknown.
+func serverMajor(version string) int {
+	end := 0
+	for end < len(version) && version[end] >= '0' && version[end] <= '9' {
+		end++
+	}
+	major, _ := strconv.Atoi(version[:end])
+	return major
 }
