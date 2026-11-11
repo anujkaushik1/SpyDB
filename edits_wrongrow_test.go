@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -14,47 +13,39 @@ import (
 // UPDATE … FROM with RETURNING * returns the FROM tables' columns too, after
 // the updated table's; with the table joined to itself they looked like the
 // updated row's own, so editing the boss's dept saved it on the employee.
-// Every column still shows, but only the updated row's own are editable.
+// Every column still shows, but the result is read-only.
 func TestWrongRowUpdateFromJoin(t *testing.T) {
 	s := editFixture(t,
 		`CREATE TABLE `+testSchema+`.emp (id int PRIMARY KEY, name text, boss int, gone int, dept text)`,
 		`ALTER TABLE `+testSchema+`.emp DROP COLUMN gone`,
 		`INSERT INTO `+testSchema+`.emp VALUES (1, 'Alice', NULL, 'eng'), (2, 'Bob', 1, 'sales'), (3, 'Carol', 1, 'ops')`,
 		`CREATE TABLE `+testSchema+`.depts (code text, title text)`,
-		`INSERT INTO `+testSchema+`.depts VALUES ('ops', 'Operations')`)
+		`INSERT INTO `+testSchema+`.depts VALUES ('ops', 'Operations'), ('eng', 'Engineering'), ('sales', 'Sales')`)
 	e := testSchema + ".emp"
-	own := []string{"id", "name", "boss", "dept"}
 	for _, c := range []struct {
-		sql   string
-		other int // the FROM tables' columns after the updated row's
+		sql     string
+		columns int // the updated row's 4, then the FROM tables'
 	}{
-		{`UPDATE ` + e + ` e SET dept = b.dept FROM ` + e + ` b WHERE e.boss = b.id AND e.id = 3`, 4},
-		{`UPDATE ` + e + ` AS e SET name = 'Bobby' FROM (SELECT * FROM ` + e + `) b WHERE e.boss = b.id AND e.id = 2`, 4},
-		{`UPDATE ` + e + ` SET boss = 2 FROM ` + testSchema + `.depts d, ` + e + ` b2 WHERE ` + e + `.dept = d.code AND b2.id = 2`, 6},
+		{`UPDATE ` + e + ` e SET dept = b.dept FROM ` + e + ` b WHERE e.boss = b.id AND e.id = 3`, 8},
+		{`UPDATE ` + e + ` AS e SET name = 'Bobby' FROM (SELECT * FROM ` + e + `) b WHERE e.boss = b.id AND e.id = 2`, 8},
+		{`UPDATE ` + e + ` SET boss = 2 FROM ` + testSchema + `.depts d, ` + e + ` b2 WHERE ` + e + `.dept = d.code AND b2.id = 2`, 10},
 	} {
-		r := editable(t, query(t, s, c.sql), "pk", "id")
-		var sources []string
+		r := query(t, s, c.sql)
+		if len(r.Columns) != c.columns || len(r.Rows) == 0 {
+			t.Fatalf("%s: %d columns, %d rows; want every column shown", c.sql, len(r.Columns), len(r.Rows))
+		}
+		if r.Target != nil || r.ReadOnly != updateFromReadOnly {
+			t.Errorf("%s: editable (%q), want read-only", c.sql, r.ReadOnly)
+		}
 		for _, col := range r.Columns {
-			sources = append(sources, col.Source)
-		}
-		if want := append(slices.Clone(own), make([]string, c.other)...); !slices.Equal(sources, want) {
-			t.Fatalf("%s: editable columns %q, want only the updated row's %q", c.sql, sources, want)
-		}
-		// Saving the updated row's own cell changes that row only.
-		before := table(t, s, `SELECT id, name, boss, dept FROM `+e+` ORDER BY id`)
-		updated := *r.Rows[0][0]
-		v := "edited"
-		if _, err := s.SaveRows(t.Context(), *r.Target, []RowEdit{{Key: keyOf(r, 0), Old: map[string]*string{"dept": r.Rows[0][3]}, Values: map[string]*string{"dept": &v}}}); err != nil {
-			t.Fatal(err)
-		}
-		after := table(t, s, `SELECT id, name, boss, dept FROM `+e+` ORDER BY id`)
-		for i := range before {
-			if strings.HasPrefix(after[i], updated+"|") != (after[i] != before[i]) {
-				t.Fatalf("%s: rows went from %v to %v; only %s may change", c.sql, before, after, updated)
+			if col.Source != "" {
+				t.Errorf("%s: column %s is marked editable", c.sql, col.Name)
 			}
 		}
-		exec(t, s, `UPDATE `+e+` SET dept = 'ops' WHERE id = `+updated)
 	}
+	// FROM only inside a subquery: just the updated row's columns, editable.
+	editable(t, query(t, s, `UPDATE `+e+` SET dept = (SELECT b.dept FROM `+e+` b WHERE b.id = 1) WHERE id = 2`), "pk", "id")
+	editable(t, query(t, s, `UPDATE `+e+` SET dept = 'x' WHERE id = 3`), "pk", "id")
 }
 
 // Rows an UPDATE returned in a run that rolled it back (ROLLBACK, ROLLBACK

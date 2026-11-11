@@ -25,6 +25,8 @@ const (
 	// save runs on another connection, which can't see uncommitted rows and
 	// would wait on the UPDATE's row locks.
 	returningUncommitted = "your transaction isn't committed yet"
+	// UPDATE … FROM: RETURNING * has the FROM tables' rows too (see resolve).
+	updateFromReadOnly = "the result has other rows' columns too (UPDATE … FROM)"
 	// Rolled back, the rows never existed as shown: their keys can name others.
 	returningRolledBack = "rolled back"
 	// Read in a transaction that has written or locked rows (see wroteInTransaction).

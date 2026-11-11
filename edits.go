@@ -387,12 +387,10 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		return nil, nil, p.reason
 	}
 
-	// own is how many columns, from the first, are the edited table's row.
 	// Rows an UPDATE returned (RETURNING *) list the updated table's columns
-	// first, then any FROM tables' (UPDATE … FROM): those are other rows,
-	// maybe of the same table, so they're shown but can't be edited.
+	// first, then any FROM tables' (UPDATE … FROM): other rows, maybe of the
+	// same table. Only a result of just the table's columns is editable.
 	var oid uint32
-	own := len(st.columns)
 	if p.returning {
 		if len(st.tableOIDs) > 0 {
 			oid = st.tableOIDs[0]
@@ -425,11 +423,10 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		return nil, nil, "SpyDB couldn't look up the table"
 	}
 	if p.returning {
-		// The first columns must be exactly the table's, in order.
+		// Exactly the table's columns, in order.
 		nums := slices.Sorted(maps.Keys(attrs))
-		own = len(nums)
-		if len(st.columns) < own {
-			return nil, nil, "SpyDB couldn't match result rows to table rows"
+		if len(st.columns) != len(nums) {
+			return nil, nil, updateFromReadOnly
 		}
 		for i, num := range nums {
 			if st.tableOIDs[i] != oid || int16(st.attNums[i]) != num {
@@ -437,7 +434,7 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 			}
 		}
 	}
-	for i := range st.columns[:own] {
+	for i := range st.columns {
 		if a, ok := attrs[int16(st.attNums[i])]; ok && st.tableOIDs[i] == oid {
 			st.columns[i].Source = a
 			st.columns[i].PrimaryKey = slices.Contains(rel.primaryKey, a)
@@ -483,7 +480,7 @@ func (p editPlan) resolve(ctx context.Context, q querier, session map[string]str
 		at := make([]int, len(rel.pkAttnums))
 		for j, num := range rel.pkAttnums {
 			at[j] = -1
-			for i := range st.columns[:own] {
+			for i := range st.columns {
 				if st.tableOIDs[i] == oid && int16(st.attNums[i]) == num {
 					at[j] = i
 					break
