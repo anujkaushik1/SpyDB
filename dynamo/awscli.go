@@ -1,4 +1,4 @@
-package main
+package dynamo
 
 import (
 	"context"
@@ -7,13 +7,15 @@ import (
 	"io"
 	"net/http"
 	"os"
-	osexec "os/exec" // "exec" is a test helper's name in this package
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/anujkaushik1/SpyDB/appdata"
 )
 
 // AWSCLI is the AWS CLI SpyDB signs in to AWS with: one you installed, or
@@ -38,7 +40,7 @@ var awsCLIPlaces = []string{
 // ~/Library/Application Support/SpyDB/aws-cli/bin/aws on macOS,
 // ~/.config/SpyDB/aws-cli/bin/aws on Linux.
 func ownAWSCLIPath() (string, error) {
-	return configPath(filepath.Join("aws-cli", "bin", "aws"))
+	return appdata.Path(filepath.Join("aws-cli", "bin", "aws"))
 }
 
 // findAWSCLI returns the AWS CLI to sign in with: yours if you have version
@@ -46,7 +48,7 @@ func ownAWSCLIPath() (string, error) {
 // Path is "" when there's neither, and SpyDB has to install its copy.
 func findAWSCLI(ctx context.Context) AWSCLI {
 	var yours []string
-	if p, err := osexec.LookPath("aws"); err == nil {
+	if p, err := exec.LookPath("aws"); err == nil {
 		yours = append(yours, p)
 	}
 	yours = append(yours, awsCLIPlaces...)
@@ -82,7 +84,7 @@ func awsCLIVersion(ctx context.Context, path string) (string, bool) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := osexec.CommandContext(ctx, path, "--version").CombinedOutput()
+	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
 	if err != nil {
 		return "", false
 	}
@@ -120,7 +122,7 @@ func downloadAWSCLI(ctx context.Context, progress func(done, total int64)) (stri
 	if runtime.GOOS != "darwin" {
 		return "", errors.New("SpyDB can't install the AWS CLI on this system yet. Install it yourself (https://aws.amazon.com/cli/), then try again.")
 	}
-	dir, err := configPath("aws-cli")
+	dir, err := appdata.Path("aws-cli")
 	if err != nil {
 		return "", err
 	}
@@ -198,7 +200,7 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // checkPkgSignature asks macOS whether the installer at path is signed by
 // Amazon and notarized by Apple.
 func checkPkgSignature(ctx context.Context, path string) error {
-	out, err := osexec.CommandContext(ctx, "/usr/sbin/pkgutil", "--check-signature", path).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "/usr/sbin/pkgutil", "--check-signature", path).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("The downloaded AWS CLI installer isn't properly signed, so SpyDB deleted it. (%s)", strings.TrimSpace(string(out)))
 	}

@@ -1,4 +1,4 @@
-package main
+package dynamo
 
 import (
 	"io"
@@ -142,4 +142,11 @@ func TestDownloadAWSCLIFromAWS(t *testing.T) {
 		t.Fatalf("%s: %v, %d bytes", path, err, info.Size())
 	}
 	t.Logf("downloaded and verified %s (%d MB)", path, info.Size()>>20)
+}
+
+// isolate points the settings folder at a temporary home for one test.
+func isolate(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
 }
