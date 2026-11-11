@@ -52,7 +52,7 @@ export interface AWSProfile {
     "name": string;
 
     /**
-     * "sso": sign in through the browser; "keys": access keys in a file; "role": assumes a role; "other"
+     * "keys": access keys in a file; "sso": your company's AWS sign-in; "login": your AWS console sign-in (aws login); "role": assumes a role; "other"
      */
     "kind": string;
 

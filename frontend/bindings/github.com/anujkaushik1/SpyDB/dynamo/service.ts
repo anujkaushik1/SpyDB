@@ -15,6 +15,18 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * AWSBrowserSignIn signs in with your AWS console account (the one you use
+ * on aws.amazon.com) through your browser, saving it as the profile named
+ * (SpyDB uses "spydb"), with region as its region: aws login, which needs AWS
+ * CLI 2.32 or newer, so SpyDB first installs its own if yours is older. The
+ * credentials last up to 12 hours; signing in with that profile again after
+ * that opens the browser again (AWSSignIn).
+ */
+export function AWSBrowserSignIn(profile: string, region: string): $CancellablePromise<$models.AWSIdentity> {
+    return $Call.ByID(1392217731, profile, region);
+}
+
+/**
  * AWSProfiles lists your AWS profiles, sorted by name.
  */
 export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[] | null> {
@@ -22,14 +34,25 @@ export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[] | null> 
 }
 
 /**
- * AWSSignIn signs in to AWS with a profile and says who that is. An SSO
- * profile's temporary credentials last some hours: if they still work,
- * that's it; otherwise it runs the AWS CLI's browser login (aws sso login),
- * which opens AWS's sign-in page and waits until you've signed in there. A
- * profile with keys needs no login. With no AWS CLI version 2 at all, SpyDB
- * first installs its own (ensureAWSCLI). The CLI keeps the credentials in
- * ~/.aws; SpyDB stores nothing.
+ * AWSSignIn signs in to AWS with a profile and says who that is. A profile
+ * with keys needs no login. SSO and console sign-in profiles get temporary
+ * credentials lasting some hours: if they still work, that's it; otherwise
+ * it runs the AWS CLI's browser login (aws sso login, or aws login), which
+ * opens AWS's sign-in page and waits until you've signed in there. When the
+ * AWS CLI is missing or too old for that, SpyDB first installs its own
+ * (ensureAWSCLI). The CLI keeps the credentials in ~/.aws; SpyDB stores
+ * nothing.
  */
 export function AWSSignIn(profile: string): $CancellablePromise<$models.AWSIdentity> {
     return $Call.ByID(593297805, profile);
+}
+
+/**
+ * CancelSignIn stops the sign-in running: downloading or installing the AWS
+ * CLI, or waiting for you in the browser. That sign-in then ends with "Sign-in
+ * cancelled." (Stopping it here, rather than abandoning the call on the
+ * screen, lets it end normally.)
+ */
+export function CancelSignIn(): $CancellablePromise<void> {
+    return $Call.ByID(1887117614);
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"time"
 
 	"github.com/anujkaushik1/SpyDB/dynamo"
 	"github.com/anujkaushik1/SpyDB/postgres"
@@ -33,6 +34,10 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		// Only for builds with the "server" tag (the app served to a browser,
+		// no window). Its 30-second default cut off calls that wait for you,
+		// like an AWS sign-in waiting in the browser.
+		Server: application.ServerOptions{WriteTimeout: 30 * time.Minute},
 	})
 
 	// On macOS the title bar is hidden so the frontend's own header (.titlebar)

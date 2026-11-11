@@ -1,11 +1,13 @@
 package dynamo
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // awsFiles points the AWS config and credentials files at temporary ones.
@@ -39,6 +41,10 @@ sso_region = us-east-1
 role_arn = arn:aws:iam::111122223333:role/Ops
 source_profile = default
 
+[profile console]
+login_session = arn:aws:iam::111122223333:user/you
+region = us-west-2
+
 [sso-session company]
 sso_start_url = https://example.awsapps.com/start
 
@@ -65,6 +71,7 @@ func TestAWSProfiles(t *testing.T) {
 	}
 	want := []AWSProfile{
 		{Name: "ci", Kind: "keys"},
+		{Name: "console", Kind: "login", Region: "us-west-2"},
 		{Name: "default", Kind: "keys", Region: "ap-south-1"},
 		{Name: "dev", Kind: "sso", Region: "us-east-1"},
 		{Name: "legacy-sso", Kind: "sso"},
@@ -85,9 +92,10 @@ func TestAWSProfilesNoFiles(t *testing.T) {
 	}
 }
 
-// fakeLoginCLI puts a fake aws first on PATH. It logs every call. "sso
-// login" signs a profile in (any but "expired"); "who am I" works for the
-// keys profile "ci" and for profiles signed in.
+// fakeLoginCLI puts a fake aws (2.40.0, new enough for everything) first on
+// PATH. It logs every call. "sso login" and "login" sign a profile in (any
+// but "expired"; "login" also saves the profile, as aws login does); "who am
+// I" works for the keys profile "ci" and for profiles signed in.
 func fakeLoginCLI(t *testing.T) (log string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -95,7 +103,12 @@ func fakeLoginCLI(t *testing.T) (log string) {
 	script := `#!/bin/sh
 echo "$@" >> "` + log + `"
 case "$1 $2" in
-  "--version ") echo "aws-cli/2.27.6 Python/3.13.3 Darwin/25.5.0 source/arm64" ;;
+  "--version ") echo "aws-cli/2.40.0 Python/3.14.8 Darwin/25.5.0 exe/arm64" ;;
+  "login --profile")
+    if [ "$3" = slow ]; then sleep 30; fi
+    if [ "$3" = expired ]; then echo "Attempting to open your default browser."; echo "Login was not completed" >&2; exit 1; fi
+    touch "` + dir + `/signed-in-$3"
+    printf '\n[profile %s]\nlogin_session = arn:aws:iam::111122223333:user/you\nregion = %s\n' "$3" "$5" >> "$AWS_CONFIG_FILE" ;;
   "sso login")
     if [ "$4" = expired ]; then echo "Opening the browser..."; echo "Error when retrieving token from sso: Token has expired and refresh failed" >&2; exit 1; fi
     touch "` + dir + `/signed-in-$4"
@@ -172,4 +185,103 @@ func TestAWSSignIn(t *testing.T) {
 	if _, err := s.AWSSignIn(t.Context(), "nope; rm -rf ~"); err == nil || len(calls(t, log)) != 0 {
 		t.Fatalf("got %v, calls %q", err, calls(t, log))
 	}
+}
+
+// Signing in with your AWS console account through the browser: aws login,
+// saved as its own profile, then who that is. Next time, no browser while
+// it lasts; after it expires, the browser again.
+func TestAWSBrowserSignIn(t *testing.T) {
+	isolate(t)
+	awsFiles(t, testConfig, testCredentials)
+	s := &Service{}
+	log := fakeLoginCLI(t)
+
+	id, err := s.AWSBrowserSignIn(t.Context(), "spydb", "ap-south-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Profile != "spydb" || id.Account != "111122223333" {
+		t.Fatalf("got %+v", id)
+	}
+	want := []string{"login --profile spydb --region ap-south-1", "sts get-caller-identity --profile spydb --output json"}
+	if got := calls(t, log); !slices.Equal(got, want) {
+		t.Fatalf("calls: %q", got)
+	}
+	profiles, _ := s.AWSProfiles()
+	if !slices.Contains(profiles, AWSProfile{Name: "spydb", Kind: "login", Region: "ap-south-1"}) {
+		t.Fatalf("the new profile isn't listed: %+v", profiles)
+	}
+
+	// Signing in with it again while it lasts: no browser.
+	os.Remove(log)
+	if _, err := s.AWSSignIn(t.Context(), "spydb"); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls(t, log); !slices.Equal(got, []string{"sts get-caller-identity --profile spydb --output json"}) {
+		t.Fatalf("calls: %q", got)
+	}
+
+	// Expired: the browser again, in the profile's region.
+	os.Remove(log)
+	os.Remove(filepath.Join(filepath.Dir(log), "signed-in-spydb"))
+	if _, err := s.AWSSignIn(t.Context(), "spydb"); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"sts get-caller-identity --profile spydb --output json", "login --profile spydb --region ap-south-1", "sts get-caller-identity --profile spydb --output json"}
+	if got := calls(t, log); !slices.Equal(got, want) {
+		t.Fatalf("calls: %q", got)
+	}
+}
+
+func TestAWSBrowserSignInRefuses(t *testing.T) {
+	isolate(t)
+	awsFiles(t, testConfig, testCredentials)
+	s := &Service{}
+	log := fakeLoginCLI(t)
+	for _, c := range []struct{ profile, region, why string }{
+		{"my profile", "ap-south-1", "can't be a profile name"},
+		{"spydb", "mumbai", "isn't an AWS region"},
+		{"ci", "ap-south-1", "already signs in another way (keys)"},
+		{"dev", "ap-south-1", "already signs in another way (sso)"},
+	} {
+		if _, err := s.AWSBrowserSignIn(t.Context(), c.profile, c.region); err == nil || !strings.Contains(err.Error(), c.why) {
+			t.Errorf("%s/%s: %v", c.profile, c.region, err)
+		}
+	}
+	if got := calls(t, log); len(got) != 0 {
+		t.Fatalf("ran %q", got)
+	}
+	// Not finishing in the browser: AWS's reason, nothing saved.
+	if _, err := s.AWSBrowserSignIn(t.Context(), "expired", "ap-south-1"); err == nil || !strings.Contains(err.Error(), "Login was not completed") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// Cancel while waiting for the browser: the sign-in ends at once, saying so,
+// and nothing is saved.
+func TestCancelSignIn(t *testing.T) {
+	isolate(t)
+	awsFiles(t, testConfig, testCredentials)
+	s := &Service{}
+	fakeLoginCLI(t)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := s.AWSBrowserSignIn(context.Background(), "slow", "ap-south-1")
+		finished <- err
+	}()
+	time.Sleep(500 * time.Millisecond)
+	s.CancelSignIn()
+	select {
+	case err := <-finished:
+		if err == nil || err.Error() != "Sign-in cancelled." {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still waiting 5 s after Cancel")
+	}
+	profiles, _ := s.AWSProfiles()
+	if slices.ContainsFunc(profiles, func(p AWSProfile) bool { return p.Name == "slow" }) {
+		t.Fatal("a cancelled sign-in was saved")
+	}
+	s.CancelSignIn() // nothing running: nothing happens
 }
