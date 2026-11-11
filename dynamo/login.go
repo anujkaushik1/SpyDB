@@ -25,10 +25,11 @@ import (
 type Service struct {
 	setupMu sync.Mutex // one AWS CLI setup at a time (see awsCLI)
 
-	mu           sync.Mutex         // guards the fields below
-	cancelSignIn context.CancelFunc // stops the sign-in running, if any (CancelSignIn)
-	signInSeq    int                // counts sign-ins, so one ending clears only its own cancel
-	client       *dynamodb.Client   // the connected profile's DynamoDB (Connect); nil when not connected
+	mu           sync.Mutex              // guards the fields below
+	cancelSignIn context.CancelFunc      // stops the sign-in running, if any (CancelSignIn)
+	signInSeq    int                     // counts sign-ins, so one ending clears only its own cancel
+	client       *dynamodb.Client        // the connected profile's DynamoDB (Connect); nil when not connected
+	tables       map[string]TableDetails // DescribeTable's answers, by table; emptied by Connect and Disconnect
 
 	endpoint string // tests: a fake DynamoDB to talk to instead of AWS's
 }

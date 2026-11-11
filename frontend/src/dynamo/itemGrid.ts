@@ -74,3 +74,59 @@ export function formatSize(bytes: number) {
   }
   return `${unit === 0 ? size : size.toFixed(size < 10 ? 1 : 0).replace(/\.0$/, '')} ${units[unit]}`
 }
+
+// Every field a table tab has seen, with the types it held. It only grows:
+// a search showing fewer items mustn't drop fields from the filter bar or
+// forget what they hold.
+export type SeenFields = Record<string, string[]>
+
+export function addSeen(seen: SeenFields, items: Item[]): SeenFields {
+  let next = seen
+  for (const item of items) {
+    for (const [field, value] of Object.entries(item)) {
+      if (!value) continue
+      const types = next[field] ?? []
+      const type = value.type === 'NULL' ? null : value.type
+      if (next[field] && (type === null || types.includes(type))) continue
+      if (next === seen) next = { ...seen }
+      next[field] = type === null ? types : [...types, type]
+    }
+  }
+  return next
+}
+
+// The filter bar's field list: fields some key can find items by come
+// first, each with whose key it is (the table's or an index's; a sort key
+// says it's the 2nd key), then every other field seen, A to Z. Only
+// indexes that keep every field count: SpyDB doesn't search the others.
+export type KeyField = { field: string; note: string }
+
+export function fieldOptions(details: TableDetails | null, seen: SeenFields): { keys: KeyField[]; others: string[] } {
+  const notes = new Map<string, string[]>()
+  const add = (field: string, note: string) => {
+    if (!field) return
+    if (!notes.has(field)) notes.set(field, [])
+    notes.get(field)!.push(note)
+  }
+  if (details) {
+    add(details.partitionKey, 'table key')
+    add(details.sortKey, 'table, 2nd key')
+    for (const ix of details.indexes ?? []) {
+      if (!ix.allFields) continue
+      add(ix.partitionKey, ix.name)
+      add(ix.sortKey, `${ix.name}, 2nd key`)
+    }
+  }
+  const keys = [...notes].map(([field, list]) => ({ field, note: list.join('; ') }))
+  const others = Object.keys(seen).filter((name) => !notes.has(name)).sort((a, b) => a.localeCompare(b))
+  return { keys, others }
+}
+
+// What a typed value means for a field, from what it has held: numbers
+// when only numbers, true / false when only booleans, else text. (For a
+// key field Go uses the table's own definition instead.)
+export function fieldType(seen: SeenFields, field: string): string {
+  const types = seen[field] ?? []
+  if (types.length === 1 && (types[0] === 'N' || types[0] === 'BOOL')) return types[0]
+  return 'S'
+}

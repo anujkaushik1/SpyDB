@@ -2405,3 +2405,22 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 .dynamo-key-role { font-weight: 400; color: var(--text-subtle); }
 .dynamo-table-size { color: var(--text-subtle); }
 .dynamo-table-error { color: var(--error); }
+/* DynamoDB's filter rows line up as columns: field, condition, value (the
+   same width in every row), remove, and the buttons beside the first row
+   only. Each row's parts sit straight in the bar's grid (display: contents);
+   a part always takes its own column, so a shorter row starts a new line. */
+.filter-bar.dynamo-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) 128px minmax(140px, 1fr) auto auto;
+    align-items: center;
+    gap: 6px;
+}
+.dynamo-filters .filter-row { display: contents; }
+.dynamo-filters .dynamo-field { grid-column: 1; width: 100%; } /* key fields carry whose key they are: wider than Postgres's */
+.dynamo-filters .select-operator { grid-column: 2; width: 100%; }
+.dynamo-filters .filter-value { grid-column: 3; width: 100%; min-width: 0; }
+.dynamo-filters .filter-remove { grid-column: 4; }
+.dynamo-filters .filter-actions { grid-column: 5; display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Beside Apply: will this search use a key (fast) or check every item? */
+.dynamo-plan { font-size: 12px; color: var(--text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.dynamo-plan.fast { color: var(--ok); }

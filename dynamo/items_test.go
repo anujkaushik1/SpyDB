@@ -99,6 +99,23 @@ func fakeTable(t *testing.T, n int, refuse string) (url string, ops *[]string, b
 				"KeySchema":      []any{map[string]any{"AttributeName": "userId", "KeyType": "HASH"}, map[string]any{"AttributeName": "createdAt", "KeyType": "RANGE"}},
 				"ItemCount":      12345,
 				"TableSizeBytes": 3200000,
+				"AttributeDefinitions": []any{
+					map[string]any{"AttributeName": "userId", "AttributeType": "S"},
+					map[string]any{"AttributeName": "createdAt", "AttributeType": "N"},
+					map[string]any{"AttributeName": "sip_type", "AttributeType": "S"},
+					map[string]any{"AttributeName": "sip_status", "AttributeType": "S"},
+					map[string]any{"AttributeName": "email", "AttributeType": "S"},
+				},
+				"GlobalSecondaryIndexes": []any{
+					map[string]any{"IndexName": "sip_type_status", "Projection": map[string]any{"ProjectionType": "ALL"},
+						"KeySchema": []any{map[string]any{"AttributeName": "sip_type", "KeyType": "HASH"}, map[string]any{"AttributeName": "sip_status", "KeyType": "RANGE"}}},
+					map[string]any{"IndexName": "emailIndex", "Projection": map[string]any{"ProjectionType": "KEYS_ONLY"},
+						"KeySchema": []any{map[string]any{"AttributeName": "email", "KeyType": "HASH"}}},
+				},
+				"LocalSecondaryIndexes": []any{
+					map[string]any{"IndexName": "byStatus", "Projection": map[string]any{"ProjectionType": "ALL"},
+						"KeySchema": []any{map[string]any{"AttributeName": "userId", "KeyType": "HASH"}, map[string]any{"AttributeName": "sip_status", "KeyType": "RANGE"}}},
+				},
 			}}
 		case "Scan":
 			start := 0
@@ -129,14 +146,14 @@ func connected(t *testing.T, url string) *Service {
 	return s
 }
 
-func TestScanItems(t *testing.T) {
+func TestFindAllItems(t *testing.T) {
 	t.Run("page after page, 50 at a time, only reading", func(t *testing.T) {
 		url, ops, bodies := fakeTable(t, 120, "")
 		s := connected(t, url)
 		var got []map[string]Value
 		next, pages := "", 0
 		for {
-			page, err := s.ScanItems(t.Context(), "orders", next)
+			page, err := s.FindItems(t.Context(), "orders", nil, next)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,20 +178,23 @@ func TestScanItems(t *testing.T) {
 		if got[0]["note"] != (Value{"M", `{"paid":true}`}) {
 			t.Errorf("note: %+v", got[0]["note"])
 		}
-		for i, op := range *ops {
-			b := (*bodies)[i]
-			if op != "Scan" || b["TableName"] != "orders" || b["Limit"] != float64(50) || b["ConsistentRead"] != nil {
-				t.Errorf("call %d: %s %v", i, op, b)
+		// The table's keys once (then remembered), then a Scan per page.
+		if fmt.Sprint(*ops) != "[DescribeTable Scan Scan Scan]" {
+			t.Fatalf("calls %v", *ops)
+		}
+		for i, b := range (*bodies)[1:] {
+			if b["TableName"] != "orders" || b["Limit"] != float64(50) || b["ConsistentRead"] != nil || b["FilterExpression"] != nil || b["ExpressionAttributeNames"] != nil {
+				t.Errorf("scan %d: %v", i, b)
 			}
 		}
-		if start := (*bodies)[1]["ExclusiveStartKey"]; fmt.Sprint(start) != "map[id:map[S:item-049]]" {
+		if start := (*bodies)[2]["ExclusiveStartKey"]; fmt.Sprint(start) != "map[id:map[S:item-049]]" {
 			t.Errorf("page 2 started at %v, want after item-049", start)
 		}
 	})
 
 	t.Run("an empty table: no items, no next page", func(t *testing.T) {
 		url, _, _ := fakeTable(t, 0, "")
-		page, err := connected(t, url).ScanItems(t.Context(), "orders", "")
+		page, err := connected(t, url).FindItems(t.Context(), "orders", nil, "")
 		if err != nil || page.Items == nil || len(page.Items) != 0 || page.Next != "" {
 			t.Fatalf("got %+v, %v", page, err)
 		}
@@ -185,21 +205,25 @@ func TestScanItems(t *testing.T) {
 
 	t.Run("a broken next: says so, asks AWS nothing", func(t *testing.T) {
 		url, ops, _ := fakeTable(t, 10, "")
-		if _, err := connected(t, url).ScanItems(t.Context(), "orders", "not a key"); err == nil || len(*ops) != 0 {
+		if _, err := connected(t, url).FindItems(t.Context(), "orders", nil, "not a key"); err == nil || len(*ops) != 0 {
 			t.Fatalf("%v; %d calls", err, len(*ops))
 		}
 	})
 
 	t.Run("not allowed: AWS's reason", func(t *testing.T) {
-		url, _, _ := fakeTable(t, 10, "AccessDeniedException")
-		_, err := connected(t, url).ScanItems(t.Context(), "orders", "")
+		url, ops, _ := fakeTable(t, 10, "AccessDeniedException")
+		_, err := connected(t, url).FindItems(t.Context(), "orders", nil, "")
+		// Not allowed to describe it either: it still tries reading every item.
+		if fmt.Sprint(*ops) != "[DescribeTable Scan]" {
+			t.Errorf("calls %v", *ops)
+		}
 		if err == nil || !strings.Contains(err.Error(), "isn't allowed") || !strings.Contains(err.Error(), "dynamodb:Scan") {
 			t.Fatalf("got %v", err)
 		}
 	})
 
 	t.Run("not connected", func(t *testing.T) {
-		if _, err := (&Service{}).ScanItems(t.Context(), "orders", ""); err == nil {
+		if _, err := (&Service{}).FindItems(t.Context(), "orders", nil, ""); err == nil {
 			t.Fatal("scanned without connecting")
 		}
 		if _, err := (&Service{}).DescribeTable(t.Context(), "orders"); err == nil {
@@ -211,8 +235,16 @@ func TestScanItems(t *testing.T) {
 func TestDescribeTable(t *testing.T) {
 	url, ops, bodies := fakeTable(t, 0, "")
 	got, err := connected(t, url).DescribeTable(t.Context(), "orders")
-	want := TableDetails{Name: "orders", PartitionKey: "userId", SortKey: "createdAt", ItemCount: 12345, SizeBytes: 3200000}
-	if err != nil || got != want {
+	want := TableDetails{
+		Name: "orders", PartitionKey: "userId", SortKey: "createdAt", ItemCount: 12345, SizeBytes: 3200000,
+		Indexes: []IndexDetails{
+			{Name: "sip_type_status", PartitionKey: "sip_type", SortKey: "sip_status", AllFields: true},
+			{Name: "emailIndex", PartitionKey: "email", AllFields: false},
+			{Name: "byStatus", PartitionKey: "userId", SortKey: "sip_status", AllFields: true},
+		},
+		KeyTypes: map[string]string{"userId": "S", "createdAt": "N", "sip_type": "S", "sip_status": "S", "email": "S"},
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, %v; want %+v", got, err, want)
 	}
 	if len(*ops) != 1 || (*ops)[0] != "DescribeTable" || (*bodies)[0]["TableName"] != "orders" {
@@ -222,7 +254,7 @@ func TestDescribeTable(t *testing.T) {
 
 // The real thing, read-only: one page of a real table. Logs only counts,
 // never the items. Only with SPYDB_AWS_PROFILE and SPYDB_AWS_TABLE set.
-func TestScanItemsFromAWS(t *testing.T) {
+func TestFindAllItemsFromAWS(t *testing.T) {
 	profile, table := os.Getenv("SPYDB_AWS_PROFILE"), os.Getenv("SPYDB_AWS_TABLE")
 	if profile == "" || table == "" {
 		t.Skip("set SPYDB_AWS_PROFILE and SPYDB_AWS_TABLE (reads one page of that table; changes nothing)")
@@ -235,7 +267,7 @@ func TestScanItemsFromAWS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := s.ScanItems(t.Context(), table, "")
+	page, err := s.FindItems(t.Context(), table, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,11 +283,13 @@ func TestScanItemsFromAWS(t *testing.T) {
 		return
 	}
 	// Load more: the second page starts after the first, repeating none of it.
-	second, err := s.ScanItems(t.Context(), table, page.Next)
+	second, err := s.FindItems(t.Context(), table, nil, page.Next)
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := func(item map[string]Value) string { return item[details.PartitionKey].Text + "\x00" + item[details.SortKey].Text }
+	key := func(item map[string]Value) string {
+		return item[details.PartitionKey].Text + "\x00" + item[details.SortKey].Text
+	}
 	firstKeys := map[string]bool{}
 	for _, item := range page.Items {
 		firstKeys[key(item)] = true

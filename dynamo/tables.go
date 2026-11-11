@@ -51,7 +51,7 @@ func (s *Service) Connect(ctx context.Context, profile string) (Connection, erro
 		}
 	})
 	s.mu.Lock()
-	s.client = client
+	s.client, s.tables = client, nil
 	s.mu.Unlock()
 	return Connection{Profile: profile, Region: region}, nil
 }
@@ -59,7 +59,7 @@ func (s *Service) Connect(ctx context.Context, profile string) (Connection, erro
 // Disconnect stops showing DynamoDB; you're back on the sign-in screen.
 func (s *Service) Disconnect() {
 	s.mu.Lock()
-	s.client = nil
+	s.client, s.tables = nil, nil
 	s.mu.Unlock()
 }
 

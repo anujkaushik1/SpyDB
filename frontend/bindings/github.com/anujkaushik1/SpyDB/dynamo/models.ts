@@ -75,6 +75,69 @@ export interface Connection {
 }
 
 /**
+ * Filter is one row of a table tab's filter bar: "sip_status equals PENDING".
+ */
+export interface Filter {
+    "field": string;
+
+    /**
+     * eq, neq, lt, lte, gt, gte, starts, contains, exists, not_exists
+     */
+    "operator": string;
+
+    /**
+     * as typed; not used by exists and not_exists
+     */
+    "value": string;
+
+    /**
+     * what the value is: "S" text, "N" number, "BOOL" true / false. A key field's own type wins.
+     */
+    "type": string;
+}
+
+/**
+ * FindPlan is how FindItems reads a table for some filters.
+ */
+export interface FindPlan {
+    /**
+     * true: AWS goes straight to the matching items by a key; false: it checks every item
+     */
+    "query": boolean;
+
+    /**
+     * the index whose key it uses; "" for the table's own key (or when checking every item)
+     */
+    "index": string;
+}
+
+/**
+ * IndexDetails is one of a table's secondary indexes: a copy of its items
+ * kept in the order of another key, so they can be found by that key too.
+ */
+export interface IndexDetails {
+    /**
+     * e.g. "sip_type_status"
+     */
+    "name": string;
+
+    /**
+     * e.g. "sip_type"
+     */
+    "partitionKey": string;
+
+    /**
+     * e.g. "sip_status"; "" if none
+     */
+    "sortKey": string;
+
+    /**
+     * it keeps every field of an item (projection ALL), not just some
+     */
+    "allFields": boolean;
+}
+
+/**
  * ItemsPage is one page of a table's items, in the order DynamoDB keeps them.
  */
 export interface ItemsPage {
@@ -84,9 +147,19 @@ export interface ItemsPage {
     "items": ({ [_ in string]?: Value } | null)[] | null;
 
     /**
-     * where the next page starts (pass it to ScanItems); "" after the last
+     * where the next page starts (pass it to FindItems); "" after the last
      */
     "next": string;
+
+    /**
+     * items AWS read for this page; more than len(Items) when filters left some out
+     */
+    "checked": number;
+
+    /**
+     * how it read them: by a key, or every item
+     */
+    "plan": FindPlan;
 
     /**
      * how long AWS took
@@ -95,7 +168,8 @@ export interface ItemsPage {
 }
 
 /**
- * TableDetails is what AWS says about a table: its key and roughly its size.
+ * TableDetails is what AWS says about a table: its key, its indexes and
+ * roughly its size.
  */
 export interface TableDetails {
     "name": string;
@@ -109,6 +183,16 @@ export interface TableDetails {
      * the key's second part, e.g. "createdAt"; "" if the table has none
      */
     "sortKey": string;
+
+    /**
+     * other keys to find items by quickly
+     */
+    "indexes": IndexDetails[] | null;
+
+    /**
+     * every key field's type, table's and indexes': "S" text, "N" number, "B" binary
+     */
+    "keyTypes": { [_ in string]?: string } | null;
 
     /**
      * AWS's count, updated about every 6 hours

@@ -11,6 +11,9 @@ export type {
     AWSIdentity,
     AWSProfile,
     Connection,
+    Filter,
+    FindPlan,
+    IndexDetails,
     ItemsPage,
     TableDetails,
     Value

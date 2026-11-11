@@ -71,7 +71,8 @@ export function Connect(profile: string): $CancellablePromise<$models.Connection
 }
 
 /**
- * DescribeTable says what a table's key is and about how many items it has.
+ * DescribeTable says what a table's key and indexes are and about how many
+ * items it has. FindItems keeps using this answer (see tableDetails).
  */
 export function DescribeTable(table: string): $CancellablePromise<$models.TableDetails> {
     return $Call.ByID(3208458281, table);
@@ -85,6 +86,18 @@ export function Disconnect(): $CancellablePromise<void> {
 }
 
 /**
+ * FindItems reads one page of a table's items that match every filter (all
+ * of them with no filters): the first page when next is "", else the page
+ * after the one that gave next. With "equals" on a key's partition field it
+ * asks AWS for just those items (Query); otherwise AWS checks every item,
+ * page by page (Scan). Either way it reads up to 50 items a page, so a page
+ * can hold fewer matches than that. It only reads.
+ */
+export function FindItems(table: string, filters: $models.Filter[] | null, next: string): $CancellablePromise<$models.ItemsPage> {
+    return $Call.ByID(861075, table, filters, next);
+}
+
+/**
  * ListTables lists the tables in the connected region by name, in AWS's
  * (alphabetical) order. AWS gives up to 100 names per call; this asks
  * until it has them all.
@@ -94,9 +107,9 @@ export function ListTables(): $CancellablePromise<string[] | null> {
 }
 
 /**
- * ScanItems reads one page of a table's items: the first page when next is
- * "", else the page after the one that gave next. It only reads.
+ * PlanFind says how FindItems would read a table for these filters, without
+ * reading it: the table tab shows it beside Apply.
  */
-export function ScanItems(table: string, next: string): $CancellablePromise<$models.ItemsPage> {
-    return $Call.ByID(729980269, table, next);
+export function PlanFind(table: string, filters: $models.Filter[] | null): $CancellablePromise<$models.FindPlan> {
+    return $Call.ByID(3402430042, table, filters);
 }

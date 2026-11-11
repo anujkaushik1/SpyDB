@@ -15,13 +15,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-// TableDetails is what AWS says about a table: its key and roughly its size.
+// TableDetails is what AWS says about a table: its key, its indexes and
+// roughly its size.
 type TableDetails struct {
-	Name         string `json:"name"`
-	PartitionKey string `json:"partitionKey"` // the field every item is found by, e.g. "userId"
-	SortKey      string `json:"sortKey"`      // the key's second part, e.g. "createdAt"; "" if the table has none
-	ItemCount    int64  `json:"itemCount"`    // AWS's count, updated about every 6 hours
-	SizeBytes    int64  `json:"sizeBytes"`    // likewise
+	Name         string            `json:"name"`
+	PartitionKey string            `json:"partitionKey"` // the field every item is found by, e.g. "userId"
+	SortKey      string            `json:"sortKey"`      // the key's second part, e.g. "createdAt"; "" if the table has none
+	Indexes      []IndexDetails    `json:"indexes"`      // other keys to find items by quickly
+	KeyTypes     map[string]string `json:"keyTypes"`     // every key field's type, table's and indexes': "S" text, "N" number, "B" binary
+	ItemCount    int64             `json:"itemCount"`    // AWS's count, updated about every 6 hours
+	SizeBytes    int64             `json:"sizeBytes"`    // likewise
+}
+
+// IndexDetails is one of a table's secondary indexes: a copy of its items
+// kept in the order of another key, so they can be found by that key too.
+type IndexDetails struct {
+	Name         string `json:"name"`         // e.g. "sip_type_status"
+	PartitionKey string `json:"partitionKey"` // e.g. "sip_type"
+	SortKey      string `json:"sortKey"`      // e.g. "sip_status"; "" if none
+	AllFields    bool   `json:"allFields"`    // it keeps every field of an item (projection ALL), not just some
 }
 
 // Value is one field of an item: its DynamoDB type and the value as text.
@@ -33,15 +45,18 @@ type Value struct {
 // ItemsPage is one page of a table's items, in the order DynamoDB keeps them.
 type ItemsPage struct {
 	Items      []map[string]Value `json:"items"`      // field name → value; items needn't have the same fields
-	Next       string             `json:"next"`       // where the next page starts (pass it to ScanItems); "" after the last
+	Next       string             `json:"next"`       // where the next page starts (pass it to FindItems); "" after the last
+	Checked    int32              `json:"checked"`    // items AWS read for this page; more than len(Items) when filters left some out
+	Plan       FindPlan           `json:"plan"`       // how it read them: by a key, or every item
 	DurationMs int64              `json:"durationMs"` // how long AWS took
 }
 
-// itemsPerPage is how many items ScanItems asks AWS for at a time. AWS
+// itemsPerPage is how many items FindItems has AWS read at a time. AWS
 // charges for every item read, so SpyDB reads a page only when you ask.
 const itemsPerPage = 50
 
-// DescribeTable says what a table's key is and about how many items it has.
+// DescribeTable says what a table's key and indexes are and about how many
+// items it has. FindItems keeps using this answer (see tableDetails).
 func (s *Service) DescribeTable(ctx context.Context, table string) (TableDetails, error) {
 	client, err := s.dynamoClient()
 	if err != nil {
@@ -54,52 +69,63 @@ func (s *Service) DescribeTable(ctx context.Context, table string) (TableDetails
 		return TableDetails{}, awsError(err)
 	}
 	t := out.Table
-	details := TableDetails{Name: table, ItemCount: aws.ToInt64(t.ItemCount), SizeBytes: aws.ToInt64(t.TableSizeBytes)}
-	for _, k := range t.KeySchema {
-		switch k.KeyType {
-		case types.KeyTypeHash:
-			details.PartitionKey = aws.ToString(k.AttributeName)
-		case types.KeyTypeRange:
-			details.SortKey = aws.ToString(k.AttributeName)
-		}
+	details := TableDetails{
+		Name:      table,
+		Indexes:   []IndexDetails{},
+		KeyTypes:  make(map[string]string, len(t.AttributeDefinitions)),
+		ItemCount: aws.ToInt64(t.ItemCount),
+		SizeBytes: aws.ToInt64(t.TableSizeBytes),
 	}
+	details.PartitionKey, details.SortKey = keyNames(t.KeySchema)
+	for _, ix := range t.GlobalSecondaryIndexes {
+		details.Indexes = append(details.Indexes, indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection))
+	}
+	for _, ix := range t.LocalSecondaryIndexes {
+		details.Indexes = append(details.Indexes, indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection))
+	}
+	// AWS lists the type of every field used in a key, and only those.
+	for _, a := range t.AttributeDefinitions {
+		details.KeyTypes[aws.ToString(a.AttributeName)] = string(a.AttributeType)
+	}
+	s.mu.Lock()
+	if s.tables == nil {
+		s.tables = map[string]TableDetails{}
+	}
+	s.tables[table] = details
+	s.mu.Unlock()
 	return details, nil
 }
 
-// ScanItems reads one page of a table's items: the first page when next is
-// "", else the page after the one that gave next. It only reads.
-func (s *Service) ScanItems(ctx context.Context, table, next string) (ItemsPage, error) {
-	client, err := s.dynamoClient()
-	if err != nil {
-		return ItemsPage{}, err
+// tableDetails is DescribeTable's answer for the table: the one it gave
+// before (it opened the table's tab), or a new one.
+func (s *Service) tableDetails(ctx context.Context, table string) (TableDetails, error) {
+	s.mu.Lock()
+	details, ok := s.tables[table]
+	s.mu.Unlock()
+	if ok {
+		return details, nil
 	}
-	in := &dynamodb.ScanInput{TableName: aws.String(table), Limit: aws.Int32(itemsPerPage)}
-	if next != "" {
-		if in.ExclusiveStartKey, err = decodeNext(next); err != nil {
-			return ItemsPage{}, err
+	return s.DescribeTable(ctx, table)
+}
+
+// keyNames is a key's partition and sort fields ("" if it has no sort key).
+func keyNames(schema []types.KeySchemaElement) (partition, sort string) {
+	for _, k := range schema {
+		switch k.KeyType {
+		case types.KeyTypeHash:
+			partition = aws.ToString(k.AttributeName)
+		case types.KeyTypeRange:
+			sort = aws.ToString(k.AttributeName)
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	start := time.Now()
-	out, err := client.Scan(ctx, in)
-	if err != nil {
-		return ItemsPage{}, awsError(err)
-	}
-	page := ItemsPage{Items: make([]map[string]Value, 0, len(out.Items)), DurationMs: time.Since(start).Milliseconds()}
-	for _, item := range out.Items {
-		fields := make(map[string]Value, len(item))
-		for name, v := range item {
-			fields[name] = toValue(v)
-		}
-		page.Items = append(page.Items, fields)
-	}
-	if len(out.LastEvaluatedKey) > 0 {
-		if page.Next, err = encodeNext(out.LastEvaluatedKey); err != nil {
-			return ItemsPage{}, err
-		}
-	}
-	return page, nil
+	return partition, sort
+}
+
+func indexDetails(name string, schema []types.KeySchemaElement, projection *types.Projection) IndexDetails {
+	ix := IndexDetails{Name: name}
+	ix.PartitionKey, ix.SortKey = keyNames(schema)
+	ix.AllFields = projection != nil && projection.ProjectionType == types.ProjectionTypeAll
+	return ix
 }
 
 // dynamoClient is the connected profile's DynamoDB, or an error if none.
