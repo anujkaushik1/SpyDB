@@ -378,6 +378,33 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     border-radius: 10px;
 }
 .db-badge svg { width: 20px; height: 20px; }
+.db-badge-aws { color: #f5b45c; background: rgba(245, 180, 92, 0.12); border-color: rgba(245, 180, 92, 0.4); }
+
+/* The connect screen's PostgreSQL / DynamoDB switch, above the card. */
+.engine-switch {
+    display: flex;
+    width: fit-content;
+    margin: 0 auto 16px;
+    padding: 3px;
+    gap: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+}
+.engine-option {
+    padding: 6px 16px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.engine-option:hover { color: var(--text); }
+.engine-option.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.aws-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-subtle); }
+.aws-card .banner { margin-top: 16px; }
 .card-title {
     margin: 0;
     font-size: 18px;

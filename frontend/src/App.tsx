@@ -3,6 +3,7 @@ import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnect
 import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
+import DynamoSignIn from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
 import ImportDialog from './ImportDialog'
 import QueryTab from './QueryTab'
@@ -34,6 +35,8 @@ function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({}) // workspace → tab id
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Which database the connect screen is for.
+  const [engine, setEngine] = useState<'postgres' | 'dynamo'>('postgres')
   // The Import a file as a new table dialog.
   const [importOpen, setImportOpen] = useState(false)
   // Tabs with unsaved cell edits.
@@ -369,13 +372,25 @@ function App() {
         )}
         <SqlSchemaContext.Provider value={completion}>
         <main className={connection ? 'main-area' : 'content'}>
-          {/* Stays mounted (and renders nothing) while connected, so the form keeps its values. */}
+          {!connection && (
+            <div className="engine-switch" role="tablist" aria-label="Database">
+              {([['postgres', 'PostgreSQL'], ['dynamo', 'DynamoDB']] as const).map(([value, label]) => (
+                <button key={value} type="button" role="tab" aria-selected={engine === value}
+                        className={engine === value ? 'engine-option on' : 'engine-option'} onClick={() => setEngine(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Stays mounted (and renders nothing) while connected or on DynamoDB, so the form keeps its values. */}
           <ConnectionForm
             connection={connection}
             onConnectionChange={changeConnection}
             request={formRequest}
             onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
+            hidden={engine !== 'postgres'}
           />
+          {!connection && engine === 'dynamo' && <DynamoSignIn />}
           {connection && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>

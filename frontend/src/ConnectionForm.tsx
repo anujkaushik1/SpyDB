@@ -42,9 +42,10 @@ type Props = {
   onConnectionChange: (connection: ConnectionInfo | null) => void
   request: FormRequest | null
   onSaved: (connection: SavedConnection) => void // saved or updated; the sidebar reloads
+  hidden?: boolean // DynamoDB is picked instead: render nothing, keep the values
 }
 
-export default function ConnectionForm({ connection, onConnectionChange, request, onSaved }: Props) {
+export default function ConnectionForm({ connection, onConnectionChange, request, onSaved, hidden }: Props) {
   const [values, setValues] = useState<FormValues>(initialValues)
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({})
   const [submitted, setSubmitted] = useState(false)
@@ -249,9 +250,10 @@ export default function ConnectionForm({ connection, onConnectionChange, request
 
   const panel = panelConfig && <ServerConnectionsPanel config={panelConfig} temporary />
 
-  // While connected the workspace (sidebar + tabs) takes over. Rendering nothing,
-  // rather than unmounting, keeps the form's values for when you disconnect.
-  if (connection) return null
+  // While connected the workspace (sidebar + tabs) takes over, and with DynamoDB
+  // picked its sign-in does. Rendering nothing, rather than unmounting, keeps
+  // the form's values for when you come back.
+  if (connection || hidden) return null
 
   return (
     <>
