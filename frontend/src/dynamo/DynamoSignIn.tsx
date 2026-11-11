@@ -12,7 +12,7 @@ const KINDS: Record<string, { label: string; hint: string }> = {
   sso: { label: 'AWS SSO', hint: 'Signs in through your browser, if needed.' },
   login: { label: 'browser sign-in', hint: 'Signs in through your browser, if it’s been over 12 hours.' },
   role: { label: 'role', hint: 'Switches into the role this profile names.' },
-  other: { label: 'no credentials', hint: 'This profile has no keys or sign-in: sign in with your browser below.' },
+  process: { label: 'credential program', hint: 'Gets keys from the program this profile names (credential_process).' },
 }
 
 // The profile a browser sign-in is saved as (aws login --profile spydb).
@@ -81,7 +81,7 @@ export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Co
   const cancel = () => Dynamo.CancelSignIn()
 
   const profile = profiles?.find((p) => p.name === name)
-  const kind = KINDS[profile?.kind ?? 'other'] ?? KINDS.other
+  const kind = KINDS[profile?.kind ?? ''] ?? { label: profile?.kind ?? '', hint: '' }
   const installing = busy !== null && setup !== null && setup.stage !== 'done'
   const regions = REGIONS.includes(region) ? REGIONS : [region, ...REGIONS]
   const noProfiles = profiles?.length === 0

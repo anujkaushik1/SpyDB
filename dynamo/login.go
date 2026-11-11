@@ -76,7 +76,7 @@ func cancelledOr(ctx context.Context, err error) error {
 // and how it gets credentials. Keys and other settings are never read out.
 type AWSProfile struct {
 	Name   string `json:"name"`
-	Kind   string `json:"kind"`   // "keys": access keys in a file; "sso": your company's AWS sign-in; "login": your AWS console sign-in (aws login); "role": assumes a role; "other"
+	Kind   string `json:"kind"`   // "keys": access keys in a file; "sso": your company's AWS sign-in; "login": your AWS console sign-in (aws login); "role": assumes a role; "process": a program hands out keys (credential_process); "other": nothing to sign in with
 	Region string `json:"region"` // its default region, e.g. "ap-south-1"; "" if none
 }
 
@@ -87,9 +87,15 @@ type AWSIdentity struct {
 	Arn     string `json:"arn"`     // e.g. arn:aws:sts::123456789012:assumed-role/Admin/you@example.com
 }
 
-// AWSProfiles lists your AWS profiles, sorted by name.
+// AWSProfiles lists the AWS profiles you can sign in with, sorted by name.
+// Ones with nothing to sign in with (kind "other", like a [default] that only
+// sets a region) are left out: signing in with them could only fail.
 func (s *Service) AWSProfiles() ([]AWSProfile, error) {
-	return awsProfiles()
+	profiles, err := awsProfiles()
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(profiles, func(p AWSProfile) bool { return p.Kind == "other" }), nil
 }
 
 // AWSSignIn signs in to AWS with a profile and says who that is. A profile
@@ -297,6 +303,10 @@ func awsProfiles() ([]AWSProfile, error) {
 		case "aws_access_key_id":
 			if p.Kind == "other" {
 				p.Kind = "keys"
+			}
+		case "credential_process": // e.g. aws-vault, 1Password
+			if p.Kind == "other" {
+				p.Kind = "process"
 			}
 		case "region":
 			p.Region = value

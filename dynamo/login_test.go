@@ -285,3 +285,30 @@ func TestCancelSignIn(t *testing.T) {
 	}
 	s.CancelSignIn() // nothing running: nothing happens
 }
+
+// A profile with nothing to sign in with isn't offered; one whose keys come
+// from a program (credential_process) is. Inside, both are still known, so a
+// browser sign-in can still tell a name is taken.
+func TestAWSProfilesWithoutCredentials(t *testing.T) {
+	awsFiles(t, `[default]
+region = ap-south-1
+
+[profile vault]
+credential_process = /usr/local/bin/aws-vault export --format=json work
+
+[profile half]
+region = us-east-1
+`, `[ci]
+aws_access_key_id = AKIAEXAMPLE
+aws_secret_access_key = secret-never-read-out
+`)
+	profiles, err := (&Service{}).AWSProfiles()
+	want := []AWSProfile{{Name: "ci", Kind: "keys"}, {Name: "vault", Kind: "process"}}
+	if err != nil || !slices.Equal(profiles, want) {
+		t.Fatalf("got %+v, %v; want %+v", profiles, err, want)
+	}
+	all, err := awsProfiles()
+	if err != nil || len(all) != 4 {
+		t.Fatalf("inside: %+v, %v", all, err)
+	}
+}
