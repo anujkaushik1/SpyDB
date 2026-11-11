@@ -55,3 +55,35 @@ func TestWrongRowUpdateFromJoin(t *testing.T) {
 		exec(t, s, `UPDATE `+e+` SET dept = 'ops' WHERE id = `+updated)
 	}
 }
+
+// Rows an UPDATE returned in a run that rolled it back (ROLLBACK, ROLLBACK
+// TO SAVEPOINT) show values that never existed: their keys can name other
+// rows. Here pos 1 is shown as Blog, but after the rollback it's Home.
+func TestWrongRowRolledBackReturning(t *testing.T) {
+	s := editFixture(t,
+		`CREATE TABLE `+testSchema+`.menu (pos int PRIMARY KEY, name text, visible bool)`,
+		`INSERT INTO `+testSchema+`.menu VALUES (1, 'Home', true), (2, 'Blog', true)`)
+	m := testSchema + ".menu"
+	swap := `UPDATE ` + m + ` SET pos = -1 WHERE pos = 1; UPDATE ` + m + ` SET pos = 1 WHERE pos = 2; UPDATE ` + m + ` SET pos = 2 WHERE pos = -1;`
+	for _, sql := range []string{
+		`BEGIN; ` + swap + ` ROLLBACK`,
+		`BEGIN; SAVEPOINT s; ` + swap + ` ROLLBACK TO s; COMMIT`,
+		`BEGIN; ` + swap + ` ABORT`,
+	} {
+		result, err := s.RunQuery(t.Context(), "tab", sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, r := range result.Results {
+			if r.Target != nil {
+				t.Errorf("%s: result %d (%s) is editable after a rollback", sql, i+1, r.Command)
+			}
+		}
+	}
+	// Committed in the same run: still editable.
+	result, err := s.RunQuery(t.Context(), "tab", `BEGIN; UPDATE `+m+` SET visible = false WHERE pos = 2; COMMIT`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editable(t, result.Results[1], "pk", "pos")
+}

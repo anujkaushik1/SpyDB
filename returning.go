@@ -25,6 +25,8 @@ const (
 	// save runs on another connection, which can't see uncommitted rows and
 	// would wait on the UPDATE's row locks.
 	returningUncommitted = "your transaction isn't committed yet"
+	// Rolled back, the rows never existed as shown: their keys can name others.
+	returningRolledBack = "rolled back"
 )
 
 // returnable is an UPDATE in a run that could get RETURNING *.

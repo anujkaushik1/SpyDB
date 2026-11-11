@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,9 +139,14 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		return QueryResult{}, qe
 	}
 	durationMs := int(time.Since(started).Milliseconds())
-	// Rows an UPDATE returned are editable only if nothing is left
-	// uncommitted (see returningUncommitted).
-	committed := conn.PgConn().TxStatus() == 'I'
+	// Rows an UPDATE returned are editable only once committed: nothing is
+	// left open, and nothing in the run rolled back (ROLLBACK, ABORT,
+	// ROLLBACK TO SAVEPOINT and a failed COMMIT all say ROLLBACK), or their
+	// keys can name other rows.
+	rolledBack := slices.ContainsFunc(statements, func(st statementData) bool {
+		return strings.HasPrefix(st.command, "ROLLBACK") || st.command == "PREPARE TRANSACTION"
+	})
+	committed := conn.PgConn().TxStatus() == 'I' && !rolledBack
 	// The session's role and formats, for saves (and exports that run again).
 	var session map[string]string
 	if plan.reason == "" && len(statements) > 0 && len(statements[len(statements)-1].columns) > 0 ||
@@ -172,6 +178,8 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 		}
 		if len(st.columns) > 0 {
 			switch {
+			case returned && rolledBack:
+				readOnly = returningRolledBack
 			case returned && !committed:
 				readOnly = returningUncommitted
 			case pool == nil:
