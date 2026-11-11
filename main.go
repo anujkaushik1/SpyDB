@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 
+	"github.com/anujkaushik1/SpyDB/postgres"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -22,7 +23,7 @@ func main() {
 		Name:        "SpyDB",
 		Description: "SpyDB",
 		Services: []application.Service{
-			application.NewService(&DBService{}),
+			application.NewService(&postgres.DBService{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

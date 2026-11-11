@@ -1,4 +1,4 @@
-package main
+package postgres
 
 // Adversarial integration tests for editing query results (editable.go,
 // edits.go, RunQuery/FetchRows, TableData, ExportResult). Every test works in

@@ -1,4 +1,4 @@
-package main
+package postgres
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anujkaushik1/SpyDB/appdata"
 )
 
 // SavedQuery is SQL the user saved by name from a query tab. Saved queries
@@ -29,7 +31,7 @@ type queriesDoc struct {
 
 // queriesFile is queries.json in SpyDB's settings folder, next to connections.json.
 func queriesFile() (string, error) {
-	return configPath("queries.json")
+	return appdata.Path("queries.json")
 }
 
 // SavedQueries returns every saved query, most recently saved first.
@@ -152,5 +154,5 @@ func writeQueries(queries []SavedQuery) error {
 		return err
 	}
 	sort.SliceStable(queries, func(a, b int) bool { return queries[a].UpdatedAt > queries[b].UpdatedAt })
-	return writePrivateJSON(path, queriesDoc{Queries: queries})
+	return appdata.WritePrivateJSON(path, queriesDoc{Queries: queries})
 }

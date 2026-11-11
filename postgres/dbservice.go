@@ -1,4 +1,7 @@
-package main
+// Package postgres is SpyDB's Postgres side: connecting, running SQL,
+// table pages, saving edits, import and export. The app's screens call it
+// through DBService.
+package postgres
 
 import (
 	"context"

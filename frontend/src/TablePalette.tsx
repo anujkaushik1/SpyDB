@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { SearchIcon, XIcon } from './icons'
 import { compactCount, Highlight, KindIcon, kindClass } from './tableMeta'
 

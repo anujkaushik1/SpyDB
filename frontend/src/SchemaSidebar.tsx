@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'

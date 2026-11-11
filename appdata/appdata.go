@@ -1,4 +1,6 @@
-package main
+// Package appdata finds and writes SpyDB's files in its settings folder,
+// for every database SpyDB supports.
+package appdata
 
 import (
 	"encoding/json"
@@ -6,9 +8,9 @@ import (
 	"path/filepath"
 )
 
-// configPath is a file in SpyDB's settings folder: ~/Library/Application
+// Path is a file in SpyDB's settings folder: ~/Library/Application
 // Support/SpyDB on macOS, ~/.config/SpyDB on Linux.
-func configPath(name string) (string, error) {
+func Path(name string) (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -16,10 +18,10 @@ func configPath(name string) (string, error) {
 	return filepath.Join(dir, "SpyDB", name), nil
 }
 
-// writePrivateJSON replaces path with v as indented JSON in one step (write a
+// WritePrivateJSON replaces path with v as indented JSON in one step (write a
 // temporary file, then rename), so a crash mid-write can't leave it half
 // written. The folder and file are readable only by the current user.
-func writePrivateJSON(path string, v any) error {
+func WritePrivateJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

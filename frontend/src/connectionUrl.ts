@@ -1,4 +1,4 @@
-import type { DBConfig } from '../bindings/github.com/anujkaushik1/SpyDB'
+import type { DBConfig } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 
 // Query parameters that set connection fields (libpq allows these in the URL).
 const FIELD_PARAMS: Record<string, keyof DBConfig> = {
