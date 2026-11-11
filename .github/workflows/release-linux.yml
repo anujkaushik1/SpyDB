@@ -1,0 +1,59 @@
+# Builds SpyDB for Ubuntu as a .deb, on GitHub's own Ubuntu computer.
+#   - Push a tag like v0.1.0: builds it and puts it on the Releases page.
+#   - Actions tab → "Ubuntu app" → Run workflow: builds it only, as a test
+#     (download it from that run's page, under Artifacts).
+name: Ubuntu app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release
+
+jobs:
+  deb:
+    # The oldest Ubuntu SpyDB supports: built here, it runs on 22.04 and newer.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install Ubuntu's window libraries (to build against)
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build the screens
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build the program
+        run: go build -tags production,gtk3 -trimpath -buildvcs=false -ldflags="-w -s" -o bin/spydb .
+
+      - name: Pack the .deb
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="0.0.0~test"; fi
+          export VERSION GOARCH=amd64
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          wails3 tool package -name spydb -format deb -config build/linux/nfpm/nfpm.yaml -out bin
+          mv bin/spydb.deb "bin/spydb_${VERSION}_amd64.deb"
+
+      - name: Keep it on this run's page (test runs)
+        uses: actions/upload-artifact@v7
+        with:
+          name: spydb-deb
+          path: bin/*.deb
+
+      - name: Put it on the Releases page (tags only)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" bin/*.deb --title "SpyDB $GITHUB_REF_NAME" --notes "For Ubuntu 22.04 and newer: download the .deb below, double-click it and click Install (or run: sudo apt install ./spydb_*.deb). Then open SpyDB from your apps."
