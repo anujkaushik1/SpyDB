@@ -330,9 +330,8 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 }
 /* Tables sit under their schema, past the chevron. */
 .tree-item { padding-left: 28px; }
-/* DynamoDB tables: one flat list (no schemas), not clickable yet. */
-.dynamo-sidebar .tree-item { padding-left: 8px; cursor: default; }
-.dynamo-sidebar .tree-item:hover { background: transparent; color: var(--text-muted); }
+/* DynamoDB tables: one flat list, no schemas to indent under. */
+.dynamo-sidebar .tree-item { padding-left: 8px; }
 .tree-empty {
     margin: 0 0 4px;
     padding: 4px 8px 4px 28px;
@@ -1084,7 +1083,8 @@ kbd {
 
 /* ----- Table tab: filter bar, grid, status bar ----------------------------- */
 .tab-panel-table,
-.tab-panel-query {
+.tab-panel-query,
+.tab-panel-dynamo-table {
     display: flex;
     flex-direction: column;
 }
@@ -2381,3 +2381,27 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
     border-top: 1px solid var(--border);
 }
 .import-footer .import-muted { flex: 1; }
+
+/* ----- DynamoDB table tab ---------------------------------------------------- */
+/* The key and size along the top, where Postgres tables have their filters. */
+.dynamo-table-bar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    padding: 10px 16px;
+    font-size: 12.5px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+.dynamo-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+.dynamo-key svg { width: 13px; height: 13px; color: var(--focus); } /* as .grid-key */
+.dynamo-key-role { font-weight: 400; color: var(--text-subtle); }
+.dynamo-table-size { color: var(--text-subtle); }
+.dynamo-table-error { color: var(--error); }

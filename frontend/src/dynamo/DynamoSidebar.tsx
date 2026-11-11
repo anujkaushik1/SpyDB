@@ -1,42 +1,33 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Service as Dynamo, type AWSIdentity, type Connection } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
-import { errorMessage } from '../Banner'
+import { useState } from 'react'
+import type { AWSIdentity, Connection } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { PowerIcon, RefreshIcon, SearchIcon, Spinner, TableIcon } from '../icons'
+import { isMac } from '../platform'
 import { SidebarResizer, useSidebarWidth } from '../resize'
 import { Highlight } from '../tableMeta'
 
 type Props = {
   connection: Connection
   identity: AWSIdentity // who signed in, for the footer
+  tables: string[] | null // null until the first load
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+  activeTable: string | null // the table in the active tab
+  onOpenTable: (table: string) => void
+  onOpenPalette: () => void // Ctrl+P / ⌘P: go to a table
   onDisconnect: () => void
   disconnecting: boolean
 }
 
-// DynamoDB's sidebar once signed in: the region's tables (dynamo.Service.ListTables),
-// a filter, and the profile, region and account at the bottom. Same look as
-// the Postgres sidebar, but one flat list: DynamoDB has no schemas.
-export default function DynamoSidebar({ connection, identity, onDisconnect, disconnecting }: Props) {
-  const [tables, setTables] = useState<string[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+// DynamoDB's sidebar once signed in: the region's tables (loaded by App, which
+// shares them with the Ctrl+P switcher), a filter, and the profile, region
+// and account at the bottom. Same look as the Postgres sidebar, but one flat
+// list: DynamoDB has no schemas. Clicking a table opens it; Enter in the
+// filter opens the first match.
+export default function DynamoSidebar(props: Props) {
+  const { connection, identity, tables, loading, error, onRefresh, activeTable, onOpenTable, onDisconnect, disconnecting } = props
   const [filter, setFilter] = useState('')
   const [width, setWidth] = useSidebarWidth()
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setTables((await Dynamo.ListTables()) ?? [])
-      setError(null)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    load()
-  }, [load])
 
   const query = filter.trim().toLowerCase()
   const shown = (tables ?? []).filter((name) => !query || name.toLowerCase().includes(query))
@@ -50,7 +41,7 @@ export default function DynamoSidebar({ connection, identity, onDisconnect, disc
           Tables
           {tables && <span className="sidebar-count">{tables.length}</span>}
         </span>
-        <button type="button" className="sidebar-icon-btn" onClick={load} disabled={loading}
+        <button type="button" className="sidebar-icon-btn" onClick={onRefresh} disabled={loading}
                 aria-label="Refresh tables" title="Refresh">
           {loading ? <Spinner /> : <RefreshIcon />}
         </button>
@@ -62,7 +53,10 @@ export default function DynamoSidebar({ connection, identity, onDisconnect, disc
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setFilter('') }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setFilter('')
+            if (e.key === 'Enter' && query && shown.length > 0) onOpenTable(shown[0])
+          }}
           placeholder="Filter tables"
           aria-label="Filter tables"
           spellCheck={false}
@@ -70,12 +64,15 @@ export default function DynamoSidebar({ connection, identity, onDisconnect, disc
           autoCorrect="off"
           autoComplete="off"
         />
+        <button type="button" className="kbd-hint" onClick={props.onOpenPalette} title={isMac ? 'Go to table (Ctrl+P or ⌘P)' : 'Go to table (Ctrl+P)'}>
+          <kbd>Ctrl P</kbd>
+        </button>
       </div>
 
       <div className="tree">
         {error && (
           <p className="tree-message tree-error">
-            {error} <button type="button" className="link-btn" onClick={load}>Retry</button>
+            {error} <button type="button" className="link-btn" onClick={onRefresh}>Retry</button>
           </p>
         )}
         {!error && !tables && <p className="tree-message">Loading…</p>}
@@ -85,9 +82,12 @@ export default function DynamoSidebar({ connection, identity, onDisconnect, disc
         {!error && shown.length > 0 && (
           <ul className="tree-items">
             {shown.map((name) => (
-              <li key={name} className="tree-item" title={name}>
-                <span className="tree-icon kind-table"><TableIcon /></span>
-                <span className="tree-label"><Highlight text={name} query={query} /></span>
+              <li key={name}>
+                <button type="button" className={name === activeTable ? 'tree-item active' : 'tree-item'}
+                        onClick={() => onOpenTable(name)} title={name}>
+                  <span className="tree-icon kind-table"><TableIcon /></span>
+                  <span className="tree-label"><Highlight text={name} query={query} /></span>
+                </button>
               </li>
             ))}
           </ul>

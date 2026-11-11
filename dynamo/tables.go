@@ -67,11 +67,9 @@ func (s *Service) Disconnect() {
 // (alphabetical) order. AWS gives up to 100 names per call; this asks
 // until it has them all.
 func (s *Service) ListTables(ctx context.Context) ([]string, error) {
-	s.mu.Lock()
-	client := s.client
-	s.mu.Unlock()
-	if client == nil {
-		return nil, errors.New("Not connected to DynamoDB: sign in first.")
+	client, err := s.dynamoClient()
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

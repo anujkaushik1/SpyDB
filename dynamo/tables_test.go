@@ -13,11 +13,11 @@ import (
 	"testing"
 )
 
-// fakeDynamo is a DynamoDB holding tables (sorted), answering ListTables
-// pageSize names at a time as AWS does, or refusing every call with
-// refuse (an AWS error type) if set. It records each call's Authorization
-// header: which key signed it, for which region.
-func fakeDynamo(t *testing.T, tables []string, pageSize int, refuse string) (url string, calls func() []string) {
+// fakeDynamoAPI is a pretend DynamoDB on this machine: handle answers each call
+// (by its operation, e.g. "ListTables", and its JSON body) with a status and
+// a reply to send as JSON. It records each call's Authorization header:
+// which key signed it, for which region.
+func fakeDynamoAPI(t *testing.T, handle func(op string, body map[string]any) (int, any)) (url string, calls func() []string) {
 	t.Helper()
 	var mu sync.Mutex
 	var auth []string
@@ -25,36 +25,17 @@ func fakeDynamo(t *testing.T, tables []string, pageSize int, refuse string) (url
 		mu.Lock()
 		auth = append(auth, r.Header.Get("Authorization"))
 		mu.Unlock()
-		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-		reply := func(status int, body string) {
-			// Real DynamoDB sends its body's CRC32; the library checks it.
-			w.Header().Set("X-Amz-Crc32", fmt.Sprint(crc32.ChecksumIEEE([]byte(body))))
-			w.WriteHeader(status)
-			fmt.Fprint(w, body)
-		}
-		if target := r.Header.Get("X-Amz-Target"); target != "DynamoDB_20120810.ListTables" {
-			reply(400, fmt.Sprintf(`{"__type":"UnknownOperationException","message":"not faked: %s"}`, target))
-			return
-		}
-		if refuse != "" {
-			reply(400, fmt.Sprintf(`{"__type":"com.amazonaws.dynamodb.v20120810#%s","message":"User: arn:aws:iam::111122223333:user/you is not authorized to perform: dynamodb:ListTables"}`, refuse))
-			return
-		}
-		var in struct{ ExclusiveStartTableName string }
+		var in map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			t.Errorf("ListTables body: %v", err)
+			t.Errorf("request body: %v", err)
 		}
-		start := 0
-		if in.ExclusiveStartTableName != "" {
-			start = slices.Index(tables, in.ExclusiveStartTableName) + 1
-		}
-		end := min(start+pageSize, len(tables))
-		out := map[string]any{"TableNames": tables[start:end]}
-		if end < len(tables) {
-			out["LastEvaluatedTableName"] = tables[end-1]
-		}
+		status, out := handle(strings.TrimPrefix(r.Header.Get("X-Amz-Target"), "DynamoDB_20120810."), in)
 		body, _ := json.Marshal(out)
-		reply(200, string(body))
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		// Real DynamoDB sends its body's CRC32; the library checks it.
+		w.Header().Set("X-Amz-Crc32", fmt.Sprint(crc32.ChecksumIEEE(body)))
+		w.WriteHeader(status)
+		w.Write(body)
 	}))
 	t.Cleanup(server.Close)
 	return server.URL, func() []string {
@@ -62,6 +43,38 @@ func fakeDynamo(t *testing.T, tables []string, pageSize int, refuse string) (url
 		defer mu.Unlock()
 		return slices.Clone(auth)
 	}
+}
+
+// awsRefusal is the reply AWS gives when it refuses a call.
+func awsRefusal(errorType, op string) (int, any) {
+	return 400, map[string]string{
+		"__type":  "com.amazonaws.dynamodb.v20120810#" + errorType,
+		"message": "User: arn:aws:iam::111122223333:user/you is not authorized to perform: dynamodb:" + op,
+	}
+}
+
+// fakeDynamo is a DynamoDB holding tables (sorted), answering ListTables
+// pageSize names at a time as AWS does, or refusing every call with
+// refuse (an AWS error type) if set.
+func fakeDynamo(t *testing.T, tables []string, pageSize int, refuse string) (url string, calls func() []string) {
+	return fakeDynamoAPI(t, func(op string, in map[string]any) (int, any) {
+		if op != "ListTables" {
+			return 400, map[string]string{"__type": "UnknownOperationException", "message": "not faked: " + op}
+		}
+		if refuse != "" {
+			return awsRefusal(refuse, op)
+		}
+		start := 0
+		if after, ok := in["ExclusiveStartTableName"].(string); ok {
+			start = slices.Index(tables, after) + 1
+		}
+		end := min(start+pageSize, len(tables))
+		out := map[string]any{"TableNames": tables[start:end]}
+		if end < len(tables) {
+			out["LastEvaluatedTableName"] = tables[end-1]
+		}
+		return 200, out
+	})
 }
 
 const tablesConfig = `[profile orders]

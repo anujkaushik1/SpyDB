@@ -5,6 +5,7 @@ import { errorMessage } from './Banner'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
 import DynamoSidebar from './dynamo/DynamoSidebar'
+import DynamoTableTab from './dynamo/DynamoTableTab'
 import DynamoSignIn from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
 import ImportDialog from './ImportDialog'
@@ -42,6 +43,10 @@ function App() {
   // Signed in to AWS and showing its DynamoDB tables, or null. Either this or
   // connection is open, never both: each replaces the connect screen.
   const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
+  // Its tables, shared by its sidebar and the Ctrl+P / ⌘P switcher.
+  const [dynamoTables, setDynamoTables] = useState<string[] | null>(null)
+  const [dynamoTablesLoading, setDynamoTablesLoading] = useState(false)
+  const [dynamoTablesError, setDynamoTablesError] = useState<string | null>(null)
   // The Import a file as a new table dialog.
   const [importOpen, setImportOpen] = useState(false)
   // Tabs with unsaved cell edits.
@@ -110,25 +115,44 @@ function App() {
     if (connection) loadSchemas()
   }, [connection, loadSchemas])
 
-  // While connected: ⌘P / Ctrl+P opens the table switcher, ⌘T / Ctrl+T a new query tab.
+  const loadDynamoTables = useCallback(async () => {
+    setDynamoTablesLoading(true)
+    try {
+      setDynamoTables((await Dynamo.ListTables()) ?? [])
+      setDynamoTablesError(null)
+    } catch (err) {
+      setDynamoTablesError(errorMessage(err))
+    } finally {
+      setDynamoTablesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (!connection) return
+    setDynamoTables(null)
+    if (dynamo) loadDynamoTables()
+  }, [dynamo, loadDynamoTables])
+
+  // While connected: ⌘P / Ctrl+P opens the table switcher (Postgres or
+  // DynamoDB), ⌘T / Ctrl+T a new query tab (Postgres only, for now).
+  useEffect(() => {
+    if (!connection && !dynamo) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
       if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
-      } else if (key === 't') {
+      } else if (key === 't' && connection) {
         e.preventDefault()
         newQueryTab()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [connection])
+  }, [connection, dynamo])
 
-  const workspace = connection ? targetKey(connection) : null
+  // DynamoDB's tabs belong to the profile and region they were opened in.
+  const workspace = connection ? targetKey(connection) : dynamo ? `dynamo|${dynamo.connection.profile}|${dynamo.connection.region}` : null
   const workspaceTabs = tabs.filter((t) => t.workspace === workspace)
   const activeTab = (workspace && activeTabs[workspace]) || ''
   const setActiveTab = (id: string) => {
@@ -217,6 +241,7 @@ function App() {
     try {
       await Dynamo.Disconnect()
       setDynamo(null)
+      setPaletteOpen(false)
     } finally {
       setDisconnecting(false)
     }
@@ -246,6 +271,9 @@ function App() {
       ? current.map((t) => (t.id === id && t.kind === 'table' ? { ...t, preset } : t))
       : [...current, { id, workspace, kind: 'table', title: table.name, table, preset }])
     setActiveTab(id)
+  }
+  const openDynamoTable = (table: string) => {
+    if (workspace) openTab({ id: `${workspace}|dynamo:${table}`, workspace, kind: 'dynamo-table', title: table, table })
   }
   const openConnections = () => {
     if (!connection || !workspace) return
@@ -318,6 +346,7 @@ function App() {
 
   const active = workspaceTabs.find((t) => t.id === activeTab)
   const activeTable = active?.kind === 'table' ? active.table.qualifiedName : null
+  const activeDynamoTable = active?.kind === 'dynamo-table' ? active.table : null
 
   return (
     <div className="app">
@@ -394,6 +423,9 @@ function App() {
         )}
         {dynamo && (
           <DynamoSidebar connection={dynamo.connection} identity={dynamo.identity}
+                         tables={dynamoTables} loading={dynamoTablesLoading} error={dynamoTablesError}
+                         onRefresh={loadDynamoTables} onOpenPalette={() => setPaletteOpen(true)}
+                         activeTable={activeDynamoTable} onOpenTable={openDynamoTable}
                          onDisconnect={disconnectDynamo} disconnecting={disconnecting} />
         )}
         <SqlSchemaContext.Provider value={completion}>
@@ -419,13 +451,13 @@ function App() {
           {!connection && !dynamo && engine === 'dynamo' && (
             <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} />
           )}
-          {dynamo && (
+          {dynamo && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>
               <p className="workspace-empty-title">DynamoDB · {dynamo.connection.region}</p>
               <p className="workspace-empty-text">
                 Signed in as {dynamo.identity.arn.split('/').pop()} (account {dynamo.identity.account}) with the profile “{dynamo.connection.profile}”.
-                Your tables are on the left.
+                Pick a table on the left to see its items, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
               </p>
             </div>
           )}
@@ -439,7 +471,7 @@ function App() {
               </p>
             </div>
           )}
-          {connection && workspaceTabs.length > 0 && (
+          {workspace && workspaceTabs.length > 0 && (
             <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} dirtyIds={dirtyTabs} />
           )}
           {/* Every open tab stays mounted, other connections' and while disconnected too (hidden),
@@ -461,6 +493,7 @@ function App() {
                 {tab.kind === 'connections' && (
                   <ServerConnectionsPanel config={tab.config} temporary={false} />
                 )}
+                {tab.kind === 'dynamo-table' && <DynamoTableTab table={tab.table} />}
               </div>
             )
           })}
@@ -485,6 +518,14 @@ function App() {
         <TablePalette
           schemas={schemas ?? []}
           onOpen={(table) => { openTable(table); setPaletteOpen(false) }}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {dynamo && paletteOpen && (
+        <TablePalette
+          // DynamoDB has no schemas: one nameless group, shown without a "schema." prefix.
+          schemas={[{ name: '', tables: (dynamoTables ?? []).map((name) => ({ schema: '', name, kind: 'table', qualifiedName: name, estimatedRows: null })) }]}
+          onOpen={(table) => { openDynamoTable(table.name); setPaletteOpen(false) }}
           onClose={() => setPaletteOpen(false)}
         />
       )}

@@ -97,7 +97,7 @@ export default function TablePalette({ schemas, onOpen, onClose }: Props) {
             >
               <span className={`tree-icon ${kindClass(t.kind)}`}><KindIcon kind={t.kind} /></span>
               <span className="palette-name">
-                <span className="palette-schema">{t.schema}.</span>
+                {t.schema && <span className="palette-schema">{t.schema}.</span>}
                 <Highlight text={t.name} query={q} />
               </span>
               {t.kind !== 'table' && <span className="palette-kind">{t.kind}</span>}

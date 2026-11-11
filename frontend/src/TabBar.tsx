@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
-import { ActivityIcon, CodeIcon, XIcon } from './icons'
+import { ActivityIcon, CodeIcon, TableIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 import type { FilterPreset } from './TableTab'
 
@@ -10,6 +10,7 @@ export type Tab =
   | { id: string; workspace: string; kind: 'query'; title: string; savedQueryId?: string; initialSql?: string }
   | { id: string; workspace: string; kind: 'connections'; title: string; config: DBConfig }
   | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo; preset?: FilterPreset }
+  | { id: string; workspace: string; kind: 'dynamo-table'; title: string; table: string } // table: its name
 
 type Props = {
   tabs: Tab[]
@@ -25,7 +26,7 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, dirtyIds }: 
     <div className="tabbar" role="tablist" aria-label="Open tabs">
       {tabs.map((tab) => {
         const active = tab.id === activeId
-        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : `kind-${tab.kind}`
+        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' ? 'kind-table' : `kind-${tab.kind}`
 
         const onKeyDown = (e: KeyboardEvent) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -54,6 +55,7 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, dirtyIds }: 
               {tab.kind === 'query' && <CodeIcon />}
               {tab.kind === 'connections' && <ActivityIcon />}
               {tab.kind === 'table' && <KindIcon kind={tab.table.kind} />}
+              {tab.kind === 'dynamo-table' && <TableIcon />}
             </span>
             <span className="tab-title">{tab.title}</span>
             {dirtyIds.has(tab.id) && <span className="tab-dirty" title="Unsaved changes" aria-label="Unsaved changes" />}

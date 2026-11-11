@@ -10,5 +10,8 @@ export type {
     AWSCLISetup,
     AWSIdentity,
     AWSProfile,
-    Connection
+    Connection,
+    ItemsPage,
+    TableDetails,
+    Value
 } from "./models.js";

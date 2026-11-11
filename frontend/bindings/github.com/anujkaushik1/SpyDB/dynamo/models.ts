@@ -52,7 +52,7 @@ export interface AWSProfile {
     "name": string;
 
     /**
-     * "keys": access keys in a file; "sso": your company's AWS sign-in; "login": your AWS console sign-in (aws login); "role": assumes a role; "other"
+     * "keys": access keys in a file; "sso": your company's AWS sign-in; "login": your AWS console sign-in (aws login); "role": assumes a role; "process": a program hands out keys (credential_process); "other": nothing to sign in with
      */
     "kind": string;
 
@@ -72,4 +72,66 @@ export interface Connection {
      * e.g. "ap-south-1": every DynamoDB table lives in one region
      */
     "region": string;
+}
+
+/**
+ * ItemsPage is one page of a table's items, in the order DynamoDB keeps them.
+ */
+export interface ItemsPage {
+    /**
+     * field name → value; items needn't have the same fields
+     */
+    "items": ({ [_ in string]?: Value } | null)[] | null;
+
+    /**
+     * where the next page starts (pass it to ScanItems); "" after the last
+     */
+    "next": string;
+
+    /**
+     * how long AWS took
+     */
+    "durationMs": number;
+}
+
+/**
+ * TableDetails is what AWS says about a table: its key and roughly its size.
+ */
+export interface TableDetails {
+    "name": string;
+
+    /**
+     * the field every item is found by, e.g. "userId"
+     */
+    "partitionKey": string;
+
+    /**
+     * the key's second part, e.g. "createdAt"; "" if the table has none
+     */
+    "sortKey": string;
+
+    /**
+     * AWS's count, updated about every 6 hours
+     */
+    "itemCount": number;
+
+    /**
+     * likewise
+     */
+    "sizeBytes": number;
+}
+
+/**
+ * Value is one field of an item: its DynamoDB type and the value as text.
+ */
+export interface Value {
+    /**
+     * S text, N number, B binary, BOOL, NULL, M map, L list, SS / NS / BS sets
+     */
+    "type": string;
+
+    /**
+     * "Delhi", "1500", "true", "" for NULL; base64 for binary; JSON for M, L and sets
+     */
+    "text": string;
 }

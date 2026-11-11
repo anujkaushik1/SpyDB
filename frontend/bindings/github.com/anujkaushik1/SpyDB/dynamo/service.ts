@@ -27,7 +27,9 @@ export function AWSBrowserSignIn(profile: string, region: string): $CancellableP
 }
 
 /**
- * AWSProfiles lists your AWS profiles, sorted by name.
+ * AWSProfiles lists the AWS profiles you can sign in with, sorted by name.
+ * Ones with nothing to sign in with (kind "other", like a [default] that only
+ * sets a region) are left out: signing in with them could only fail.
  */
 export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[] | null> {
     return $Call.ByID(1498687985);
@@ -69,6 +71,13 @@ export function Connect(profile: string): $CancellablePromise<$models.Connection
 }
 
 /**
+ * DescribeTable says what a table's key is and about how many items it has.
+ */
+export function DescribeTable(table: string): $CancellablePromise<$models.TableDetails> {
+    return $Call.ByID(3208458281, table);
+}
+
+/**
  * Disconnect stops showing DynamoDB; you're back on the sign-in screen.
  */
 export function Disconnect(): $CancellablePromise<void> {
@@ -82,4 +91,12 @@ export function Disconnect(): $CancellablePromise<void> {
  */
 export function ListTables(): $CancellablePromise<string[] | null> {
     return $Call.ByID(53529079);
+}
+
+/**
+ * ScanItems reads one page of a table's items: the first page when next is
+ * "", else the page after the one that gave next. It only reads.
+ */
+export function ScanItems(table: string, next: string): $CancellablePromise<$models.ItemsPage> {
+    return $Call.ByID(729980269, table, next);
 }
