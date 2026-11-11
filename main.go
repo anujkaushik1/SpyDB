@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 
+	"github.com/anujkaushik1/SpyDB/dynamo"
 	"github.com/anujkaushik1/SpyDB/postgres"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -24,6 +25,7 @@ func main() {
 		Description: "SpyDB",
 		Services: []application.Service{
 			application.NewService(&postgres.DBService{}),
+			application.NewService(&dynamo.Service{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
