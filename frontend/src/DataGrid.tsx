@@ -29,7 +29,7 @@ export type Sort = { column: string; desc: boolean } | null
 type Cell = { row: number; col: number }
 
 const MIN_COLUMN = 56 // px
-const MAX_FIT = 2400 // double-click fits a column to its values, up to this (the cell limit in style.css)
+const MAX_FIT = 2400 // double-click fits a column to its values, up to this (wider than the 400px cells start at in style.css)
 
 type Values = Record<string, string | null> // column (or key name) → value; null is NULL
 

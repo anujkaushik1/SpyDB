@@ -1195,7 +1195,7 @@ kbd {
 /* Solid row colours, so the sticky row-number column hides what scrolls under it. */
 .grid td {
     height: 34px;
-    max-width: 2400px; /* long values (JSON, addresses) show in full; scroll sideways to read */
+    max-width: 400px; /* long values (JSON, addresses) end in …: hover, double-click (JSON), or widen the column to read them */
     padding: 0 14px;
     overflow: hidden;
     white-space: nowrap;
