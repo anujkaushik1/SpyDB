@@ -568,6 +568,60 @@ func sourceColumns(ctx context.Context, q querier, oid uint32) (map[int16]string
 // the SQL editor's connection, so an open transaction in the editor doesn't
 // swallow or delay the save. It returns each row as saved.
 func (s *DBService) SaveRows(ctx context.Context, target EditTarget, edits []RowEdit) ([]SavedRow, error) {
+	if len(edits) == 0 {
+		return []SavedRow{}, nil
+	}
+	w, err := s.beginRowWrite(ctx, target, nothingSaved)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback(ctx) // no-op after Commit
+	tx, rel, byName, table := w.tx, w.rel, w.byName, w.table
+
+	saved := make([]SavedRow, 0, len(edits))
+	for _, edit := range edits {
+		u, err := buildUpdate(table, rel, edit, byName)
+		if err != nil {
+			return nil, err
+		}
+		row, found, err := runUpdate(ctx, tx, u)
+		if err != nil {
+			return nil, rowError(rel, edit.Key, err, nothingSaved)
+		}
+		if !found {
+			return nil, &QueryError{Message: missingRowMessage(ctx, tx, table, rel, edit, byName, nothingSaved)}
+		}
+		saved = append(saved, row)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, toQueryError(err)
+	}
+	return saved, nil
+}
+
+// What a refused save or delete tells: none of the rows was written.
+const (
+	nothingSaved   = "Nothing was saved."
+	nothingDeleted = "Nothing was deleted."
+)
+
+// rowWrite is an open transaction for writing rows of one table (SaveRows,
+// DeleteRows), checked to be the table the rows were read from.
+type rowWrite struct {
+	tx     pgx.Tx
+	rel    *relation
+	byName map[string]column // the table's columns
+	table  string            // the table in SQL: ONLY "schema"."table" for a plain table
+}
+
+// beginRowWrite opens the transaction that writes rows of target, on the
+// pool, not the SQL editor's connection, so an open transaction in the
+// editor doesn't swallow or delay it. It checks the rows were read over this
+// connection, from this very table (not one dropped and re-created since),
+// with the key they were read by; then runs as the editor's role, with its
+// search_path and formats. nothing ends each refusal. The caller rolls back.
+func (s *DBService) beginRowWrite(ctx context.Context, target EditTarget, nothing string) (w *rowWrite, err error) {
 	s.mu.Lock()
 	pool, generation := s.pool, s.generation
 	s.mu.Unlock()
@@ -575,17 +629,18 @@ func (s *DBService) SaveRows(ctx context.Context, target EditTarget, edits []Row
 		return nil, errors.New("Not connected.")
 	}
 	if target.Conn != generation {
-		return nil, errors.New("These rows were loaded over an earlier connection (you've reconnected since). Nothing was saved. Reload and edit them again.")
-	}
-	if len(edits) == 0 {
-		return []SavedRow{}, nil
+		return nil, fmt.Errorf("These rows were loaded over an earlier connection (you've reconnected since). %s Reload and try again.", nothing)
 	}
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, toQueryError(err)
 	}
-	defer tx.Rollback(ctx) // no-op after Commit
+	defer func() {
+		if err != nil {
+			tx.Rollback(ctx)
+		}
+	}()
 
 	// Fail fast, rather than wait, if another session holds a lock on a row
 	// (e.g. an uncommitted UPDATE in the SQL editor).
@@ -601,22 +656,25 @@ func (s *DBService) SaveRows(ctx context.Context, target EditTarget, edits []Row
 		return nil, fmt.Errorf("Table %s was not found. Refresh the sidebar.", where)
 	}
 	if target.OID != 0 && rel.oid != target.OID {
-		return nil, fmt.Errorf("%s was dropped and created again since these rows were loaded. Nothing was saved. Reload and try again.", where)
+		return nil, fmt.Errorf("%s was dropped and created again since these rows were loaded. %s Reload and try again.", where, nothing)
 	}
 	if reason := rel.readOnly(); reason != "" {
-		return nil, fmt.Errorf("%s is %s, so its rows can't be edited.", where, reason)
+		return nil, fmt.Errorf("%s is %s, so SpyDB can't change its rows. %s", where, reason, nothing)
 	}
 	switch target.Kind {
 	case "pk":
 		if !sameSet(target.Key, rel.primaryKey) {
-			return nil, fmt.Errorf("%s's primary key changed since these rows were loaded. Nothing was saved. Reload and try again.", where)
+			return nil, fmt.Errorf("%s's primary key changed since these rows were loaded. %s Reload and try again.", where, nothing)
 		}
 	case "ctid":
+		if len(rel.primaryKey) > 0 {
+			return nil, fmt.Errorf("%s has a primary key now, which it didn't when these rows were loaded. %s Reload and try again.", where, nothing)
+		}
 		if rel.kind != "r" || !slices.Equal(target.Key, []string{ctidKey, md5Key}) {
-			return nil, fmt.Errorf("%s's rows can't be found by address. Nothing was saved. Reload and try again.", where)
+			return nil, fmt.Errorf("%s's rows can't be found by address. %s Reload and try again.", where, nothing)
 		}
 	default:
-		return nil, errors.New("SpyDB doesn't know how to find these rows. Nothing was saved. Reload and try again.")
+		return nil, fmt.Errorf("SpyDB doesn't know how to find these rows. %s Reload and try again.", nothing)
 	}
 
 	columns, err := tableColumns(ctx, tx, target.Schema, target.Table)
@@ -639,29 +697,24 @@ func (s *DBService) SaveRows(ctx context.Context, target EditTarget, edits []Row
 	if rel.kind == "r" {
 		table = "ONLY " + table // never a row of a table created to inherit from it since
 	}
-	saved := make([]SavedRow, 0, len(edits))
-	for _, edit := range edits {
-		u, err := buildUpdate(table, rel, edit, byName)
-		if err != nil {
-			return nil, err
-		}
-		row, found, err := runUpdate(ctx, tx, u)
-		if err != nil {
-			qe := toQueryError(err)
-			qe.Message = fmt.Sprintf("%s: %s Nothing was saved.", describeRow(rel, edit.Key), qe.Message)
-			qe.Position = 0
-			return nil, qe
-		}
-		if !found {
-			return nil, &QueryError{Message: missingRowMessage(ctx, tx, table, rel, edit, byName)}
-		}
-		saved = append(saved, row)
-	}
+	return &rowWrite{tx: tx, rel: rel, byName: byName, table: table}, nil
+}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, toQueryError(err)
+// rowError is a save's or delete's error on one row: which row, and that
+// nothing was written. A row another session holds gets a hint.
+func rowError(rel *relation, key map[string]*string, err error, nothing string) *QueryError {
+	qe := toQueryError(err)
+	row := describeRow(rel, key)
+	switch qe.Code {
+	case "55P03": // lock_not_available: still locked after lock_timeout (beginRowWrite)
+		qe.Message = fmt.Sprintf("%s: Another session is using this row (an open transaction, maybe in the query editor), still after 5 seconds. %s Commit or roll back that transaction, then try again.", row, nothing)
+	case "40P01": // deadlock_detected
+		qe.Message = fmt.Sprintf("%s: Another session was changing the same rows at the same moment. %s Try again.", row, nothing)
+	default:
+		qe.Message = fmt.Sprintf("%s: %s %s", row, qe.Message, nothing)
 	}
-	return saved, nil
+	qe.Position = 0
+	return qe
 }
 
 // update is one row's UPDATE … RETURNING, and what its returned values are.
@@ -684,7 +737,9 @@ const updateAlias = "spydb_row"
 // read back as the same value (IST is Israel to Postgres, 04.03 is April
 // under German, MDY) then matches nothing instead of another row. Old values
 // compare as text in the column's own output format (what the grid showed),
-// which works for every type, even ones without = (json, point, xml). A row
+// which works for every type, even ones without = (json, point, xml). Text
+// compares byte for byte (COLLATE "C"): under a case-insensitive collation
+// 'abc' would equal 'ABC'. A row
 // this save already wrote (its xmin is this transaction) never matches again.
 func buildUpdate(table string, rel *relation, edit RowEdit, byName map[string]column) (update, error) {
 	if len(edit.Values) == 0 {
@@ -771,7 +826,7 @@ func matchRow(rel *relation, edit RowEdit, byName map[string]column, args []any)
 			}
 			p := param(v)
 			m.keyCast = append(m.keyCast, fmt.Sprintf("%s = CAST(%s::text AS %s)", col(name), p, byName[name].castType))
-			m.keyText = append(m.keyText, fmt.Sprintf("pg_catalog.format('%%s', %s) = %s::text", col(name), p))
+			m.keyText = append(m.keyText, fmt.Sprintf(`pg_catalog.format('%%s', %s) = %s::text COLLATE "C"`, col(name), p))
 		}
 	}
 	// num_nulls, not IS NULL: a composite value with NULL fields, (1,), is
@@ -787,7 +842,7 @@ func matchRow(rel *relation, edit RowEdit, byName map[string]column, args []any)
 			continue
 		}
 		p := param(*v)
-		m.oldText = append(m.oldText, fmt.Sprintf("pg_catalog.num_nulls(%s) = 0 AND pg_catalog.format('%%s', %s) = %s::text", col(name), col(name), p))
+		m.oldText = append(m.oldText, fmt.Sprintf(`pg_catalog.num_nulls(%s) = 0 AND pg_catalog.format('%%s', %s) = %s::text COLLATE "C"`, col(name), col(name), p))
 		// Dates and times may print in a form Postgres reads differently
 		// (IST is Israel time to it; under German, MDY 04.03 is April 3), so
 		// what's typed in the same form would be stored wrong.
@@ -836,12 +891,13 @@ func runUpdate(ctx context.Context, tx pgx.Tx, u update) (SavedRow, bool, error)
 	return saved, count == 1, nil
 }
 
-// missingRowMessage explains an UPDATE that matched no row: gone, changed
-// since it was loaded, or shown in a form Postgres reads back differently.
-func missingRowMessage(ctx context.Context, tx pgx.Tx, table string, rel *relation, edit RowEdit, byName map[string]column) string {
+// missingRowMessage explains an UPDATE or DELETE that matched no row: gone,
+// changed since it was loaded (naming the columns that changed), or shown in
+// a form Postgres reads back differently. nothing ends it.
+func missingRowMessage(ctx context.Context, tx pgx.Tx, table string, rel *relation, edit RowEdit, byName map[string]column, nothing string) string {
 	row := describeRow(rel, edit.Key)
-	const reload = "Nothing was saved. Reload and try again."
-	const isoHint = "Nothing was saved. Run SET DateStyle = ISO, then the query again."
+	reload := nothing + " Reload and try again."
+	isoHint := nothing + " Run SET DateStyle = ISO, then the query again."
 	m, err := matchRow(rel, edit, byName, nil)
 	if err != nil {
 		return fmt.Sprintf("%s was changed or deleted since it was loaded. %s", row, reload)
@@ -852,9 +908,22 @@ func missingRowMessage(ctx context.Context, tx pgx.Tx, table string, rel *relati
 		}
 		return strings.Join(conditions, " AND ")
 	}
-	var oldOK, readBackOK bool
-	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT %s, %s FROM %s AS %s WHERE %s",
-		all(m.oldText), all(m.readBack), table, updateAlias, all(slices.Concat(m.keyCast, m.keyText))), m.args...).Scan(&oldOK, &readBackOK)
+	// One answer per old value (m.oldText follows sortedKeys(edit.Old)),
+	// then whether the dates and times read back.
+	checks := append(slices.Clone(m.oldText), all(m.readBack))
+	same := make([]bool, len(checks))
+	dest := make([]any, len(checks))
+	for i := range same {
+		dest[i] = &same[i]
+	}
+	err = tx.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s AS %s WHERE %s",
+		strings.Join(checks, ", "), table, updateAlias, all(slices.Concat(m.keyCast, m.keyText))), m.args...).Scan(dest...)
+	var changed []string
+	for i, name := range sortedKeys(edit.Old) {
+		if err == nil && !same[i] {
+			changed = append(changed, name)
+		}
+	}
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) && rel.keyKind() == "pk":
 		var cast bool
@@ -866,10 +935,10 @@ func missingRowMessage(ctx context.Context, tx pgx.Tx, table string, rel *relati
 		return fmt.Sprintf("%s wasn't found; it may have been deleted or its key changed. %s", row, reload)
 	case err != nil:
 		return fmt.Sprintf("%s was changed or deleted since it was loaded. %s", row, reload)
-	case !oldOK:
-		return fmt.Sprintf("%s was changed by someone else since it was loaded (%s). Nothing was saved. Reload to see the new values.",
-			row, strings.Join(sortedKeys(edit.Old), ", "))
-	case !readBackOK:
+	case len(changed) > 0:
+		return fmt.Sprintf("%s was changed by someone else since it was loaded (%s). %s Reload to see the new values.",
+			row, strings.Join(changed, ", "), nothing)
+	case !same[len(same)-1]:
 		return fmt.Sprintf("%s: a date or time as shown reads back as a different value in Postgres (it reads IST as Israel time, and dates by DateStyle), so the edit could store the wrong one. %s", row, isoHint)
 	}
 	return fmt.Sprintf("%s was changed or deleted since it was loaded. %s", row, reload)

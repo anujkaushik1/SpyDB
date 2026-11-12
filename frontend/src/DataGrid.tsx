@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { DBService, type EditTarget, type ForeignKey, type RowDelete, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner } from './icons'
 import { copyText } from './clipboard'
 import { formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
+import DeleteRowsDialog from './DeleteRowsDialog'
 import RowMenu, { FORMAT_LABELS } from './RowMenu'
 import { rowJsonEdits } from './rowJsonEdits'
 import { cellClass, cellText } from './cellValues'
@@ -50,7 +51,8 @@ type Props = {
   rowKeys: (string | null)[][] // per row, its key (target.key); from Go, never shown
   readOnlyReason?: string // why it can't be edited, e.g. "a join"
   keepSavedValues?: boolean // query results: show saved values (the rows aren't reloaded)
-  onSaved?: () => void // after a successful save; table tabs reload their rows
+  onSaved?: () => void // after a successful save or delete; table tabs reload their rows
+  canDelete?: boolean // the right-click menu offers Delete: table tabs only, not query results
   onDirtyChange?: (dirty: boolean) => void
   sort?: Sort
   onSort?: (column: string) => void // headers sort when given
@@ -99,6 +101,11 @@ export default function DataGrid(props: Props) {
   const [jsonCell, setJsonCell] = useState<Cell | null>(null) // open in the JSON editor
   const [rowJson, setRowJson] = useState<number[] | null>(null) // rows shown with "View as JSON"
   const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; links: Link[] } | null>(null) // a value that points at rows in several tables
+  // Rows asked to be deleted, as they were when Delete was clicked: what Go
+  // deletes, even if the rows on screen change meanwhile.
+  const [toDelete, setToDelete] = useState<{ target: EditTarget; rows: RowDelete[]; names: string[] } | null>(null)
+  const deleting = useRef<{ cancel: () => void } | null>(null) // the delete running, for Stop
+  const stopped = useRef(false)
   const ownRef = useRef<HTMLDivElement>(null)
   const wrap = props.wrapRef ?? ownRef
   const table = useRef<HTMLTableElement>(null)
@@ -204,8 +211,11 @@ export default function DataGrid(props: Props) {
   const changedRows = Object.keys(pending).length
   const changedCells = Object.values(pending).reduce((n, e) => n + Object.keys(e.values).length, 0)
 
-  // New rows (another page, a reload): the selection no longer points at the same cell.
-  useEffect(() => {
+  // New rows (another page, a reload): the selection no longer points at the
+  // same cell. A layout effect, so it's cleared before the new rows are ever
+  // shown: no click can pair the old rows' selection (or an open menu's
+  // Delete) with the new rows.
+  useLayoutEffect(() => {
     setSelected(null)
     setEditing(null)
     setRowSelection(new Set())
@@ -421,6 +431,52 @@ export default function DataGrid(props: Props) {
   const closeMenu = () => {
     setMenu(null)
     wrap.current?.focus({ preventScroll: true }) // so ⌘C works next
+  }
+
+  // Selected rows top to bottom, or why they can't be deleted.
+  const deletable = [...rowSelection].sort((a, b) => a - b)
+  const deleteBlocked = !canEdit ? `Read-only${props.readOnlyReason ? `: ${props.readOnlyReason}` : ''}`
+    : changedRows > 0 ? 'Save or discard your changes first'
+    : undefined
+  // Each row's key, and every value shown from the table (Go checks none
+  // changed since), named for the confirmation: "id = 5", or "row 12".
+  const askDelete = () => {
+    if (!target || deleteBlocked) return
+    setToDelete({
+      target,
+      rows: deletable.map((i) => ({
+        key: currentKey(i),
+        old: Object.fromEntries(columns.flatMap((c, j) => (c.source ? [[c.source, baseValue(i, j)]] : []))),
+      })),
+      names: deletable.map((i) => target.kind === 'pk'
+        ? keyNames.map((name) => `${name} = ${currentKey(i)[name] ?? 'NULL'}`).join(', ')
+        : `row ${(firstRowNumber + i).toLocaleString()}: ${columns.slice(0, 3).map((c, j) => `${c.name} = ${baseValue(i, j) ?? 'NULL'}`).join(', ')}`),
+    })
+  }
+  // Throws to keep the dialog open with the error: then nothing was deleted.
+  const runDelete = async () => {
+    if (!toDelete) return
+    const { target: to, rows: picked } = toDelete
+    stopped.current = false
+    const call = DBService.DeleteRows(to, picked)
+    deleting.current = call
+    let count: number
+    try {
+      count = await call
+    } catch (err) {
+      if (!stopped.current) throw err
+      // Stopped: Go's transaction rolls back, unless it was already
+      // committing. The rows reload to show which.
+      onSaved?.()
+      throw new Error('Stopped, so nothing was deleted — unless it had just finished. The rows behind this box now show what’s there.')
+    } finally {
+      deleting.current = null
+    }
+    setToDelete(null)
+    setRowSelection(new Set())
+    setSavedMessage(`Deleted ${count} row${count === 1 ? '' : 's'} from ${to.schema}.${to.table}`)
+    onSaved?.()
+    wrap.current?.focus({ preventScroll: true })
   }
 
   // Keys on the grid itself; while a cell is being edited its input handles them.
@@ -640,8 +696,15 @@ export default function DataGrid(props: Props) {
           onOpenJson={menu.cell && opensJson(menu.cell) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
           onViewJson={() => { closeMenu(); setRowJson([...rowSelection].sort((a, b) => a - b)) }}
           onCopy={(format) => { copyRows(format); closeMenu() }}
+          onDelete={props.canDelete && !deleteBlocked ? () => { closeMenu(); askDelete() } : undefined}
+          deleteBlocked={props.canDelete ? deleteBlocked : undefined}
           onClose={closeMenu}
         />
+      )}
+      {toDelete && (
+        <DeleteRowsDialog target={toDelete.target} rows={toDelete.names} onDelete={runDelete}
+                          onStop={() => { stopped.current = true; deleting.current?.cancel() }}
+                          onClose={() => { setToDelete(null); wrap.current?.focus({ preventScroll: true }) }} />
       )}
       {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
       {linkMenu && (

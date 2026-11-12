@@ -322,6 +322,7 @@ function TableView({ table, preset, onFollow, onImported, toggle, reloadSignal, 
         rowKeys={gridKeys}
         readOnlyReason={readOnlyReason ?? undefined}
         onSaved={() => setReloadToken((t) => t + 1)}
+        canDelete
         onDirtyChange={onDirtyChange}
         sort={sort}
         onSort={toggleSort}

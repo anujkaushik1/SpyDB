@@ -2335,3 +2335,54 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
     border-top: 1px solid var(--border);
 }
 .import-footer .import-muted { flex: 1; }
+
+/* ----- Deleting rows (right-click → Delete) ------------------------------------ */
+.row-menu-item.danger { color: var(--error); }
+.row-menu-item.danger:hover:not(:disabled),
+.row-menu-item.danger:focus-visible { background: rgba(248, 113, 113, 0.14); }
+.row-menu-item:disabled { opacity: 0.45; cursor: default; }
+.row-menu-item:disabled:hover { background: transparent; }
+.row-menu-note { margin: 0; padding: 0 9px 6px; max-width: 240px; font-size: 11px; line-height: 1.4; color: var(--text-subtle); }
+
+.delete-rows {
+    width: min(480px, calc(100vw - 48px));
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 12px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+.delete-rows-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.delete-rows-title strong { color: var(--error); font-weight: 600; }
+.delete-rows-list {
+    margin: 0;
+    padding: 8px 10px 8px 26px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-muted);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.delete-rows-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delete-rows-more { list-style: none; margin-left: -16px; color: var(--text-subtle); }
+.delete-rows-note { margin: 10px 0 0; display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--text-subtle); }
+.delete-rows-warn {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 8px;
+    overflow-wrap: anywhere;
+}
+.delete-rows-warn strong { font-weight: 600; }
+.delete-rows-error { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--error); }
+.delete-rows-type { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+.delete-rows-type strong { color: var(--text); font-family: var(--font-mono); }
+.delete-rows-where { margin: -4px 0 10px; font-size: 12px; color: var(--text-subtle); font-family: var(--font-mono); overflow-wrap: anywhere; }
+/* A warning that waits for an answer (Delete rows) sits in the middle, not up top like Ctrl+P. */
+.palette-backdrop.centered { align-items: center; padding: 24px 16px; }

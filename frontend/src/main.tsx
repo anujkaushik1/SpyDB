@@ -24,6 +24,13 @@ if (!isMac) {
   }, true)
 }
 
+// A Go call cancelled on purpose (Stop, a closed tab) may still end in an
+// error afterwards; the Wails runtime reports that as an unhandled rejection.
+// It's expected: nothing is waiting for that answer any more.
+window.addEventListener('unhandledrejection', (e) => {
+  if ((e.reason as Error | null)?.name === 'CancelledRejectionError') e.preventDefault()
+})
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />

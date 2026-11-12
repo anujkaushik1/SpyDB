@@ -20,12 +20,14 @@ type Props = {
   onOpenJson?: () => void // given when that cell is json / jsonb
   onViewJson: () => void // the selected rows as JSON
   onCopy: (format: CopyFormat) => void
+  onDelete?: () => void // asks before deleting the selected rows (DeleteRowsDialog)
+  deleteBlocked?: string // why they can't be deleted now; Delete shows greyed out with it
   onClose: () => void
 }
 
 // The grid's right-click menu: copy the clicked value, or the selected rows
-// in one of the formats.
-export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onViewJson, onCopy, onClose }: Props) {
+// in one of the formats; last, apart, delete them.
+export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onViewJson, onCopy, onDelete, deleteBlocked, onClose }: Props) {
   const root = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: x, top: y })
   useDismiss(true, root, onClose)
@@ -59,7 +61,7 @@ export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onVie
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     e.preventDefault()
-    const items = [...(root.current?.querySelectorAll('button') ?? [])]
+    const items = [...(root.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
     const i = items.indexOf(document.activeElement as HTMLButtonElement)
     const next = e.key === 'ArrowDown' ? Math.min(i + 1, items.length - 1) : Math.max(i - 1, 0)
     items[next]?.focus()
@@ -81,6 +83,15 @@ export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onVie
           {hint && <kbd>{hint}</kbd>}
         </button>
       ))}
+      {(onDelete || deleteBlocked) && (
+        <>
+          <div className="row-menu-sep" role="separator" />
+          <button type="button" role="menuitem" className="row-menu-item danger" onClick={onDelete} disabled={!onDelete}>
+            Delete {rowCount === 1 ? 'row' : `${rowCount.toLocaleString()} rows`}…
+          </button>
+          {deleteBlocked && <p className="row-menu-note">{deleteBlocked}</p>}
+        </>
+      )}
     </div>
   )
 }

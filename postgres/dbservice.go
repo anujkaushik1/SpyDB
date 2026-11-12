@@ -324,11 +324,14 @@ func (s *DBService) ServiceShutdown() error {
 // must hold queryMu (so no query is using editor) and mu.
 func (s *DBService) closeLocked() {
 	if s.editor != nil {
-		if s.editor.Conn().IsClosed() {
-			s.editor.Hijack() // lost, and maybe still closing: see liveEditor
-		} else {
-			s.editor.Release()
-		}
+		// Closed, not handed back to the pool: until the pool closes, a save,
+		// delete or table page could take it and run with whatever the editor
+		// SET (a role, session_replication_role = replica turning foreign keys
+		// off…). A lost one may also still be closing (see liveEditor).
+		conn := s.editor.Hijack()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		conn.Close(ctx)
+		cancel()
 	}
 	if s.pool != nil {
 		s.pool.Close()

@@ -56,6 +56,52 @@ export interface DBConfig {
 }
 
 /**
+ * DeleteEffects is what deleting rows of a table does besides, for the
+ * confirmation to show before anything is deleted.
+ */
+export interface DeleteEffects {
+    /**
+     * the database it's in, e.g. "cashier"
+     */
+    "database": string;
+
+    /**
+     * host:port of the connection
+     */
+    "server": string;
+
+    /**
+     * who the delete runs as
+     */
+    "role": string;
+
+    /**
+     * tables whose rows pointing at the deleted ones are deleted too (ON DELETE CASCADE, also through those)
+     */
+    "cascades": string[] | null;
+
+    /**
+     * tables whose rows pointing at them get NULL or their default (ON DELETE SET NULL / SET DEFAULT)
+     */
+    "setsNull": string[] | null;
+
+    /**
+     * the table's DELETE triggers that fire (enabled, not replica-only)
+     */
+    "triggers": string[] | null;
+
+    /**
+     * the table's DELETE rules
+     */
+    "rules": string[] | null;
+
+    /**
+     * why SpyDB won't delete here; "" if it will
+     */
+    "blocked": string;
+}
+
+/**
  * EditTarget is the table that edited cells are saved to, and how each row
  * is found again.
  */
@@ -333,6 +379,21 @@ export interface QueryResult {
 export interface ResultPage {
     "rows": ((string | null)[] | null)[] | null;
     "keys": ((string | null)[] | null)[] | null;
+}
+
+/**
+ * RowDelete is one row to delete: its key, and the values the grid showed.
+ */
+export interface RowDelete {
+    /**
+     * EditTarget.Key name → this row's value
+     */
+    "key": { [_ in string]?: string | null } | null;
+
+    /**
+     * table column → its value when loaded; the delete fails if one changed
+     */
+    "old": { [_ in string]?: string | null } | null;
 }
 
 /**
