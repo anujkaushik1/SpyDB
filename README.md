@@ -9,13 +9,10 @@ The same commands install SpyDB the first time and update it later; saved connec
 **Mac** (Apple silicon, macOS 12 or newer). Paste in Terminal:
 
 ```sh
-osascript -e 'if application "SpyDB" is running then tell application "SpyDB" to quit'
-curl -fL -o /tmp/SpyDB-mac.zip https://github.com/anujkaushik1/SpyDB/releases/latest/download/SpyDB-mac.zip
-rm -rf /Applications/SpyDB.app && ditto -x -k /tmp/SpyDB-mac.zip /Applications/
-open /Applications/SpyDB.app
+curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac.sh | sh
 ```
 
-Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser, the first open needs System Settings → Privacy & Security → Open Anyway.)
+[`install-mac.sh`](install-mac.sh) checks the Mac, downloads the latest release, checks the download, quits SpyDB if it's open, replaces the app and opens it; if anything fails, the installed app is left as it was. Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
 
 **Ubuntu** (22.04 or newer):
 
