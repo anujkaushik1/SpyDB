@@ -31,14 +31,17 @@ main() {
     { echo "The download looks damaged. Nothing was changed."; exit 1; }
 
   # 4. Quit SpyDB if it's open (waiting up to 10 seconds), then swap the app.
-  osascript -e "if application id \"$APP_ID\" is running then tell application id \"$APP_ID\" to quit" >/dev/null
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    pgrep -f "$APP/Contents/MacOS/" >/dev/null || break
-    sleep 1
-  done
+  # (Asked only when it runs: naming an app that isn't installed is an error.)
   if pgrep -f "$APP/Contents/MacOS/" >/dev/null; then
-    echo "SpyDB is still open. Quit it (⌘Q), then run this again. Nothing was changed."
-    exit 1
+    osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      pgrep -f "$APP/Contents/MacOS/" >/dev/null || break
+      sleep 1
+    done
+    if pgrep -f "$APP/Contents/MacOS/" >/dev/null; then
+      echo "SpyDB is still open. Quit it (⌘Q), then run this again. Nothing was changed."
+      exit 1
+    fi
   fi
   rm -rf "$APP"
   mv "$tmp/SpyDB.app" "$APP"

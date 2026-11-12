@@ -24,12 +24,12 @@ main() {
 
   # 2. The latest version: GitHub's latest-release page redirects to its
   # tag (Location: …/releases/tag/v0.1.4); read that, without following it.
+  # (wget prints it as "Location: <url> [following]"; keep just the url.)
   latest=$(wget -S --spider --max-redirect=0 "$REPO/releases/latest" 2>&1 |
-    sed -n 's/^ *[Ll]ocation: *//p' | tail -n 1 | tr -d '\r')
+    sed -n 's/^ *[Ll]ocation: *\([^ ]*\).*/\1/p' | tail -n 1 | tr -d '\r')
   version=${latest##*/v}
   case $version in
-    [0-9]*.[0-9]*.[0-9]*) ;;
-    *) echo "Couldn't reach GitHub to find the latest version. Nothing was changed."; exit 1 ;;
+    '' | *[!0-9.]*) echo "Couldn't reach GitHub to find the latest version. Nothing was changed."; exit 1 ;;
   esac
 
   # 3. Download it into a temporary folder, removed at the end. (Readable by
@@ -46,7 +46,8 @@ main() {
   # 4. Install it, or update the installed one. sudo asks for your password.
   echo "Installing SpyDB $version (your password may be asked for)…"
   sudo apt-get install -y "$deb" </dev/null
-  echo "SpyDB $(dpkg-query -W -f '${Version}' spydb) installed. Open it from your apps, or run: spydb"
+  # (dpkg says 0.1.4-1: the -1 is the package's own revision.)
+  echo "SpyDB $(dpkg-query -W -f '${Version}' spydb | sed 's/-[^-]*$//') installed. Open it from your apps, or run: spydb"
 }
 
 main
