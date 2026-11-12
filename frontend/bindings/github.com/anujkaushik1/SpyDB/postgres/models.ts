@@ -319,6 +319,11 @@ export interface QueryResult {
     "pageSize": number;
     "results": StatementResult[] | null;
     "durationMs": number;
+
+    /**
+     * The editor's connection had been lost, and this ran on a new one.
+     */
+    "reconnected": boolean;
 }
 
 /**

@@ -29,6 +29,7 @@ type DBService struct {
 	mu          sync.Mutex
 	pool        *pgxpool.Pool
 	editor      *pgxpool.Conn // the query editor's connection, held until Disconnect
+	editorLoss  string        // what editor's session holds that a new connection wouldn't (see reconnect.go)
 	info        *ConnectionInfo
 	cancelQuery context.CancelFunc    // stops the running query, if any
 	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows (see closeLocked)
@@ -323,12 +324,17 @@ func (s *DBService) ServiceShutdown() error {
 // must hold queryMu (so no query is using editor) and mu.
 func (s *DBService) closeLocked() {
 	if s.editor != nil {
-		s.editor.Release()
+		if s.editor.Conn().IsClosed() {
+			s.editor.Hijack() // lost, and maybe still closing: see liveEditor
+		} else {
+			s.editor.Release()
+		}
 	}
 	if s.pool != nil {
 		s.pool.Close()
 	}
 	s.editor = nil
+	s.editorLoss = ""
 	s.pool = nil
 	s.info = nil
 	s.cfg = DBConfig{}

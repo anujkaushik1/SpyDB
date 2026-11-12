@@ -26,6 +26,8 @@ type QueryResult struct {
 	PageSize   int               `json:"pageSize"` // rows per page
 	Results    []StatementResult `json:"results"`
 	DurationMs int               `json:"durationMs"`
+	// The editor's connection had been lost, and this ran on a new one.
+	Reconnected bool `json:"reconnected"`
 }
 
 // StatementResult is one statement's output. Statements that return no rows
@@ -116,14 +118,16 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	if editor == nil {
 		return QueryResult{}, &QueryError{Message: "Not connected. Click Connect first."}
 	}
-	if editor.Conn().IsClosed() {
-		return QueryResult{}, &QueryError{Message: "The connection was lost. Disconnect and connect again."}
+	// A connection cut while idle is replaced first (reconnect.go).
+	conn, reconnected, err := s.liveEditor(ctx, editor)
+	if err != nil {
+		return QueryResult{}, err
 	}
+	defer s.noteSession(ctx, conn)
 
 	// A plain single-table SELECT may run with its table's key added as
 	// hidden columns (planEdit), so its rows can be edited; an UPDATE with
 	// RETURNING * added (planReturning), so the rows it changed show.
-	conn := editor.Conn()
 	plan, toRun := planEdit(ctx, conn, sql)
 	var returning returningPlan
 	if plan.added == nil {
@@ -137,6 +141,9 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 			qe.Position = plan.insertion.originalPosition(qe.Position)
 		}
 		qe.Position = returning.originalPosition(qe.Position)
+		if conn.IsClosed() {
+			qe.Message += " " + lostWhileRunning
+		}
 		return QueryResult{}, qe
 	}
 	durationMs := int(time.Since(started).Milliseconds())
@@ -226,7 +233,7 @@ func (s *DBService) RunQuery(ctx context.Context, tab string, sql string) (Query
 	s.runs[tab] = run
 	s.mu.Unlock()
 
-	return QueryResult{RunID: run.id, PageSize: pageSize, Results: results, DurationMs: durationMs}, nil
+	return QueryResult{RunID: run.id, PageSize: pageSize, Results: results, DurationMs: durationMs, Reconnected: reconnected}, nil
 }
 
 // ResultPage is one page of a statement's rows, with their keys when the

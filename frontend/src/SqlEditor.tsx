@@ -229,14 +229,16 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
     }
     case 'done': {
       const statements = outcome.result.results ?? []
-      const { runId, pageSize, durationMs } = outcome.result
+      const { runId, pageSize, durationMs, reconnected } = outcome.result
       const withRows = statements.filter((r) => (r.columns ?? []).length > 0)
+      // The old connection was cut (the Mac slept, the network changed…): this ran on a new one.
+      const meta = <span className="tab-notice-meta"> · {durationMs} ms{reconnected && ' · reconnected (the old connection was lost)'}</span>
       if (withRows.length === 0) {
         // INSERT / UPDATE / CREATE …: say what happened; the table's rows stay below.
         notice = (
           <p className="tab-notice ok">
             {statements.length === 0 ? 'Nothing to run.' : statements.map((r) => `✓ ${r.command}`).join('  ·  ')}
-            <span className="tab-notice-meta"> · {durationMs} ms</span>
+            {meta}
           </p>
         )
         break
@@ -244,7 +246,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
       notice = (
         <p className="tab-notice">
           Query results{statements.length > 1 ? ` · ${statements.length} statements` : ''}
-          <span className="tab-notice-meta"> · {durationMs} ms</span>
+          {meta}
           <button type="button" className="link-btn tab-notice-action" onClick={showRows}>Show table rows</button>
         </p>
       )
