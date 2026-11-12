@@ -46,6 +46,7 @@ type Props = {
   onSchemaChange: () => void
   onRan: () => void // a run finished without error; the table's rows may have changed
   onDirtyChange?: (dirty: boolean) => void // unsaved edits in the results
+  onSqlChange?: (sql: string) => void // the text, on every change
   onSave?: (sql: string) => void // query tabs: a Save button and ⌘S / Ctrl+S in the editor
   saveState?: 'idle' | 'saving' | 'saved'
   // 'bar': a compact editor in place of the table tab's filter bar.
@@ -57,7 +58,7 @@ type Props = {
 // Runs any SQL on the connection opened by Connect (DBService.RunQuery). It
 // keeps its text and last result while the tab is open; the table tab decides
 // where the pieces go.
-export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSave, saveState = 'idle', layout = 'bar', children }: Props) {
+export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSqlChange, onSave, saveState = 'idle', layout = 'bar', children }: Props) {
   const [sql, setSql] = useState(initialSql)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
@@ -150,7 +151,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
       initialValue={initialSql}
       placeholderText={`Write SQL…   ${shortcut('↵')} to run`}
       schema={schema}
-      onChange={setSql}
+      onChange={(text) => { setSql(text); onSqlChange?.(text) }}
       onSelectionChange={setHasSelection}
       onRun={run}
       onRunCurrent={runCurrent}

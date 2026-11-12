@@ -16,6 +16,7 @@ type Props = {
   onSchemaChange: () => void
   onDirtyChange: (dirty: boolean) => void
   onSaveQuery: (sql: string, name: string | null) => Promise<void> // name null: update the linked query
+  onSqlChange?: (sql: string) => void // the editor's text as typed, for Duplicate
 }
 
 // The editor's share of the tab's height, remembered for new tabs.
@@ -54,7 +55,7 @@ const SHORTCUTS: [string, string[]][] = [
 // a divider between them to drag. Results that come straight from one table
 // (with its primary key) can be edited in place. Save keeps the SQL as a
 // saved query: the first time it asks for a name.
-export default function QueryTab({ tabId, title, initialSql, linked, database, active, onSchemaChange, onDirtyChange, onSaveQuery }: Props) {
+export default function QueryTab({ tabId, title, initialSql, linked, database, active, onSchemaChange, onDirtyChange, onSaveQuery, onSqlChange }: Props) {
   const [dialogSql, setDialogSql] = useState<string | null>(null) // asking for a name
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -110,6 +111,7 @@ export default function QueryTab({ tabId, title, initialSql, linked, database, a
         onSchemaChange={onSchemaChange}
         onRan={() => {}}
         onDirtyChange={onDirtyChange}
+        onSqlChange={onSqlChange}
         onSave={save}
         saveState={saveState}
         layout="playground"
