@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"runtime"
 
 	"github.com/anujkaushik1/SpyDB/postgres"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -17,6 +18,8 @@ import (
 var assets embed.FS
 
 func main() {
+	zoom := &ZoomService{} // gets the window below
+
 	// 'Services' is a list of Go struct instances. The frontend can call their
 	// exported methods through the generated bindings.
 	app := application.New(application.Options{
@@ -24,6 +27,7 @@ func main() {
 		Description: "SpyDB",
 		Services: []application.Service{
 			application.NewService(&postgres.DBService{}),
+			application.NewService(zoom),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -37,7 +41,7 @@ func main() {
 	// sits under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
 	// Linux and Windows keep the system title bar, and the frontend hides its
 	// header there (see main.tsx / style.css).
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	zoom.window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "SpyDB",
 		Width:     1120,
 		Height:    720,
@@ -50,6 +54,7 @@ func main() {
 		},
 		BackgroundColour: application.NewRGB(14, 14, 16),
 		URL:              "/",
+		Zoom:             startZoom(runtime.GOOS), // Linux and Windows: the zoom from last time (see zoom.go)
 	})
 
 	// Run the application. This blocks until the application has been exited.
