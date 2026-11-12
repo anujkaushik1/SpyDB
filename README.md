@@ -2,6 +2,30 @@
 
 A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
 
+## Install or update
+
+The same commands install SpyDB the first time and update it later; saved connections and queries are kept. Each [release](https://github.com/anujkaushik1/SpyDB/releases/latest) has both files.
+
+**Mac** (Apple silicon, macOS 12 or newer). Paste in Terminal:
+
+```sh
+osascript -e 'if application "SpyDB" is running then tell application "SpyDB" to quit'
+curl -fL -o /tmp/SpyDB-mac.zip https://github.com/anujkaushik1/SpyDB/releases/latest/download/SpyDB-mac.zip
+rm -rf /Applications/SpyDB.app && ditto -x -k /tmp/SpyDB-mac.zip /Applications/
+open /Applications/SpyDB.app
+```
+
+Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser, the first open needs System Settings → Privacy & Security → Open Anyway.)
+
+**Ubuntu** (22.04 or newer):
+
+```sh
+wget https://github.com/anujkaushik1/SpyDB/releases/latest/download/spydb_VERSION_amd64.deb
+sudo apt install ./spydb_VERSION_amd64.deb
+```
+
+Replace `VERSION` with the latest release's number (e.g. `0.1.4`), or download the `.deb` from the release page and double-click it.
+
 ## Features
 
 - **Connect** from a form or a pasted `postgres://` URL. Test first, save connections by name, and reconnect from the 10 most recent. Errors are in plain language ("Nothing is accepting connections on localhost:5433").

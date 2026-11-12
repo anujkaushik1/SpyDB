@@ -1,0 +1,134 @@
+# Builds SpyDB for Ubuntu (a .deb) and for Apple-silicon Macs (SpyDB-mac.zip),
+# each on GitHub's own computer of that kind.
+#   - Push a tag like v0.1.5: builds both and puts them on the Releases page.
+#   - Actions tab → "Release" → Run workflow: builds them only, as a test
+#     (download them from that run's page, under Artifacts).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release
+
+jobs:
+  deb:
+    # The oldest Ubuntu SpyDB supports: built here, it runs on 22.04 and newer.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install Ubuntu's window libraries (to build against)
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build the screens
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build the program
+        run: go build -tags production,gtk3 -trimpath -buildvcs=false -ldflags="-w -s" -o bin/spydb .
+
+      - name: Pack the .deb
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="0.0.0~test"; fi
+          export VERSION GOARCH=amd64
+          go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0 package -f build/linux/nfpm/nfpm.yaml -p deb -t "bin/spydb_${VERSION}_amd64.deb"
+
+      - name: Keep it on this run's page
+        uses: actions/upload-artifact@v7
+        with:
+          name: spydb-deb
+          path: bin/*.deb
+
+  mac:
+    # An Apple-silicon Mac; the app runs on M-chip Macs with macOS 12 or newer.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install the Wails tool (the version in go.mod)
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Put the tag's version in the app (tags only)
+        if: github.ref_type == 'tag'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" build/darwin/Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" build/darwin/Info.plist
+
+      - name: Build SpyDB.app (signed ad hoc, as a local build is)
+        run: wails3 task darwin:package ARCH=arm64
+
+      - name: Check it (Apple silicon, macOS 12+, signature)
+        run: |
+          lipo -archs bin/spydb.app/Contents/MacOS/spydb | grep -qx arm64
+          vtool -show-build bin/spydb.app/Contents/MacOS/spydb | grep -q "minos 12.0"
+          codesign --verify --deep --strict bin/spydb.app
+
+      - name: Zip it
+        run: |
+          mkdir -p dist && ditto bin/spydb.app dist/SpyDB.app
+          ditto -c -k --norsrc --noextattr --keepParent dist/SpyDB.app dist/SpyDB-mac.zip
+
+      - name: Keep it on this run's page
+        uses: actions/upload-artifact@v7
+        with:
+          name: spydb-mac
+          path: dist/SpyDB-mac.zip
+
+  release:
+    # Tags only: both files on one Releases page, once both built.
+    if: github.ref_type == 'tag'
+    needs: [deb, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Put them on the Releases page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Install or update (saved connections and queries are kept):
+
+          **Mac** (Apple silicon, macOS 12 or newer). Paste in Terminal:
+          ```sh
+          osascript -e 'if application "SpyDB" is running then tell application "SpyDB" to quit'
+          curl -fL -o /tmp/SpyDB-mac.zip https://github.com/anujkaushik1/SpyDB/releases/latest/download/SpyDB-mac.zip
+          rm -rf /Applications/SpyDB.app && ditto -x -k /tmp/SpyDB-mac.zip /Applications/
+          open /Applications/SpyDB.app
+          ```
+          (Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
+
+          **Ubuntu** (22.04 or newer):
+          ```sh
+          wget https://github.com/anujkaushik1/SpyDB/releases/latest/download/spydb_VERSION_amd64.deb
+          sudo apt install ./spydb_VERSION_amd64.deb
+          ```
+          EOF
+          sed -i "s/VERSION/${GITHUB_REF_NAME#v}/g" notes.md
+          gh release create "$GITHUB_REF_NAME" out/*.deb out/SpyDB-mac.zip --repo "$GITHUB_REPOSITORY" \
+            --title "SpyDB $GITHUB_REF_NAME" --notes-file notes.md
