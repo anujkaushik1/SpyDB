@@ -44,7 +44,10 @@ main() {
   chmod 644 "$deb"
 
   # 4. Install it, or update the installed one. sudo asks for your password.
+  # The package list is refreshed first: apt fetches the libraries SpyDB
+  # needs (GTK, WebKit), and an old list points at files that are gone.
   echo "Installing SpyDB $version (your password may be asked for)…"
+  sudo apt-get update -qq </dev/null || echo "(Couldn't refresh the package list; trying anyway.)"
   sudo apt-get install -y "$deb" </dev/null
   # (dpkg says 0.1.4-1: the -1 is the package's own revision.)
   echo "SpyDB $(dpkg-query -W -f '${Version}' spydb | sed 's/-[^-]*$//') installed. Open it from your apps, or run: spydb"
