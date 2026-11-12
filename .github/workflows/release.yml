@@ -120,12 +120,11 @@ jobs:
           ```
           (It installs or updates from the latest release; read it first at that link if you like. Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
 
-          **Ubuntu** (22.04 or newer):
+          **Ubuntu** (22.04 or newer). Paste in Terminal:
           ```sh
-          wget https://github.com/anujkaushik1/SpyDB/releases/latest/download/spydb_VERSION_amd64.deb
-          sudo apt install ./spydb_VERSION_amd64.deb
+          wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubuntu.sh | sh
           ```
+          (It installs or updates from the latest release, and asks for your password.)
           EOF
-          sed -i "s/VERSION/${GITHUB_REF_NAME#v}/g" notes.md
           gh release create "$GITHUB_REF_NAME" out/*.deb out/SpyDB-mac.zip --repo "$GITHUB_REPOSITORY" \
             --title "SpyDB $GITHUB_REF_NAME" --notes-file notes.md

@@ -14,14 +14,15 @@ curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac
 
 [`install-mac.sh`](install-mac.sh) checks the Mac, downloads the latest release, checks the download, quits SpyDB if it's open, replaces the app and opens it; if anything fails, the installed app is left as it was. Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
 
-**Ubuntu** (22.04 or newer):
+**Ubuntu** (22.04 or newer). Paste in Terminal:
 
 ```sh
-wget https://github.com/anujkaushik1/SpyDB/releases/latest/download/spydb_VERSION_amd64.deb
-sudo apt install ./spydb_VERSION_amd64.deb
+wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubuntu.sh | sh
 ```
 
-Replace `VERSION` with the latest release's number (e.g. `0.1.4`), or download the `.deb` from the release page and double-click it.
+[`install-ubuntu.sh`](install-ubuntu.sh) finds the latest release, downloads its `.deb` and installs it with apt (it asks for your password). Or download the `.deb` from the release page and double-click it.
+
+Both commands stay the same for every release.
 
 ## Features
 
