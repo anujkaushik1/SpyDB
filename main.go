@@ -17,6 +17,10 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// refreshTabEvent asks the window to reload the open table tab's rows, as
+// its ↻ button does: View → Reload (⌘R) in the macOS menu sends it.
+const refreshTabEvent = "spydb:refresh-tab"
+
 func main() {
 	zoom := &ZoomService{} // gets the window below
 
@@ -36,6 +40,8 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+
+	setMenu(app) // macOS: ⌘R reloads the open tab's rows, not the window (menu_darwin.go)
 
 	// On macOS the title bar is hidden so the frontend's own header (.titlebar)
 	// sits under the traffic lights; InvisibleTitleBarHeight keeps it draggable.

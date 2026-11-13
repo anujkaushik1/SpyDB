@@ -1,3 +1,4 @@
+import { Events } from '@wailsio/runtime'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableFilter, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
@@ -47,6 +48,10 @@ function App() {
   // Tabs waiting to close until the user confirms losing their unsaved edits.
   const [closing, setClosing] = useState<{ ids: string[]; from?: string } | null>(null)
   const duplicateSeq = useRef(0)
+  // ⌘R / Ctrl+R: per table tab, how many times its rows were asked to reload.
+  const [refreshes, setRefreshes] = useState<Record<string, number>>({})
+  const refreshActive = useRef(() => {}) // set below, once tabs and the active tab are known
+  const lastRefresh = useRef(0)
   // Disconnected screen: saved + recent connections, and what the form should load.
   const [lists, setLists] = useState<ConnectionLists | null>(null)
   const [listsError, setListsError] = useState<string | null>(null)
@@ -109,13 +114,18 @@ function App() {
     if (connection) loadSchemas()
   }, [connection, loadSchemas])
 
-  // While connected: ⌘P / Ctrl+P opens the table switcher, ⌘T / Ctrl+T a new query tab.
+  // While connected: ⌘P / Ctrl+P opens the table switcher, ⌘T / Ctrl+T a new
+  // query tab, ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows
+  // instead of the whole window.
   useEffect(() => {
     if (!connection) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
-      if (key === 'p') {
+      if (key === 'r') {
+        e.preventDefault()
+        refreshActive.current()
+      } else if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
       } else if (key === 't') {
@@ -343,6 +353,18 @@ function App() {
   }
 
   const active = workspaceTabs.find((t) => t.id === activeTab)
+
+  // Reload the open tab's rows, if it's a table tab: never the window (which
+  // closed every tab), and never a query tab's SQL (it could change data
+  // again). The macOS menu's View → Reload asks the same (menu_darwin.go);
+  // the key and the menu both firing for one ⌘R counts once.
+  refreshActive.current = () => {
+    const now = Date.now()
+    if (now - lastRefresh.current < 300 || active?.kind !== 'table') return
+    lastRefresh.current = now
+    setRefreshes((current) => ({ ...current, [active.id]: (current[active.id] ?? 0) + 1 }))
+  }
+  useEffect(() => Events.On('spydb:refresh-tab', () => refreshActive.current()), [])
   const activeTable = active?.kind === 'table' ? active.table.qualifiedName : null
 
   return (
@@ -444,7 +466,8 @@ function App() {
                 {tab.kind === 'table' && (
                   <TableTab table={tab.table} tabId={tab.id} preset={tab.preset} onSchemaChange={loadSchemas}
                             onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} onFollow={followKey}
-                            onFiltersChange={(filters) => { tabState.current[tab.id] = { ...tabState.current[tab.id], filters } }} />
+                            onFiltersChange={(filters) => { tabState.current[tab.id] = { ...tabState.current[tab.id], filters } }}
+                            refreshSignal={refreshes[tab.id]} />
                 )}
                 {tab.kind === 'query' && (
                   <QueryTab tabId={tab.id} title={tab.title} initialSql={tab.initialSql ?? ''} linked={!!tab.savedQueryId}

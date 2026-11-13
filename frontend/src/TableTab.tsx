@@ -43,12 +43,13 @@ type Props = {
   onDirtyChange: (dirty: boolean) => void // unsaved cell edits in this tab
   onFollow: (target: FollowTarget) => void
   onFiltersChange?: (filters: TableFilter[]) => void // the applied filters, for Duplicate
+  refreshSignal?: number // ⌘R / Ctrl+R: a change reloads the rows, as ↻ does
 }
 
 // One table or view: rows a page at a time with sorting and filters
 // (DBService.TableData). Clicking </> swaps the filter bar for a SQL editor;
 // the rows stay below until a query returns rows of its own.
-export default function TableTab({ table, tabId, preset, onSchemaChange, onDirtyChange, onFollow, onFiltersChange }: Props) {
+export default function TableTab({ table, tabId, preset, onSchemaChange, onDirtyChange, onFollow, onFiltersChange, refreshSignal }: Props) {
   const [sqlMode, setSqlMode] = useState(false)
   // Unsaved edits in the table's rows and in query results, shown as a dot on the tab.
   const [rowsDirty, setRowsDirty] = useState(false)
@@ -57,6 +58,7 @@ export default function TableTab({ table, tabId, preset, onSchemaChange, onDirty
   // Bumped to reload the rows: after a query ran, and when leaving the editor.
   const [reloadSignal, setReloadSignal] = useState(0)
   const reload = () => setReloadSignal((n) => n + 1)
+  useEffect(() => { if (refreshSignal) reload() }, [refreshSignal])
 
   const toggleSql = () => {
     if (sqlMode) reload()
