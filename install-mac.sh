@@ -8,7 +8,6 @@ set -eu
 
 URL="https://github.com/anujkaushik1/SpyDB/releases/latest/download/SpyDB-mac.zip"
 APP=/Applications/SpyDB.app
-APP_ID=com.anujkaushik.spydb
 
 # Everything runs from main, called on the last line: a half-downloaded
 # script stops at a syntax error instead of running halfway.
@@ -31,14 +30,15 @@ main() {
     { echo "The download looks damaged. Nothing was changed."; exit 1; }
 
   # 4. Quit SpyDB if it's open (waiting up to 10 seconds), then swap the app.
-  # (Asked only when it runs: naming an app that isn't installed is an error.)
-  if pgrep -f "$APP/Contents/MacOS/" >/dev/null; then
-    osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+  # It's named by where it is, not by its ID: another copy with the same ID
+  # (a developer's build) would otherwise be the one told to quit.
+  if pgrep -f "^$APP/Contents/MacOS/" >/dev/null; then
+    osascript -e "tell application \"$APP\" to quit" >/dev/null 2>&1 || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-      pgrep -f "$APP/Contents/MacOS/" >/dev/null || break
+      pgrep -f "^$APP/Contents/MacOS/" >/dev/null || break
       sleep 1
     done
-    if pgrep -f "$APP/Contents/MacOS/" >/dev/null; then
+    if pgrep -f "^$APP/Contents/MacOS/" >/dev/null; then
       echo "SpyDB is still open. Quit it (⌘Q), then run this again. Nothing was changed."
       exit 1
     fi
