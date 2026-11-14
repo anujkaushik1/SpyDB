@@ -30,8 +30,10 @@ const (
 // sessionChanged asks whether the session differs from a new connection's:
 // a setting changed (SET, set_config), another role (SET ROLE, SET SESSION
 // AUTHORIZATION; $1 is the user SpyDB logged in as) or a temporary table.
+// Then the search_path SET in it, or NULL.
 const sessionChanged = `SELECT EXISTS (SELECT FROM pg_catalog.pg_settings WHERE source = 'session')
-	OR current_user <> session_user OR session_user <> $1 OR pg_catalog.pg_my_temp_schema() <> 0`
+	OR current_user <> session_user OR session_user <> $1 OR pg_catalog.pg_my_temp_schema() <> 0,
+	(SELECT setting FROM pg_catalog.pg_settings WHERE name = 'search_path' AND source = 'session')`
 
 // liveEditor returns the editor's connection after checking it's alive. A
 // cut one is swapped for a new connection from the pool; reconnected says
@@ -75,7 +77,7 @@ func (s *DBService) liveEditor(ctx context.Context, editor *pgxpool.Conn) (conn 
 	}
 
 	s.mu.Lock()
-	s.editor, s.editorLoss = fresh, ""
+	s.editor, s.editorLoss, s.editorPath = fresh, "", ""
 	s.mu.Unlock()
 	// Taken out of the pool, not handed back: pgx can take 15 seconds to
 	// finish closing a silent connection, and the pool's Close (Disconnect)
@@ -96,12 +98,14 @@ func (s *DBService) liveEditor(ctx context.Context, editor *pgxpool.Conn) (conn 
 
 // noteSession keeps, after a run, what conn's session holds that a new
 // connection wouldn't (lostTransaction, lostSettings, or "" for nothing),
-// for when it's lost later. If it's lost already, the last one stays.
+// for when it's lost later. If it's lost already, the last one stays. It
+// also keeps the search_path SET there (editorPath), outside a transaction
+// only: one SET inside may yet be rolled back.
 func (s *DBService) noteSession(ctx context.Context, conn *pgx.Conn) {
 	if conn.IsClosed() {
 		return
 	}
-	loss := ""
+	loss, path, knowPath := "", "", false
 	if conn.PgConn().TxStatus() != 'I' {
 		loss = lostTransaction
 	} else {
@@ -109,15 +113,23 @@ func (s *DBService) noteSession(ctx context.Context, conn *pgx.Conn) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pingTimeout)
 		defer cancel()
 		var changed bool
-		err := conn.QueryRow(ctx, sessionChanged, pgx.QueryExecModeExec, conn.Config().User).Scan(&changed)
+		var set *string
+		err := conn.QueryRow(ctx, sessionChanged, pgx.QueryExecModeExec, conn.Config().User).Scan(&changed, &set)
 		if err != nil && conn.IsClosed() {
 			return
 		}
 		if err != nil || changed { // can't tell: say it changed
 			loss = lostSettings
 		}
+		if err == nil && set != nil {
+			path = *set
+		}
+		knowPath = err == nil
 	}
 	s.mu.Lock()
 	s.editorLoss = loss
+	if knowPath {
+		s.editorPath = path
+	}
 	s.mu.Unlock()
 }

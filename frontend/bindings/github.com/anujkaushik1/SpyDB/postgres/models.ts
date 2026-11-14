@@ -130,6 +130,8 @@ export interface EditTarget {
      * Session holds settings of the session the rows were read in (role,
      * search_path, date/time and number formats); a save uses the same, so
      * it runs with the same privileges and values compare and parse alike.
+     * nil for a table tab's rows, read with the pool's own settings: a save
+     * then runs with those, plus the search_path SET in the editor, if any.
      */
     "session": { [_ in string]?: string } | null;
 

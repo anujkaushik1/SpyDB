@@ -30,6 +30,7 @@ type DBService struct {
 	pool        *pgxpool.Pool
 	editor      *pgxpool.Conn // the query editor's connection, held until Disconnect
 	editorLoss  string        // what editor's session holds that a new connection wouldn't (see reconnect.go)
+	editorPath  string        // the search_path SET in editor's session, or "": table tabs save with it too (beginRowWrite)
 	info        *ConnectionInfo
 	cancelQuery context.CancelFunc    // stops the running query, if any
 	runs        map[string]*storedRun // latest RunQuery rows per query tab, for FetchRows (see closeLocked)
@@ -338,6 +339,7 @@ func (s *DBService) closeLocked() {
 	}
 	s.editor = nil
 	s.editorLoss = ""
+	s.editorPath = ""
 	s.pool = nil
 	s.info = nil
 	s.cfg = DBConfig{}

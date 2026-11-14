@@ -29,6 +29,8 @@ type EditTarget struct {
 	// Session holds settings of the session the rows were read in (role,
 	// search_path, date/time and number formats); a save uses the same, so
 	// it runs with the same privileges and values compare and parse alike.
+	// nil for a table tab's rows, read with the pool's own settings: a save
+	// then runs with those, plus the search_path SET in the editor, if any.
 	Session map[string]string `json:"session"`
 	// Conn is the connection the rows were read over (DBService.generation).
 	// After a reconnect, maybe to another server through the same tunnel port
@@ -615,6 +617,27 @@ type rowWrite struct {
 	table  string            // the table in SQL: ONLY "schema"."table" for a plain table
 }
 
+// pathTypedQuery asks whether table $1 has a column whose values print
+// relative to search_path: a pg_catalog type that names a table, type,
+// function, operator, text search object or collation, maybe inside a
+// domain, array, range or composite type.
+const pathTypedQuery = `
+WITH RECURSIVE types(oid) AS (
+    SELECT a.atttypid FROM pg_catalog.pg_attribute a WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
+    UNION
+    SELECT inner_type.oid FROM types JOIN pg_catalog.pg_type t ON t.oid = types.oid, LATERAL (
+        SELECT t.typelem WHERE t.typcategory = 'A' AND t.typelem <> 0
+        UNION ALL SELECT t.typbasetype WHERE t.typtype = 'd'
+        UNION ALL SELECT r.rngsubtype FROM pg_catalog.pg_range r WHERE r.rngtypid = t.oid
+        UNION ALL SELECT a.atttypid FROM pg_catalog.pg_attribute a
+                  WHERE t.typtype = 'c' AND a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+    ) inner_type(oid))
+SELECT EXISTS (SELECT FROM types
+    JOIN pg_catalog.pg_type t ON t.oid = types.oid
+    JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace AND tn.nspname = 'pg_catalog'
+    WHERE t.typname IN ('regclass', 'regtype', 'regproc', 'regprocedure', 'regoper', 'regoperator',
+                        'regconfig', 'regdictionary', 'regcollation'))`
+
 // beginRowWrite opens the transaction that writes rows of target, on the
 // pool, not the SQL editor's connection, so an open transaction in the
 // editor doesn't swallow or delay it. It checks the rows were read over this
@@ -623,7 +646,7 @@ type rowWrite struct {
 // search_path and formats. nothing ends each refusal. The caller rolls back.
 func (s *DBService) beginRowWrite(ctx context.Context, target EditTarget, nothing string) (w *rowWrite, err error) {
 	s.mu.Lock()
-	pool, generation := s.pool, s.generation
+	pool, generation, editorPath := s.pool, s.generation, s.editorPath
 	s.mu.Unlock()
 	if pool == nil {
 		return nil, errors.New("Not connected.")
@@ -686,10 +709,28 @@ func (s *DBService) beginRowWrite(ctx context.Context, target EditTarget, nothin
 		byName[c.Name] = c
 	}
 
+	// A table tab's rows write with the search_path SET in the editor, so
+	// a trigger (or default, check…) that names a table without its schema
+	// finds the one it would there. They were read without it. Values print
+	// the same either way, except types like regclass, which name things
+	// relative to search_path: "pg_type" can mean either of two tables, so
+	// a key shown could find another row.
+	session := target.Session
+	if session == nil && editorPath != "" {
+		var pathTyped bool
+		if err := tx.QueryRow(ctx, pathTypedQuery, rel.oid).Scan(&pathTyped); err != nil {
+			return nil, toQueryError(err)
+		}
+		if pathTyped {
+			return nil, fmt.Errorf("%s has a column of a type like regclass, whose values read differently under the search_path set in the query editor (%s), so SpyDB can't be sure which row is which. %s Change it from the query editor instead (SELECT it there, then edit the result).", where, editorPath, nothing)
+		}
+		session = map[string]string{"search_path": editorPath}
+	}
+
 	// From here on, run as the editor's role (SET ROLE), with its
 	// search_path and formats. (The lookups above ran before, so a user
 	// table named like a catalog can't get in their way.)
-	if err := applySession(ctx, tx, target.Session); err != nil {
+	if err := applySession(ctx, tx, session); err != nil {
 		return nil, toQueryError(err)
 	}
 
