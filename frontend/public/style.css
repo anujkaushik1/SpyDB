@@ -1337,6 +1337,7 @@ kbd {
 /* Foreign key cells: room on the right for the button that opens the row the
    value points at, shown on hover and on the selected cell. */
 .grid td.cell-fk { position: relative; padding-right: 32px; }
+.grid td.cell-fk.pinned { position: sticky; } /* pinned wins: the link button sits inside the sticky cell */
 .grid td .cell-link {
     position: absolute;
     top: 50%;
@@ -2739,3 +2740,6 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 .details-table tr:last-child td { border-bottom: none; }
 .details-note { margin: 0; font-size: 12.5px; color: var(--text-subtle); }
 .details-error { margin: 0 0 12px; font-size: 13px; color: var(--error); }
+
+/* The JSON editor's search: how many matches, and which one (live, as you type). */
+.json-search-count { margin: 0 8px 0 2px; font-size: 11.5px; color: var(--text-subtle); white-space: nowrap; }

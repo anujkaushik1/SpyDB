@@ -42,6 +42,18 @@ const sameExcept = (before, ids, what) => {
 let before = snapshot()
 check('20 rows in Postgres before any edit', Object.keys(before).length === 20, Object.keys(before).length)
 
+// Pin the foreign-key column: it sticks next to the row numbers while the grid scrolls sideways, link button and all.
+const headerOf = (name) => `[...__t.grid().querySelectorAll('thead th')].find((th) => th.querySelector('.grid-col-name')?.innerText === '${name}')`
+await evaluate(`${headerOf('parent_id')}.querySelector('.grid-pin').click()`)
+await waitFor(`__t.grid().querySelector('th.pinned .grid-col-name')?.innerText === 'parent_id'`)
+const pinnedLeft = await evaluate(`__t.grid().querySelector('tbody tr td.pinned').getBoundingClientRect().left`)
+await evaluate(`__t.grid().scrollLeft = 400`)
+await sleep(300)
+check('a pinned foreign-key column stays put while scrolling (its cells are sticky too)', await evaluate(`(() => { const td = __t.grid().querySelector('tbody tr td.pinned'); return getComputedStyle(td).position === 'sticky' && Math.abs(td.getBoundingClientRect().left - ${pinnedLeft}) < 1 && __t.grid().scrollLeft > 300 && td.innerText.trim().startsWith('1') })()`),
+  await evaluate(`[getComputedStyle(__t.grid().querySelector('tbody tr td.pinned')).position, __t.grid().querySelector('tbody tr td.pinned').getBoundingClientRect().left, ${pinnedLeft}, __t.grid().scrollLeft]`))
+await evaluate(`__t.grid().querySelector('th.pinned .grid-pin').click()`)
+await waitFor(`!__t.grid().querySelector('th.pinned')`)
+await evaluate(`__t.grid().scrollLeft = 0`)
 await dblclick(cell('3', 'name')); await key('a', MOD); await type('renamed'); await key('Enter')
 check('changes bar says rows', (await evaluate(`__t.bar()`)).includes('1 unsaved change in 1 row'), await evaluate(`__t.bar()`))
 await key('s', MOD); await sleep(800)

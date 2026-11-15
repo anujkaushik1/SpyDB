@@ -30,9 +30,11 @@ const sql = (q) => execFileSync(env.E2E_PSQL ?? 'psql', ['-h', 'localhost', '-U'
 // What each test needs ready before the app opens, and puts back after.
 const suites = {
   postgres: {
-    before: () => sql(`DROP TABLE IF EXISTS spydb_ui_test; CREATE TABLE spydb_ui_test (id int PRIMARY KEY, name text, n int, flag boolean, j jsonb);
-      INSERT INTO spydb_ui_test SELECT i, 'name ' || i, i * 10, i % 2 = 0, jsonb_build_object('k', i) FROM generate_series(1, 20) i`),
-    after: () => sql('DROP TABLE IF EXISTS spydb_ui_test'),
+    before: () => sql(`DROP TABLE IF EXISTS spydb_ui_test; DROP TABLE IF EXISTS spydb_ui_parent;
+      CREATE TABLE spydb_ui_parent (id int PRIMARY KEY, label text); INSERT INTO spydb_ui_parent SELECT i, 'parent ' || i FROM generate_series(1, 20) i;
+      CREATE TABLE spydb_ui_test (id int PRIMARY KEY, name text, n int, flag boolean, j jsonb, parent_id int REFERENCES spydb_ui_parent(id), wide1 text, wide2 text, wide3 text, wide4 text);
+      INSERT INTO spydb_ui_test SELECT i, 'name ' || i, i * 10, i % 2 = 0, jsonb_build_object('k', i), i, repeat('w', 40), repeat('x', 40), repeat('y', 40), repeat('z', 40) FROM generate_series(1, 20) i`),
+    after: () => sql('DROP TABLE IF EXISTS spydb_ui_test; DROP TABLE IF EXISTS spydb_ui_parent'),
   },
   dynamo: { before: seed, after: () => {} },
 }

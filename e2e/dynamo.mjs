@@ -160,6 +160,18 @@ await dblclick(`__t.row('items', '${noted[1]}').children[0]`)
 await waitFor(`document.querySelector('.json-modal .cm-content')`)
 const shown = await evaluate(`document.querySelector('.json-modal .cm-content').innerText`)
 check('JSON view shows the item as typed JSON', shown.includes(`"amount": ${100 + Number(noted[1].slice(1))}.5,`) && shown.includes(`"paid": ${Number(noted[1].slice(1)) % 2 === 0}`) && shown.includes('"tags": ['), shown.slice(0, 300))
+// ⌘F in the JSON view: as you type, it counts the matches and shows which one; Enter moves on.
+await click(`document.querySelector('.json-modal .cm-content')`)
+await key('f', MOD)
+await waitFor(`document.querySelector('.json-modal .cm-search input[name="search"]')`)
+await type('line')
+check('search as you type: "1 of 2" for "line" (lines, line 1)', await waitFor(`document.querySelector('.json-modal .json-search-count')?.innerText === '1 of 2'`), await evaluate(`document.querySelector('.json-modal .json-search-count')?.innerText`))
+await key('Enter')
+check('Enter: the next match, "2 of 2"', await waitFor(`document.querySelector('.json-modal .json-search-count')?.innerText === '2 of 2'`), await evaluate(`document.querySelector('.json-modal .json-search-count')?.innerText`))
+await type('zzz')
+check('no match: says so', await waitFor(`document.querySelector('.json-modal .json-search-count')?.innerText === 'No matches'`), null)
+await key('Escape')
+await waitFor(`!document.querySelector('.json-modal .cm-search')`)
 const item10 = JSON.parse(shown)
 delete item10.note
 item10.city = 'Goa'

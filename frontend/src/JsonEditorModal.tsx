@@ -84,6 +84,95 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
     return editor.current?.get() as { json: unknown } | { text: string } | undefined
   }
+  // Live search: the editor's ⌘F panel only highlights until you press Next.
+  // As you type, this scrolls to the first match and shows "1 of 3"; Next
+  // and Previous keep the count. The matches are counted in the text itself,
+  // with the panel's own options (match case, regexp, by word).
+  const searchIndex = useRef(0)
+  useEffect(() => {
+    const root = host.current
+    if (!root) return
+    const matches = (): number[] => {
+      const panel = root.querySelector('.cm-search')
+      const input = panel?.querySelector<HTMLInputElement>('input[name="search"]')
+      const query = input?.value ?? ''
+      if (!panel || !query) return []
+      const content = editor.current?.get() as { json?: unknown; text?: string } | undefined
+      const text = content && 'text' in content && content.text != null ? content.text : content?.json !== undefined ? (stringify(content.json) ?? '') : ''
+      const flag = (name: string) => panel.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.checked ?? false
+      let re: RegExp
+      try {
+        const source = flag('re') ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        re = new RegExp(flag('word') ? `\\b(?:${source})\\b` : source, flag('case') ? 'g' : 'gi')
+      } catch {
+        return []
+      }
+      const at: number[] = []
+      for (const m of text.matchAll(re)) {
+        at.push(m.index ?? 0)
+        if (m[0] === '') break
+        if (at.length > 5000) break
+      }
+      return at
+    }
+    const showCount = (count: number, index: number) => {
+      const panel = root.querySelector('.cm-search')
+      if (!panel) return
+      let badge = panel.querySelector<HTMLSpanElement>('.json-search-count')
+      if (!badge) {
+        badge = document.createElement('span')
+        badge.className = 'json-search-count'
+        panel.querySelector('input[name="search"]')?.insertAdjacentElement('afterend', badge)
+      }
+      badge.textContent = count === 0 ? (panel.querySelector<HTMLInputElement>('input[name="search"]')?.value ? 'No matches' : '') : `${index + 1} of ${count}`
+    }
+    // Scroll the editor so the line of the match at `offset` is in view.
+    const scrollTo = (offset: number) => {
+      const content = editor.current?.get() as { text?: string } | undefined
+      const text = content?.text ?? ''
+      const line = text.slice(0, offset).split('\n').length - 1
+      const scroller = root.querySelector<HTMLElement>('.cm-scroller')
+      const lineEl = root.querySelector<HTMLElement>('.cm-line')
+      if (!scroller || !lineEl) return
+      const lineHeight = lineEl.getBoundingClientRect().height || 24
+      scroller.scrollTop = Math.max(0, line * lineHeight - scroller.clientHeight / 3)
+    }
+    const onInput = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      if (!target.closest?.('.cm-search') || (target.name !== 'search' && target.type !== 'checkbox')) return
+      const at = matches()
+      searchIndex.current = 0
+      showCount(at.length, 0)
+      if (at.length > 0) scrollTo(at[0])
+    }
+    const onClick = (e: Event) => {
+      const button = (e.target as HTMLElement).closest?.('.cm-search button') as HTMLButtonElement | null
+      if (!button) return
+      const at = matches()
+      if (at.length === 0) return
+      if (button.name === 'next') searchIndex.current = (searchIndex.current + 1) % at.length
+      else if (button.name === 'prev') searchIndex.current = (searchIndex.current - 1 + at.length) % at.length
+      else return
+      showCount(at.length, searchIndex.current)
+    }
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const target = e.target as HTMLInputElement
+      if (target.name !== 'search' || !target.closest?.('.cm-search') || e.key !== 'Enter') return
+      const at = matches()
+      if (at.length === 0) return
+      searchIndex.current = (searchIndex.current + (e.shiftKey ? -1 : 1) + at.length) % at.length
+      showCount(at.length, searchIndex.current)
+    }
+    root.addEventListener('input', onInput)
+    root.addEventListener('click', onClick)
+    root.addEventListener('keydown', onKey, true) // before the panel's own handler, which may stop it
+    return () => {
+      root.removeEventListener('input', onInput)
+      root.removeEventListener('click', onClick)
+      root.removeEventListener('keydown', onKey, true)
+    }
+  }, [])
+
   const noteEdit = (e: { target: EventTarget }) => {
     const target = e.target as HTMLElement
     if (host.current?.contains(target) && !target.closest('.cm-search')) lastEdit.current = Date.now()
