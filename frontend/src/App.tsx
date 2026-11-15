@@ -2,6 +2,7 @@ import { Events } from '@wailsio/runtime'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableFilter, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { Service as Dynamo, type AWSIdentity, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import { Service as Mongo, type CollectionInfo, type ConnectionInfo as MongoConnectionInfo, type ConnectionLists as MongoConnectionLists, type Filter as MongoFilter, type SavedConnection as MongoSavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/mongodb'
 import { errorMessage } from './Banner'
 import ConfirmDialog from './ConfirmDialog'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
@@ -11,6 +12,13 @@ import DynamoQueryTab from './dynamo/DynamoQueryTab'
 import DynamoTableTab from './dynamo/DynamoTableTab'
 import DynamoSignIn from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
+import MongoCollectionTab from './mongo/MongoCollectionTab'
+import MongoConnectForm, { type MongoFormRequest } from './mongo/MongoConnectForm'
+import MongoConnectionsSidebar from './mongo/MongoConnectionsSidebar'
+import MongoQueryTab from './mongo/MongoQueryTab'
+import MongoSidebar from './mongo/MongoSidebar'
+import { mongoWorkspace } from './mongo/mongoConnection'
+import { collectionRef } from './mongo/shellText'
 import ImportDialog from './ImportDialog'
 import QueryTab from './QueryTab'
 import SavedQueriesPanel from './SavedQueriesPanel'
@@ -49,10 +57,22 @@ function App() {
   const [engine, setEngine] = useState<Engine>('postgres')
   // Signed in to AWS and showing its DynamoDB tables, or null.
   const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
+  // Connected to MongoDB, or null.
+  const [mongo, setMongo] = useState<MongoConnectionInfo | null>(null)
   // The shown engine's connection; null while it shows its connect screen.
   const shownPostgres = engine === 'postgres' ? connection : null
   const shownDynamo = engine === 'dynamo' ? dynamo : null
-  const connectedTo: Record<Engine, boolean> = { postgres: !!connection, dynamo: !!dynamo }
+  const shownMongo = engine === 'mongo' ? mongo : null
+  const connectedTo: Record<Engine, boolean> = { postgres: !!connection, dynamo: !!dynamo, mongo: !!mongo }
+  // The open MongoDB database's collections, shared by its sidebar and the Ctrl+P / ⌘P switcher.
+  const [mongoCollections, setMongoCollections] = useState<CollectionInfo[] | null>(null)
+  const [mongoCollectionsLoading, setMongoCollectionsLoading] = useState(false)
+  const [mongoCollectionsError, setMongoCollectionsError] = useState<string | null>(null)
+  // MongoDB's connect screen: its saved + recent connections, and what its form should load.
+  const [mongoLists, setMongoLists] = useState<MongoConnectionLists | null>(null)
+  const [mongoListsError, setMongoListsError] = useState<string | null>(null)
+  const [mongoSelected, setMongoSelected] = useState<string | null>(null)
+  const [mongoFormRequest, setMongoFormRequest] = useState<MongoFormRequest | null>(null)
   // Its tables, shared by its sidebar and the Ctrl+P / ⌘P switcher.
   const [dynamoTables, setDynamoTables] = useState<string[] | null>(null)
   const [dynamoTablesLoading, setDynamoTablesLoading] = useState(false)
@@ -64,7 +84,7 @@ function App() {
   // Numbers for query tabs: Query 1, Query 2, … (not reused after closing).
   const queryNumber = useRef(0)
   // Each tab's latest filters (table tabs) or SQL (query tabs), for Duplicate.
-  const tabState = useRef<Record<string, { filters?: TableFilter[]; sql?: string }>>({})
+  const tabState = useRef<Record<string, { filters?: TableFilter[]; mongoFilters?: MongoFilter[]; sql?: string }>>({})
   // Tabs waiting to close until the user confirms losing their unsaved edits.
   const [closing, setClosing] = useState<{ ids: string[]; from?: string } | null>(null)
   const duplicateSeq = useRef(0)
@@ -151,13 +171,45 @@ function App() {
     if (dynamo) loadDynamoTables()
   }, [dynamo, loadDynamoTables])
 
+  const loadMongoLists = useCallback(async () => {
+    try {
+      setMongoLists(await Mongo.SavedConnections())
+      setMongoListsError(null)
+    } catch (err) {
+      setMongoListsError(errorMessage(err))
+    }
+  }, [])
+
+  // On every return to MongoDB's connect screen; the last connect is now in Recent.
+  useEffect(() => {
+    if (engine === 'mongo' && !mongo) loadMongoLists()
+  }, [engine, mongo, loadMongoLists])
+
+  const loadMongoCollections = useCallback(async () => {
+    setMongoCollectionsLoading(true)
+    try {
+      setMongoCollections((await Mongo.ListCollections()) ?? [])
+      setMongoCollectionsError(null)
+    } catch (err) {
+      setMongoCollectionsError(errorMessage(err))
+    } finally {
+      setMongoCollectionsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    setMongoCollections(null)
+    if (mongo) loadMongoCollections()
+  }, [mongo, loadMongoCollections])
+
   // While the shown engine is connected: ⌘P / Ctrl+P opens its table
-  // switcher, ⌘T / Ctrl+T a new query tab (SQL, or PartiQL in DynamoDB),
+  // switcher, ⌘T / Ctrl+T a new query tab (SQL, PartiQL in DynamoDB, or a
+  // MongoDB query),
   // ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows instead
   // of the whole window; so does F5 on Windows, where that's the key for it
   // (the window itself never reloads: Wails turns WebView2's off).
   useEffect(() => {
-    if (!shownPostgres && !shownDynamo) return
+    if (!shownPostgres && !shownDynamo && !shownMongo) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (isWindows && e.key === 'F5') {
         e.preventDefault()
@@ -175,15 +227,19 @@ function App() {
       } else if (key === 't') {
         e.preventDefault()
         if (shownPostgres) newQueryTab()
+        else if (shownMongo) newMongoQueryTab()
         else newPartiqlTab()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [shownPostgres, shownDynamo])
+  }, [shownPostgres, shownDynamo, shownMongo])
 
   // The shown engine's tabs. DynamoDB's belong to the profile and region they were opened in.
-  const workspace = shownPostgres ? targetKey(shownPostgres) : shownDynamo ? `dynamo|${shownDynamo.connection.profile}|${shownDynamo.connection.region}` : null
+  // MongoDB's, to the server, user and database.
+  const workspace = shownPostgres ? targetKey(shownPostgres)
+    : shownDynamo ? `dynamo|${shownDynamo.connection.profile}|${shownDynamo.connection.region}`
+    : shownMongo ? mongoWorkspace(shownMongo) : null
   const workspaceTabs = tabs.filter((t) => t.workspace === workspace)
   const activeTab = (workspace && activeTabs[workspace]) || ''
   const setActiveTab = (id: string) => {
@@ -284,6 +340,65 @@ function App() {
     }
   }
 
+  // MongoDB's connect screen: a connection picked in its sidebar, a new one,
+  // deleting a saved one, clearing Recent.
+  const pickMongoConnection = (c: MongoSavedConnection, saved: boolean, connect: boolean) => {
+    setMongoSelected(saved ? c.id : null)
+    setMongoFormRequest((r) => ({ config: c.config, savedId: saved ? c.id : null, name: saved ? c.name : '', connect, seq: (r?.seq ?? 0) + 1 }))
+  }
+  const newMongoConnection = async () => {
+    setMongoSelected(null)
+    let config = { uri: '', host: 'localhost', port: 27017, user: '', password: '', database: '', authSource: '', tls: false }
+    try {
+      config = await Mongo.DefaultConfig()
+    } catch { /* keep the blank form */ }
+    setMongoFormRequest((r) => ({ config, savedId: null, name: '', connect: false, seq: (r?.seq ?? 0) + 1 }))
+  }
+  const deleteMongoSaved = async (id: string) => {
+    try {
+      await Mongo.DeleteConnection(id)
+      if (id === mongoSelected) setMongoSelected(null)
+    } catch (err) {
+      setMongoListsError(errorMessage(err))
+    }
+    loadMongoLists()
+  }
+  const clearMongoRecent = async () => {
+    try {
+      await Mongo.ClearRecent()
+    } catch (err) {
+      setMongoListsError(errorMessage(err))
+    }
+    loadMongoLists()
+  }
+  // Another database on the same server: the same connection, so it's
+  // instant; each database keeps its own tabs.
+  const switchMongoDatabase = async (name: string) => {
+    const info = await Mongo.SwitchDatabase(name)
+    setPaletteOpen(false)
+    setMongo(info)
+  }
+  // A saved connection while connected: Connect opens the new one before
+  // closing this one, so a failure keeps everything.
+  const switchMongoConnection = async (c: MongoSavedConnection) => {
+    const info = await Mongo.Connect(c.config)
+    setPaletteOpen(false)
+    setMongo(info)
+    setMongoSelected(c.id)
+    setMongoFormRequest((r) => ({ config: c.config, savedId: c.id, name: c.name, connect: false, seq: (r?.seq ?? 0) + 1 }))
+  }
+  // Back to MongoDB's connect screen; its tabs stay for when you reconnect.
+  const disconnectMongo = async () => {
+    setDisconnecting(true)
+    try {
+      await Mongo.Disconnect()
+      setMongo(null)
+      setPaletteOpen(false)
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
   // Opens a tab, or switches to it if it's already open.
   const openTab = (tab: Tab) => {
     setTabs((current) => (current.some((t) => t.id === tab.id) ? current : [...current, tab]))
@@ -321,6 +436,16 @@ function App() {
     if (!workspace) return
     queryNumber.current += 1
     openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `Query ${queryNumber.current}` })
+  }
+  const openMongoCollection = (name: string) => {
+    if (workspace) openTab({ id: `${workspace}|collection:${name}`, workspace, kind: 'mongo-collection', title: name, collection: name })
+  }
+  // A new MongoDB query tab starts with a find() on the open collection, if any.
+  const queryCollection = useRef('collection') // set below, once the active tab is known
+  const newMongoQueryTab = () => {
+    if (!workspace) return
+    queryNumber.current += 1
+    openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'mongo-query', title: `Query ${queryNumber.current}`, initialText: `${collectionRef(queryCollection.current)}.find({})` })
   }
   const newPartiqlTab = () => {
     if (!workspace) return
@@ -400,7 +525,8 @@ function App() {
 
   // A second tab like this one, right after it: a table with the same
   // filters, a query with the same SQL (not linked to its saved query), a
-  // DynamoDB table from its first page, or a PartiQL tab with the same text.
+  // DynamoDB table from its first page, a PartiQL tab with the same text, a
+  // MongoDB collection with the same filters or query with the same command.
   const duplicateTab = (id: string) => {
     const tab = workspaceTabs.find((t) => t.id === id)
     if (!tab || !workspace) return
@@ -418,6 +544,15 @@ function App() {
     } else if (tab.kind === 'dynamo-table') {
       duplicateSeq.current += 1
       copy = { id: `${tab.id}#${duplicateSeq.current}`, workspace, kind: 'dynamo-table', title: tab.title, table: tab.table }
+    } else if (tab.kind === 'mongo-collection') {
+      duplicateSeq.current += 1
+      copy = {
+        id: `${tab.id}#${duplicateSeq.current}`, workspace, kind: 'mongo-collection', title: tab.title, collection: tab.collection,
+        preset: { filters: state?.mongoFilters ?? tab.preset?.filters ?? [], seq: ++presetSeq.current },
+      }
+    } else if (tab.kind === 'mongo-query') {
+      queryNumber.current += 1
+      copy = { id: `query-${queryNumber.current}`, workspace, kind: 'mongo-query', title: `${tab.title} (copy)`, initialText: state?.sql ?? tab.initialText ?? '' }
     } else if (tab.kind === 'dynamo-query') {
       queryNumber.current += 1
       copy = { id: `query-${queryNumber.current}`, workspace, kind: 'dynamo-query', title: `${tab.title} (copy)`, initialStatement: state?.sql ?? tab.initialStatement ?? '' }
@@ -432,21 +567,26 @@ function App() {
   }
 
   const active = workspaceTabs.find((t) => t.id === activeTab)
+  // For ⌘T, whose key handler outlives this render: which collection a new MongoDB query starts on.
+  queryCollection.current = active?.kind === 'mongo-collection' ? active.collection : mongoCollections?.[0]?.name ?? 'collection'
 
-  // Reload the open tab's rows, if it's a table tab (Postgres or DynamoDB):
+  // Reload the open tab's rows, if it's a table tab (Postgres or DynamoDB)
+  // or a MongoDB collection:
   // never the window (which closed every tab), and never a query tab's SQL
   // (it could change data again). The macOS menu's View → Reload asks the
   // same (menu_darwin.go); the key and the menu both firing for one ⌘R
   // counts once.
   refreshActive.current = () => {
     const now = Date.now()
-    if (now - lastRefresh.current < 300 || (active?.kind !== 'table' && active?.kind !== 'dynamo-table')) return
+    if (now - lastRefresh.current < 300 || (active?.kind !== 'table' && active?.kind !== 'dynamo-table' && active?.kind !== 'mongo-collection')) return
     lastRefresh.current = now
     setRefreshes((current) => ({ ...current, [active.id]: (current[active.id] ?? 0) + 1 }))
   }
   useEffect(() => Events.On('spydb:refresh-tab', () => refreshActive.current()), [])
   const activeTable = active?.kind === 'table' ? active.table.qualifiedName : null
   const activeDynamoTable = active?.kind === 'dynamo-table' ? active.table : null
+  const activeCollection = active?.kind === 'mongo-collection' ? active.collection : null
+  const collectionNames = (mongoCollections ?? []).map((c) => c.name)
 
   return (
     <div className="app">
@@ -465,10 +605,16 @@ function App() {
             {shownDynamo.connection.profile} · {shownDynamo.connection.region}
           </span>
         )}
+        {shownMongo && (
+          <span className="titlebar-status">
+            <span className="status-dot" aria-hidden="true" />
+            {shownMongo.database}
+          </span>
+        )}
       </header>
 
       <div className="workspace">
-        {(connection || dynamo) && (
+        {(connection || dynamo || mongo) && (
           <nav className="rail" aria-label="Sidebar">
             {ENGINES.map(([value, label, short]) => (
               <button key={value} type="button" className={engine === value ? 'rail-btn rail-engine active' : 'rail-btn rail-engine'}
@@ -534,6 +680,26 @@ function App() {
             disconnecting={disconnecting}
           />
         )}
+        {engine === 'mongo' && !mongo && (
+          <MongoConnectionsSidebar
+            lists={mongoLists}
+            error={mongoListsError}
+            selectedId={mongoSelected}
+            onNew={newMongoConnection}
+            onSelect={(c, saved) => pickMongoConnection(c, saved, false)}
+            onOpen={(c) => pickMongoConnection(c, (mongoLists?.saved ?? []).some((s) => s.id === c.id), true)}
+            onDelete={deleteMongoSaved}
+            onClearRecent={clearMongoRecent}
+          />
+        )}
+        {shownMongo && (
+          <MongoSidebar connection={shownMongo} collections={mongoCollections} loading={mongoCollectionsLoading}
+                        error={mongoCollectionsError} onRefresh={loadMongoCollections}
+                        activeCollection={activeCollection} onOpenCollection={openMongoCollection}
+                        onOpenPalette={() => setPaletteOpen(true)}
+                        onSwitchDatabase={switchMongoDatabase} onSwitchConnection={switchMongoConnection}
+                        onDisconnect={disconnectMongo} disconnecting={disconnecting} />
+        )}
         {shownDynamo && (
           <DynamoSidebar connection={shownDynamo.connection} identity={shownDynamo.identity}
                          tables={dynamoTables} loading={dynamoTablesLoading} error={dynamoTablesError}
@@ -542,8 +708,8 @@ function App() {
                          onDisconnect={disconnectDynamo} disconnecting={disconnecting} />
         )}
         <SqlSchemaContext.Provider value={completion}>
-        <main className={shownPostgres || shownDynamo ? 'main-area' : 'content'}>
-          {!shownPostgres && !shownDynamo && (
+        <main className={shownPostgres || shownDynamo || shownMongo ? 'main-area' : 'content'}>
+          {!shownPostgres && !shownDynamo && !shownMongo && (
             <div className="engine-switch" role="tablist" aria-label="Database">
               {ENGINES.map(([value, label]) => (
                 <button key={value} type="button" role="tab" aria-selected={engine === value}
@@ -563,6 +729,14 @@ function App() {
             onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
             hidden={engine !== 'postgres'}
           />
+          {/* Mounted like Postgres's form, so it keeps its values and picks up a connection a window reload left open. */}
+          <MongoConnectForm
+            connection={mongo}
+            onConnectionChange={setMongo}
+            request={mongoFormRequest}
+            onSaved={(c) => { setMongoSelected(c.id); loadMongoLists() }}
+            hidden={engine !== 'mongo'}
+          />
           {engine === 'dynamo' && !dynamo && (
             <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} />
           )}
@@ -574,6 +748,17 @@ function App() {
                 Signed in as {shownDynamo.identity.arn.split('/').pop()} (account {shownDynamo.identity.account}) with the profile “{shownDynamo.connection.profile}”.
                 Pick a table on the left to see its items, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
                 Press <span className="keys"><kbd>Ctrl</kbd> <kbd>T</kbd></span> for a PartiQL tab, or click <kbd>&lt;/&gt;</kbd> in a table.
+              </p>
+            </div>
+          )}
+          {shownMongo && workspaceTabs.length === 0 && (
+            <div className="workspace-empty">
+              <span className="workspace-empty-icon"><TableIcon /></span>
+              <p className="workspace-empty-title">MongoDB · {shownMongo.database}</p>
+              <p className="workspace-empty-text">
+                Connected to {shownMongo.host}{shownMongo.user ? ` as ${shownMongo.user}` : ''} (MongoDB {shownMongo.serverVersion}, {shownMongo.topology}).
+                Pick a collection on the left, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search collections</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
+                Press <span className="keys"><kbd>Ctrl</kbd> <kbd>T</kbd></span> for a query tab, or click <kbd>&lt;/&gt;</kbd> in a collection.
               </p>
             </div>
           )}
@@ -615,6 +800,17 @@ function App() {
                 )}
                 {tab.kind === 'dynamo-table' && (
                   <DynamoTableTab table={tab.table} refreshSignal={refreshes[tab.id]} onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                )}
+                {tab.kind === 'mongo-collection' && (
+                  <MongoCollectionTab collection={tab.collection} tabId={tab.id} collections={collectionNames} preset={tab.preset}
+                                      onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)}
+                                      onFiltersChange={(filters) => { tabState.current[tab.id] = { ...tabState.current[tab.id], mongoFilters: filters } }}
+                                      onCollectionsChange={loadMongoCollections} refreshSignal={refreshes[tab.id]} />
+                )}
+                {tab.kind === 'mongo-query' && (
+                  <MongoQueryTab tabId={tab.id} initialText={tab.initialText ?? ''} active={shown} collections={collectionNames}
+                                 onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} onRan={loadMongoCollections}
+                                 onTextChange={(sql) => { tabState.current[tab.id] = { ...tabState.current[tab.id], sql } }} />
                 )}
                 {tab.kind === 'dynamo-query' && (
                   <DynamoQueryTab initialStatement={tab.initialStatement ?? ''} active={shown}
@@ -663,6 +859,14 @@ function App() {
           onClose={() => setPaletteOpen(false)}
         />
       )}
+      {shownMongo && paletteOpen && (
+        <TablePalette
+          // Collections have no schemas: one nameless group, shown without a prefix.
+          schemas={[{ name: '', tables: (mongoCollections ?? []).map((c) => ({ schema: '', name: c.name, kind: c.kind === 'view' ? 'view' : 'table', qualifiedName: c.name, estimatedRows: c.count })) }]}
+          onOpen={(table) => { openMongoCollection(table.name); setPaletteOpen(false) }}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
       {shownDynamo && paletteOpen && (
         <TablePalette
           // DynamoDB has no schemas: one nameless group, shown without a "schema." prefix.
@@ -675,9 +879,9 @@ function App() {
   )
 }
 
-type Engine = 'postgres' | 'dynamo'
+type Engine = 'postgres' | 'dynamo' | 'mongo'
 
 // The engines, as the switch and the rail name them.
-const ENGINES: [Engine, string, string][] = [['postgres', 'PostgreSQL', 'Pg'], ['dynamo', 'DynamoDB', 'Dy']]
+const ENGINES: [Engine, string, string][] = [['postgres', 'PostgreSQL', 'Pg'], ['dynamo', 'DynamoDB', 'Dy'], ['mongo', 'MongoDB', 'Mg']]
 
 export default App

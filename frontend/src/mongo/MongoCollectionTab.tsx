@@ -7,6 +7,7 @@ import { addSeen, docColumns, docKeys, docRows, fieldType, NEW_FIELD_TYPES, toDo
 import MongoQueryEditor from './MongoQueryEditor'
 import { mongoStore, replaceDocs } from './mongoStore'
 import { collectionRef } from './shellText'
+import { useDismiss } from '../useDismiss'
 
 const PAGE_SIZE = 50
 
@@ -127,7 +128,7 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
   const [docs, setDocs] = useState<Doc[]>([])
   const [seen, setSeen] = useState<SeenFields>({})
   const [added, setAdded] = useState<NewField[]>([]) // "Add field" columns no document has yet
-  const [adding, setAdding] = useState<{ name: string; type: string; error?: string } | null>(null)
+  const [adding, setAdding] = useState<Adding | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pageInput, setPageInput] = useState('1')
@@ -316,25 +317,15 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
           {data && ` · ${data.durationMs} ms`}
         </span>
         <div className="grid-pager">
-          {adding ? (
-            <form className="mongo-add-field" onSubmit={(e) => { e.preventDefault(); addField() }}>
-              <input className="input" value={adding.name} autoFocus placeholder="Field name" aria-label="New field’s name"
-                     onChange={(e) => setAdding({ ...adding, name: e.target.value, error: undefined })}
-                     onKeyDown={(e) => { if (e.key === 'Escape') setAdding(null) }}
-                     spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-              <select className="select" value={adding.type} aria-label="New field’s type" onChange={(e) => setAdding({ ...adding, type: e.target.value })}>
-                {NEW_FIELD_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              <button type="submit" className="btn btn-primary btn-sm">Add</button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding(null)}>Cancel</button>
-              {adding.error && <span className="page-error">{adding.error}</span>}
-            </form>
-          ) : (
-            <button type="button" className="btn btn-secondary btn-sm export-btn" onClick={() => setAdding({ name: '', type: 'string' })}
-                    title="Add a column; type in its cells to add the field to those documents, then save">
+          <div className="add-field-wrap">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding((a) => (a ? null : { name: '', type: 'string' }))}
+                    title="Add a field: a new column to type values into, saved with the documents you fill in">
               <PlusIcon /> Field
             </button>
-          )}
+            {adding && (
+              <AddField adding={adding} onChange={setAdding} onAdd={addField} onClose={() => setAdding(null)} />
+            )}
+          </div>
           <button type="button" className="sidebar-icon-btn" onClick={() => setReloadToken((t) => t + 1)} disabled={loading}
                   aria-label="Reload documents" title="Reload">
             {loading ? <Spinner /> : <RefreshIcon />}
@@ -356,5 +347,32 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
       {docsView}
       {results && <div className="results-pane" hidden={!showResults}>{results}</div>}
     </div>
+  )
+}
+
+type Adding = { name: string; type: string; error?: string }
+
+// The Add field form (the look of DynamoDB's): a name and what its values
+// are. The field is a column until a document has it; values typed into it
+// save with their documents.
+function AddField({ adding, onChange, onAdd, onClose }: { adding: Adding; onChange: (a: Adding) => void; onAdd: () => void; onClose: () => void }) {
+  const root = useRef<HTMLFormElement>(null)
+  useDismiss(true, root, onClose)
+  return (
+    <form className="add-field" ref={root} onSubmit={(e) => { e.preventDefault(); onAdd() }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}>
+      <p className="add-field-title">Add a field</p>
+      <input className="input" value={adding.name} onChange={(e) => onChange({ ...adding, name: e.target.value, error: undefined })}
+             placeholder="Field name" aria-label="Field name" autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+      <select className="select" value={adding.type} onChange={(e) => onChange({ ...adding, type: e.target.value })} aria-label="Field type">
+        {NEW_FIELD_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select>
+      {adding.error && <p className="add-field-note">{adding.error}</p>}
+      <p className="add-field-note">It appears as a column; fill it in for the documents you want, then save.</p>
+      <div className="save-query-actions">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={!adding.name.trim()}>Add</button>
+      </div>
+    </form>
   )
 }

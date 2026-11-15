@@ -6,6 +6,7 @@ import { ActivityIcon, CodeIcon, TableIcon, XIcon } from './icons'
 import { KindIcon, kindClass, tableTooltip } from './tableMeta'
 import type { CloseCommand } from './tabActions'
 import type { FilterPreset } from './TableTab'
+import type { MongoPreset } from './mongo/MongoCollectionTab'
 import { useDismiss } from './useDismiss'
 
 // workspace: the connection the tab belongs to (targetKey); other
@@ -16,6 +17,8 @@ export type Tab =
   | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo; preset?: FilterPreset }
   | { id: string; workspace: string; kind: 'dynamo-table'; title: string; table: string } // table: its name
   | { id: string; workspace: string; kind: 'dynamo-query'; title: string; initialStatement?: string } // a PartiQL tab
+  | { id: string; workspace: string; kind: 'mongo-collection'; title: string; collection: string; preset?: MongoPreset }
+  | { id: string; workspace: string; kind: 'mongo-query'; title: string; initialText?: string } // a MongoDB query tab
 
 type Props = {
   tabs: Tab[]
@@ -43,7 +46,8 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
   }, [tabs])
 
   // A table tab's table name: Postgres's without its schema, DynamoDB's as it is.
-  const tableName = (tab: Tab) => (tab.kind === 'table' ? tab.table.name : tab.kind === 'dynamo-table' ? tab.table : null)
+  const tableName = (tab: Tab) => (tab.kind === 'table' ? tab.table.name : tab.kind === 'dynamo-table' ? tab.table
+    : tab.kind === 'mongo-collection' ? tab.collection : null)
   const copyName = async (tab: Tab) => {
     const name = tableName(tab)
     if (name === null) return
@@ -59,7 +63,8 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
     <div className="tabbar" role="tablist" aria-label="Open tabs">
       {tabs.map((tab) => {
         const active = tab.id === activeId
-        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' ? 'kind-table'
+        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' || tab.kind === 'mongo-collection' ? 'kind-table'
+          : tab.kind === 'mongo-query' ? 'kind-query'
           : tab.kind === 'dynamo-query' ? 'kind-query' : `kind-${tab.kind}`
 
         const onKeyDown = (e: KeyboardEvent) => {
@@ -94,7 +99,8 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
               {(tab.kind === 'query' || tab.kind === 'dynamo-query') && <CodeIcon />}
               {tab.kind === 'connections' && <ActivityIcon />}
               {tab.kind === 'table' && <KindIcon kind={tab.table.kind} />}
-              {tab.kind === 'dynamo-table' && <TableIcon />}
+              {(tab.kind === 'dynamo-table' || tab.kind === 'mongo-collection') && <TableIcon />}
+              {tab.kind === 'mongo-query' && <CodeIcon />}
             </span>
             <span className="tab-title">{tab.title}</span>
             {dirtyIds.has(tab.id) && <span className="tab-dirty" title="Unsaved changes" aria-label="Unsaved changes" />}
