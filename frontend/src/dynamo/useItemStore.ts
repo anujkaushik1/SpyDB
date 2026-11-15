@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type SetStateAction } from 'react'
+import { useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { Service as Dynamo, type TableDetails } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import type { GridStore } from '../DataGrid'
 import { itemTypes, type Item, type NewField, type NewFieldType } from './itemGrid'
@@ -20,6 +20,9 @@ type Options = {
 // deleted ones leave, and nothing reloads (which would lose the pages
 // loaded with Load more). No store, and why, when they can't be edited.
 export function useItemStore({ table, details, items, setItems, extra, onNewFields, onStale }: Options): { store?: GridStore; readOnly?: string } {
+  // The callbacks as of the latest render (the store is only rebuilt when the items change).
+  const latest = useRef({ onNewFields, onStale })
+  latest.current = { onNewFields, onStale }
   return useMemo(() => {
     if (!table) return { readOnly: 'not from one table' }
     if (!details) return { readOnly: 'SpyDB couldn’t read the table’s key, which saving needs' }
@@ -46,7 +49,7 @@ export function useItemStore({ table, details, items, setItems, extra, onNewFiel
           })
           return next
         })
-        if (saved.length < edits.length || saved.some((item) => !item)) onStale()
+        if (saved.length < edits.length || saved.some((item) => !item)) latest.current.onStale()
         return edits.length
       },
       delete: async (rows) => {
@@ -64,7 +67,7 @@ export function useItemStore({ table, details, items, setItems, extra, onNewFiel
           for (const c of result.changes) {
             if (!known.has(c.field) && c.value !== undefined) added.set(c.field, (c.type as NewFieldType | undefined) ?? 'S')
           }
-          if (added.size > 0) onNewFields([...added].map(([name, type]) => ({ name, type })))
+          if (added.size > 0) latest.current.onNewFields([...added].map(([name, type]) => ({ name, type })))
         }
         return result
       },
