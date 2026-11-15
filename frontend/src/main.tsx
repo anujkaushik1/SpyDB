@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ZoomService } from '../bindings/github.com/anujkaushik1/SpyDB'
 import App from './App'
+import UpdateCheck from './UpdateCheck'
 import { isMac } from './platform'
 import { zoomAction } from './zoomKeys'
 
@@ -34,5 +35,6 @@ window.addEventListener('unhandledrejection', (e) => {
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />
+    <UpdateCheck />
   </React.StrictMode>,
 )

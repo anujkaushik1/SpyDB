@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/anujkaushik1/SpyDB/postgres"
+	"github.com/anujkaushik1/SpyDB/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -32,6 +33,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(&postgres.DBService{}),
 			application.NewService(zoom),
+			application.NewService(&updater.Service{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

@@ -24,6 +24,12 @@ wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubun
 
 Both commands stay the same for every release.
 
+### Updates
+
+From 0.1.8, SpyDB checks for a newer release each time it opens and offers to install it: **Install and restart** downloads it, checks it and swaps it in (on Ubuntu the system asks for your password), or **Later**. Where it can't install by itself (a Mac user who can't change `/Applications`, an Ubuntu without `pkexec`), it shows the command above instead.
+
+To require an update, raise the platform's minimum in [`updates.json`](updates.json) on `main`: SpyDB older than that offers the update without **Later** (only **Quit**). Raise `mac` and `ubuntu` separately, so a Mac-only fix doesn't push Ubuntu users to update. A minimum only takes effect once a release that meets it is out.
+
 ## Features
 
 - **Connect** from a form or a pasted `postgres://` URL. Test first, save connections by name, and reconnect from the 10 most recent. Errors are in plain language ("Nothing is accepting connections on localhost:5433").
@@ -222,6 +228,7 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
 | `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
 | `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
+| `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`) |
 
 | React (window), in `frontend/src/` | |
 |---|---|
@@ -232,3 +239,4 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `SchemaSidebar.tsx`, `DatabasePicker.tsx`, `TablePalette.tsx` | Sidebar, switcher, ⌘P |
 | `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
 | `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ImportDialog.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, import, active connections |
+| `UpdateCheck.tsx` | The update offered when SpyDB opens |
