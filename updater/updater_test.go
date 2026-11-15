@@ -34,11 +34,14 @@ func TestNewer(t *testing.T) {
 }
 
 // fakeGitHub answers as GitHub does: the latest-release page redirects to
-// the release's tag, and policy is updates.json ("" for none: 404).
+// the release's tag, the release has this platform's file (a redirect to
+// where it's stored), and policy is updates.json ("" for none: 404).
 func fakeGitHub(t *testing.T, latest, policy string) *Service {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/download/v" + latest + "/" + releaseFile(latest):
+			http.Redirect(w, r, "https://release-assets.example/"+releaseFile(latest), http.StatusFound)
 		case "/releases/latest":
 			http.Redirect(w, r, "https://github.com/anujkaushik1/SpyDB/releases/tag/v"+latest, http.StatusFound)
 		case "/updates.json":
@@ -92,6 +95,19 @@ func TestCheck(t *testing.T) {
 				t.Errorf("platform %q command %q", st.Platform, st.Command)
 			}
 		})
+	}
+}
+
+// A release without this platform's file (its build failed) offers nothing,
+// required or not: the install would only fail to download it.
+func TestCheckFileMissing(t *testing.T) {
+	if platform == "" {
+		t.Skip("no updates on this platform")
+	}
+	s := fakeGitHub(t, "0.1.7", `{"minimum": {"mac": "0.1.7", "ubuntu": "0.1.7", "windows": "0.1.7"}}`)
+	s.DownloadURL += "-elsewhere" // nothing there: 404
+	if st := s.check(t.Context(), writableInstallation(t), "0.1.6"); st.Latest != "0.1.7" || st.Available || st.Required {
+		t.Errorf("file missing: %+v", st)
 	}
 }
 

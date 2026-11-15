@@ -7,11 +7,11 @@
 		"0409": {
 			"FileVersion": "0.1.4",
 			"ProductVersion": "0.1.4",
-			"CompanyName": "My Company",
-			"FileDescription": "A SpyDB application",
-			"LegalCopyright": "© 2026, My Company",
+			"CompanyName": "Anuj Kaushik",
+			"FileDescription": "SpyDB",
+			"LegalCopyright": "© 2026, Anuj Kaushik",
 			"ProductName": "SpyDB",
-			"Comments": "This is a comment"
+			"Comments": "A fast, lightweight Postgres desktop client"
 		}
 	}
 }

@@ -55,7 +55,7 @@ function UpdateDialog({ status, onLater }: { status: Status, onLater: () => void
   }
   const later = () => { if (!installing && !status.required) onLater() }
 
-  const where = status.platform === 'mac' ? 'Terminal' : 'a terminal'
+  const where = status.platform === 'mac' ? 'Terminal' : status.platform === 'windows' ? 'PowerShell' : 'a terminal'
   return (
     <div className="palette-backdrop centered" onMouseDown={later}>
       <div className="save-query update" role="alertdialog" aria-label="Update SpyDB"
@@ -84,7 +84,9 @@ function UpdateDialog({ status, onLater }: { status: Status, onLater: () => void
             {progress.step === 'install' && (status.platform === 'ubuntu'
               ? 'Installing… Type your password in the window that opens.'
               : 'Installing…')}
-            {progress.step === 'restart' && 'Restarting SpyDB…'}
+            {progress.step === 'restart' && (status.platform === 'windows'
+              ? 'SpyDB closes to install it, then opens again in a few seconds…'
+              : 'Restarting SpyDB…')}
           </p>
         )}
         {error && (

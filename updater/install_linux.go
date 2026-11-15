@@ -19,6 +19,9 @@ const platform = "ubuntu"
 
 const manualCommand = "wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubuntu.sh | sh"
 
+// releaseFile is this platform's file on release version.
+func releaseFile(version string) string { return "spydb_" + version + "_amd64.deb" }
+
 // program is where the .deb installs SpyDB (build/linux/nfpm/nfpm.yaml).
 const program = "/usr/bin/spydb"
 
@@ -76,7 +79,7 @@ func (installation) install(ctx context.Context, downloadURL, version string, pr
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		return "", err
 	}
-	name := "spydb_" + version + "_amd64.deb"
+	name := releaseFile(version)
 	deb := filepath.Join(tmp, name)
 	if err := download(ctx, downloadURL+"/v"+version+"/"+name, deb, progress); err != nil {
 		return "", err

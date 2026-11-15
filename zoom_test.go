@@ -3,16 +3,19 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/anujkaushik1/SpyDB/appdata"
 )
 
-// A settings folder of the test's own, on macOS and Linux alike.
+// A settings folder of the test's own, on macOS, Linux and Windows alike
+// (Windows keeps it in %AppData%).
 func zoomHome(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AppData", t.TempDir())
 	path, err := appdata.Path(zoomFile)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +39,8 @@ func TestSavedZoom(t *testing.T) {
 	if string(data) != "{\n  \"zoom\": 1.21\n}" {
 		t.Errorf("zoom.json is %q", data)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+	// Windows has no file modes: the user's profile keeps the folder theirs.
+	if info, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("zoom.json: %v, %v (want readable by you only)", info.Mode().Perm(), err)
 	}
 

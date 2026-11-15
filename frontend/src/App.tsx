@@ -20,6 +20,7 @@ import TablePalette from './TablePalette'
 import TableTab, { type FollowTarget } from './TableTab'
 import { targetKey } from './connectionSearch'
 import { CodeIcon, TableIcon } from './icons'
+import { isWindows } from './platform'
 import { upsertQuery } from './savedQueries'
 import { activeAfterClose, tabsToClose, type CloseCommand } from './tabActions'
 import { completionSchema, type CompletionSchema } from './sqlCompletion'
@@ -147,10 +148,16 @@ function App() {
   // While connected: ⌘P / Ctrl+P opens the table switcher (Postgres or
   // DynamoDB), ⌘T / Ctrl+T a new query tab (Postgres only, for now),
   // ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows instead
-  // of the whole window.
+  // of the whole window; so does F5 on Windows, where that's the key for it
+  // (the window itself never reloads: Wails turns WebView2's off).
   useEffect(() => {
     if (!connection && !dynamo) return
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isWindows && e.key === 'F5') {
+        e.preventDefault()
+        refreshActive.current()
+        return
+      }
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
       if (key === 'r') {

@@ -18,6 +18,9 @@ const platform = "mac"
 
 const manualCommand = "curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac.sh | sh"
 
+// releaseFile is this platform's file on release version.
+func releaseFile(string) string { return "SpyDB-mac.zip" }
+
 // bundleID is the released app's; a dev build's is bundleID + ".dev".
 const bundleID = "com.anujkaushik.spydb"
 
@@ -73,7 +76,7 @@ func (i installation) install(ctx context.Context, downloadURL, version string, 
 		}
 	}()
 	zip := filepath.Join(tmp, "SpyDB-mac.zip")
-	if err := download(ctx, downloadURL+"/v"+version+"/SpyDB-mac.zip", zip, progress); err != nil {
+	if err := download(ctx, downloadURL+"/v"+version+"/"+releaseFile(version), zip, progress); err != nil {
 		return "", err
 	}
 
