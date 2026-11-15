@@ -71,6 +71,14 @@ export function Connect(profile: string): $CancellablePromise<$models.Connection
 }
 
 /**
+ * DeleteItems deletes items of a table, all of them or none, checking first
+ * (and again while deleting) that none changed since you loaded it.
+ */
+export function DeleteItems(table: string, deletes: $models.ItemDelete[] | null): $CancellablePromise<number> {
+    return $Call.ByID(2900975203, table, deletes);
+}
+
+/**
  * DescribeTable says what a table's key and indexes are and about how many
  * items it has. FindItems keeps using this answer (see tableDetails).
  */
@@ -112,4 +120,30 @@ export function ListTables(): $CancellablePromise<string[] | null> {
  */
 export function PlanFind(table: string, filters: $models.Filter[] | null): $CancellablePromise<$models.FindPlan> {
     return $Call.ByID(3402430042, table, filters);
+}
+
+/**
+ * RunPartiQL runs one PartiQL statement (DynamoDB's SQL): SELECT, INSERT,
+ * UPDATE or DELETE, e.g. SELECT * FROM "orders" WHERE "userId" = 'u1'. A
+ * SELECT reads 50 items at a time, like the table tab, and next (from the
+ * page before) gets the page after: with a key in its WHERE AWS goes straight
+ * to those items, otherwise it reads the table page by page. UPDATE and
+ * DELETE change one item, which their WHERE must name by its whole key.
+ */
+export function RunPartiQL(statement: string, next: string): $CancellablePromise<$models.PartiQLResult> {
+    return $Call.ByID(1513917116, statement, next);
+}
+
+/**
+ * SaveItems saves changed fields of a table's items, all of them or none.
+ * Each item is read first (a strongly consistent read) to check that what
+ * you changed still holds what you saw, and the write repeats that check,
+ * so a change made meanwhile (by anyone) stops the save rather than being
+ * overwritten. Fields keep their DynamoDB type: a number stays a number.
+ * One item is one UpdateItem; more are one transaction (TransactWriteItems,
+ * which AWS charges double for). It returns the items as saved, in order; an
+ * entry is nil if an item couldn't be read back (it was saved all the same).
+ */
+export function SaveItems(table: string, edits: $models.ItemEdit[] | null): $CancellablePromise<({ [_ in string]?: $models.Value } | null)[] | null> {
+    return $Call.ByID(2272635901, table, edits);
 }

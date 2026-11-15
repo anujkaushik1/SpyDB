@@ -2,8 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Service as Dynamo, type Filter, type FindPlan, type TableDetails } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
 import DataGrid from '../DataGrid'
-import { KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
-import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, type Item, type SeenFields } from './itemGrid'
+import { CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
+import { useDismiss } from '../useDismiss'
+import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, NEW_FIELD_TYPES, type Item, type NewField, type NewFieldType, type SeenFields } from './itemGrid'
+import { itemKey } from './itemStore'
+import PartiqlEditor from './PartiqlEditor'
+import { useItemStore } from './useItemStore'
 
 // Keys match the conditions in find.go (and Postgres's where they mean the same).
 const OPERATORS = [
@@ -26,18 +30,29 @@ type DraftFilter = { key: number; field: string; operator: string; value: string
 const planText = (plan: FindPlan) =>
   !plan.query ? 'checks every item' : plan.index ? `uses ${plan.index}` : 'uses the table’s key'
 
-// One DynamoDB table, read-only: its key and size along the top
+// One DynamoDB table: its key and size along the top
 // (dynamo.Service.DescribeTable), a filter bar like Postgres's, then the
 // items that match a page at a time (FindItems): Load more adds the next
 // page under the ones loaded. A filter with "equals" on a key field lets AWS
 // go straight to those items (it says which index beside Apply); otherwise
-// every item is checked, 50 a page.
+// every item is checked, 50 a page. Items are edited as Postgres rows are
+// (useItemStore): cells, Add field for a new column, the JSON view, Delete.
+// </> swaps the filter bar for a PartiQL editor; its results take the
+// items' place until "Show table items".
 type Props = {
   table: string
   refreshSignal?: number // ⌘R / Ctrl+R: a change reloads from the first page, as ↻ does
+  onDirtyChange?: (dirty: boolean) => void // unsaved edits in this tab
 }
 
-export default function DynamoTableTab({ table, refreshSignal }: Props) {
+export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: Props) {
+  const [sqlMode, setSqlMode] = useState(false)
+  const [itemsDirty, setItemsDirty] = useState(false)
+  const [resultsDirty, setResultsDirty] = useState(false)
+  useEffect(() => onDirtyChange?.(itemsDirty || resultsDirty), [itemsDirty || resultsDirty])
+  const [extra, setExtra] = useState<NewField[]>([]) // fields added that no item has yet
+  const [adding, setAdding] = useState(false) // the Add field form is open
+  const grid = useRef<HTMLDivElement>(null)
   const [details, setDetails] = useState<TableDetails | null>(null)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [items, setItems] = useState<Item[]>([])
@@ -63,7 +78,6 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
       const page = await Dynamo.FindItems(table, filters, from)
       const got = (page.items ?? []).filter((item): item is Item => item !== null)
       setItems((current) => (from === '' ? got : [...current, ...got]))
-      setSeen((s) => addSeen(s, got))
       setChecked((n) => (from === '' ? page.checked : n + page.checked))
       setReadBy(page.plan)
       setNext(page.next)
@@ -77,10 +91,12 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
     }
   }
 
+  // Fields added but not typed into go; ones with unsaved values stay.
   const reload = () => {
     Dynamo.DescribeTable(table)
       .then((d) => { setDetails(d); setDetailsError(null) })
       .catch((err) => setDetailsError(errorMessage(err)))
+    if (!itemsDirty) setExtra([])
     load('', applied)
   }
 
@@ -89,9 +105,28 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
   }, [table])
   // Not while a page is loading: ↻ is off then too.
   useEffect(() => { if (refreshSignal && !loading) reload() }, [refreshSignal])
+  // Saved items can bring new fields too.
+  useEffect(() => setSeen((s) => addSeen(s, items)), [items])
 
-  const columns = useMemo(() => itemColumns(details, items), [details, items])
+  const { store, readOnly } = useItemStore({
+    table, details, items, setItems, extra,
+    onNewFields: (fields) => setExtra((current) => [...current, ...fields]),
+    onStale: reload,
+  })
+  const columns = useMemo(() => itemColumns(details, items, extra), [details, items, extra])
   const rows = useMemo(() => itemRows(columns, items), [columns, items])
+  const keyNames = store?.keyNames ?? []
+  const rowKeys = useMemo(() => items.map((item) => itemKey({ keyNames, types: {} }, item)), [items, keyNames.join('\n')])
+  // A field just added: scroll right to its column.
+  useEffect(() => {
+    if (extra.length > 0) grid.current?.scrollTo({ left: grid.current.scrollWidth, behavior: 'smooth' })
+  }, [extra.length])
+  const toggle = (on: boolean) => (
+    <button type="button" className={on ? 'sql-toggle on' : 'sql-toggle'} onClick={() => setSqlMode(!on)} aria-pressed={on}
+            title={on ? 'Back to the filters' : 'Write PartiQL (DynamoDB’s SQL)'}>
+      <CodeIcon />
+    </button>
+  )
   const fields = useMemo(() => fieldOptions(details, seen), [details, seen])
   const firstField = fields.keys[0]?.field ?? fields.others[0] ?? ''
 
@@ -135,6 +170,7 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
     }}>
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
+          {i === 0 && toggle(false)}
           <select className="select select-column dynamo-field" aria-label="Filter field" value={f.field || firstField}
                   onChange={(e) => updateDraft(f.key, { field: e.target.value })}>
             {fields.keys.length > 0 && (
@@ -192,6 +228,9 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
   )
 
   return (
+    <PartiqlEditor initialStatement={`SELECT * FROM "${table.replace(/"/g, '""')}"`} active={sqlMode} leading={toggle(true)}
+                   onChanged={reload} onDirtyChange={setResultsDirty}>
+      {(pq) => (
     <div className="table-view">
       <div className="dynamo-table-bar">
         {details && (
@@ -213,9 +252,10 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
         {!details && detailsError && <span className="dynamo-table-error">{detailsError}</span>}
         {!details && !detailsError && <span className="dynamo-table-size">Loading…</span>}
       </div>
-      {filterBar}
+      {sqlMode ? pq.editor : filterBar}
+      {sqlMode && pq.notice}
 
-      <div className="rows-pane">
+      <div className="rows-pane" hidden={sqlMode && pq.results !== null}>
         {error && (
           <div className="table-error">
             <Banner tone="error" title="Couldn’t load items" message={error} />
@@ -227,9 +267,13 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
           rows={rows}
           firstRowNumber={1}
           target={null}
-          rowKeys={[]}
-          readOnlyReason="DynamoDB tables are read-only for now"
+          store={store}
+          rowKeys={store ? rowKeys : []}
+          readOnlyReason={readOnly}
+          canDelete
+          onDirtyChange={setItemsDirty}
           wrapClass={loading && loaded ? 'grid-wrap loading' : 'grid-wrap'}
+          wrapRef={grid}
         >
           {loaded && !loading && items.length === 0 && (
             <p className="grid-empty">
@@ -248,10 +292,20 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
                 : `${items.length.toLocaleString()} item${items.length === 1 ? '' : 's'} loaded${next ? '' : ' · all of them'}`),
               loaded && filtered && readBy && planText(readBy).replace('checks', 'checked'),
               durationMs != null && `${durationMs} ms`,
-              'read-only',
+              details && (store ? 'double-click a cell to edit' : `read-only: ${readOnly}`),
             ].filter(Boolean).join(' · ')}
           </span>
           <div className="grid-pager">
+            <div className="add-field-wrap">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding((a) => !a)} disabled={!store}
+                      title={store ? 'Add a field: a new column to type values into, saved with the items you fill in' : `Can’t add fields: ${readOnly}`}>
+                <PlusIcon /> Field
+              </button>
+              {adding && (
+                <AddField taken={columns.map((c) => c.name)} onClose={() => setAdding(false)}
+                          onAdd={(field) => { setExtra((current) => [...current, field]); setAdding(false) }} />
+              )}
+            </div>
             <button type="button" className="sidebar-icon-btn" onClick={reload} disabled={loading}
                     aria-label="Reload items" title="Reload from the first page">
               {loading ? <Spinner /> : <RefreshIcon />}
@@ -263,6 +317,37 @@ export default function DynamoTableTab({ table, refreshSignal }: Props) {
           </div>
         </footer>
       </div>
+      {pq.results && <div className="results-pane" hidden={!sqlMode}>{pq.results}</div>}
     </div>
+      )}
+    </PartiqlEditor>
+  )
+}
+
+// The Add field form: a name and what its values are. The field is a column
+// until an item has it; values typed into it save with their items.
+function AddField({ taken, onAdd, onClose }: { taken: string[]; onAdd: (field: NewField) => void; onClose: () => void }) {
+  const root = useRef<HTMLFormElement>(null)
+  const [name, setName] = useState('')
+  const [type, setType] = useState<NewFieldType>('S')
+  useDismiss(true, root, onClose)
+  const trimmed = name.trim()
+  const clash = taken.includes(trimmed)
+  return (
+    <form className="add-field" ref={root} onSubmit={(e) => { e.preventDefault(); if (trimmed && !clash) onAdd({ name: trimmed, type }) }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}>
+      <p className="add-field-title">Add a field</p>
+      <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Field name" aria-label="Field name"
+             autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+      <select className="select" value={type} onChange={(e) => setType(e.target.value as NewFieldType)} aria-label="Field type">
+        {NEW_FIELD_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
+      </select>
+      {clash && <p className="add-field-note">“{trimmed}” is already a column.</p>}
+      <p className="add-field-note">It appears as a column; fill it in for the items you want, then save.</p>
+      <div className="save-query-actions">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={!trimmed || clash}>Add</button>
+      </div>
+    </form>
   )
 }

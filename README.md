@@ -61,6 +61,16 @@ To require an update, raise the platform's minimum in [`updates.json`](updates.j
 - **Saved queries** in a left rail, shared by all connections.
 - **Active connections:** everyone connected to the server, with their state and current or last query.
 
+### DynamoDB
+
+- **Sign in** with an AWS profile from `~/.aws` (keys, SSO or browser sign-in); SpyDB stores no keys.
+- **Tables:** 50 items at a time with Load more, and filters that use a table or index key when they can (it says which) instead of reading every item.
+- **Edit in place:** type in a cell, add a field as a new column (text, number, boolean or JSON), or edit an item as JSON, where adding a key adds the field and deleting one removes it. Fields keep their DynamoDB type (a number stays a number; sets stay sets). Saves are checked like Postgres's: every item must still hold what you saw, and several items save in one transaction, all or none.
+- **Delete** items from the right-click menu, after a confirmation.
+- **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time and its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
+
+**Switch engines without disconnecting:** Pg / Dy in the left rail. Each engine stays connected, with its tabs, while you use the other.
+
 ## How it works
 
 ```

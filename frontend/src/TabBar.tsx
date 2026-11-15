@@ -15,6 +15,7 @@ export type Tab =
   | { id: string; workspace: string; kind: 'connections'; title: string; config: DBConfig }
   | { id: string; workspace: string; kind: 'table'; title: string; table: TableInfo; preset?: FilterPreset }
   | { id: string; workspace: string; kind: 'dynamo-table'; title: string; table: string } // table: its name
+  | { id: string; workspace: string; kind: 'dynamo-query'; title: string; initialStatement?: string } // a PartiQL tab
 
 type Props = {
   tabs: Tab[]
@@ -58,7 +59,8 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
     <div className="tabbar" role="tablist" aria-label="Open tabs">
       {tabs.map((tab) => {
         const active = tab.id === activeId
-        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' ? 'kind-table' : `kind-${tab.kind}`
+        const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' ? 'kind-table'
+          : tab.kind === 'dynamo-query' ? 'kind-query' : `kind-${tab.kind}`
 
         const onKeyDown = (e: KeyboardEvent) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -89,7 +91,7 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
             title={tab.kind === 'table' ? tableTooltip(tab.table) : tab.title}
           >
             <span className="tab-icon">
-              {tab.kind === 'query' && <CodeIcon />}
+              {(tab.kind === 'query' || tab.kind === 'dynamo-query') && <CodeIcon />}
               {tab.kind === 'connections' && <ActivityIcon />}
               {tab.kind === 'table' && <KindIcon kind={tab.table.kind} />}
               {tab.kind === 'dynamo-table' && <TableIcon />}

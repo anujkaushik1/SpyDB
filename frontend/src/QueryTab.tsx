@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useState } from 'react'
 import Banner, { errorMessage } from './Banner'
+import Playground, { Shortcuts } from './Playground'
 import SaveQueryDialog from './SaveQueryDialog'
 import SqlEditor from './SqlEditor'
 import { modKey } from './platform'
-import { dragY } from './resize'
 import { suggestName } from './savedQueries'
 
 type Props = {
@@ -17,26 +17,6 @@ type Props = {
   onDirtyChange: (dirty: boolean) => void
   onSaveQuery: (sql: string, name: string | null) => Promise<void> // name null: update the linked query
   onSqlChange?: (sql: string) => void // the editor's text as typed, for Duplicate
-}
-
-// The editor's share of the tab's height, remembered for new tabs.
-const SHARE_KEY = 'spydb.editorShare'
-const DEFAULT_SHARE = 0.45
-const clampShare = (share: number) => Math.min(0.85, Math.max(0.15, share))
-function storedShare() {
-  try {
-    const n = Number(localStorage.getItem(SHARE_KEY))
-    return n ? clampShare(n) : DEFAULT_SHARE
-  } catch {
-    return DEFAULT_SHARE
-  }
-}
-function storeShare(share: number) {
-  try {
-    localStorage.setItem(SHARE_KEY, String(share))
-  } catch {
-    // Storage unavailable: new tabs start at the default.
-  }
 }
 
 // What the results area lists before anything has run.
@@ -82,25 +62,6 @@ export default function QueryTab({ tabId, title, initialSql, linked, database, a
     }
   }
 
-  // The divider: drag, double-click to reset, or ↑ / ↓ when focused.
-  const [share, setShare] = useState(storedShare)
-  const area = useRef<HTMLDivElement>(null)
-  const changeShare = (next: number) => {
-    const clamped = clampShare(next)
-    setShare(clamped)
-    storeShare(clamped)
-  }
-  const startResize = (e: PointerEvent<HTMLDivElement>) => {
-    const height = area.current?.getBoundingClientRect().height ?? 1
-    const start = share
-    dragY(e, (dy) => changeShare(start + dy / height))
-  }
-  const onDividerKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
-    e.preventDefault()
-    changeShare(share + (e.key === 'ArrowDown' ? 0.05 : -0.05))
-  }
-
   return (
     <>
       <SqlEditor
@@ -117,26 +78,11 @@ export default function QueryTab({ tabId, title, initialSql, linked, database, a
         layout="playground"
       >
         {(sql) => (
-          <div className="playground" ref={area}>
-            <div className="playground-editor" style={{ flexBasis: `${share * 100}%` }}>{sql.editor}</div>
-            <div className="playground-divider" role="separator" aria-orientation="horizontal" aria-label="Resize the editor"
-                 aria-valuenow={Math.round(share * 100)} tabIndex={0} title="Drag to resize · double-click to reset"
-                 onPointerDown={startResize} onDoubleClick={() => changeShare(DEFAULT_SHARE)} onKeyDown={onDividerKey} />
-            <div className="playground-results">
-              {saveError && <div className="save-query-banner"><Banner tone="error" title="Couldn’t save the query" message={saveError} /></div>}
-              {sql.notice}
-              {sql.results ?? (
-                <div className="shortcuts" aria-label="Keyboard shortcuts">
-                  {SHORTCUTS.map(([label, keys]) => (
-                    <div className="shortcut" key={label}>
-                      <span className="shortcut-label">{label}</span>
-                      <span className="keys">{keys.map((k) => <kbd key={k}>{k}</kbd>)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <Playground editor={sql.editor} results={<>
+            {saveError && <div className="save-query-banner"><Banner tone="error" title="Couldn’t save the query" message={saveError} /></div>}
+            {sql.notice}
+            {sql.results ?? <Shortcuts list={SHORTCUTS} />}
+          </>} />
         )}
       </SqlEditor>
       {dialogSql !== null && (
