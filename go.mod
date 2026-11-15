@@ -10,6 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/wailsapp/wails/v3 v3.1.0
 	github.com/xuri/excelize/v2 v2.11.0
+	go.mongodb.org/mongo-driver/v2 v2.10.0
 	golang.org/x/sys v0.49.0
 )
 
@@ -42,7 +43,6 @@ require (
 	github.com/xuri/efp v0.0.3-0.20260924042702-217b81952dec // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.10.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect

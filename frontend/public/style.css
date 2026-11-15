@@ -1086,6 +1086,7 @@ kbd {
 .tab-panel-table,
 .tab-panel-query,
 .tab-panel-dynamo-table,
+.tab-panel-dynamo-query,
 .tab-panel-mongo-collection,
 .tab-panel-mongo-query {
     display: flex;
