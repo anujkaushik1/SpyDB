@@ -165,6 +165,18 @@ jobs:
           Start-Sleep -Seconds 15
           if ($spydb.HasExited) { throw "SpyDB quit by itself (exit code $($spydb.ExitCode))" }
 
+          # A picture of the screen with SpyDB open, kept on the run's page (a
+          # computer without a screen to capture only warns).
+          try {
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $shot = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\screenshots" | Out-Null
+            $shot.Save("$env:RUNNER_TEMP\screenshots\spydb-on-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
+            Write-Host "Screenshot: $($bounds.Width)x$($bounds.Height), window title '$((Get-Process -Id $spydb.Id).MainWindowTitle)'"
+          } catch { Write-Warning "No screenshot: $_" }
+
           # Installing over a SpyDB that stays open waits 10 seconds, then stops: nothing changed.
           $run = Start-Process bin\SpyDB-windows-setup.exe -ArgumentList "/S /D=$dir" -Wait -PassThru
           if ($run.ExitCode -ne 2 -or $spydb.HasExited) { throw "installing over an open SpyDB: exit $($run.ExitCode), SpyDB still open: $(-not $spydb.HasExited)" }
@@ -207,6 +219,14 @@ jobs:
         with:
           name: spydb-windows
           path: bin/SpyDB-windows-setup.exe
+
+      - name: Keep the screenshot too (not part of a release)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spydb-windows-screenshot
+          path: ${{ runner.temp }}/screenshots/
+          if-no-files-found: ignore
 
   release:
     # Tags only: the files on one Releases page. Mac and Ubuntu must have

@@ -12,6 +12,8 @@ const platform = ""
 
 const manualCommand = ""
 
+func releaseFile(string) string { return "" }
+
 type installation struct{}
 
 func installed() (installation, string) { return installation{}, "" }

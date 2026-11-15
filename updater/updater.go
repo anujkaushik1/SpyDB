@@ -86,7 +86,7 @@ func (s *Service) check(ctx context.Context, inst installation, current string) 
 	if platform == "" || current == "" {
 		return st
 	}
-	latestURL, policyURL, _ := s.urls()
+	latestURL, policyURL, downloadURL := s.urls()
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 
@@ -99,7 +99,9 @@ func (s *Service) check(ctx context.Context, inst installation, current string) 
 		return st
 	}
 	st.Latest = latest
-	st.Available = newer(latest, current)
+	// A release can come out without this platform's file (the Windows
+	// build failed, say): then there's nothing to offer here yet.
+	st.Available = newer(latest, current) && onRelease(ctx, downloadURL+"/v"+latest+"/"+releaseFile(latest))
 	// Only once a release meets it: a minimum raised before its release
 	// is built would ask for a version that isn't there yet.
 	st.Required = st.Available && newer(minimum, current) && !newer(minimum, latest)
@@ -178,6 +180,22 @@ func fetchLatest(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("no release version in %q (HTTP %d)", location, resp.StatusCode)
 	}
 	return version, nil
+}
+
+// onRelease says whether url, a release file, is there: GitHub redirects to
+// a file it has and answers 404 for one it hasn't. Unanswered, it says no.
+func onRelease(ctx context.Context, url string) bool {
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusFound
 }
 
 // fetchMinimum reads updates.json: the lowest version allowed on each

@@ -18,6 +18,9 @@ const platform = "windows"
 
 const manualCommand = "irm https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-windows.ps1 | iex"
 
+// releaseFile is this platform's file on release version.
+func releaseFile(string) string { return setupName }
+
 // uninstallKey is where SpyDB's installer (build/windows/nsis/project.nsi)
 // records it for Settings → Apps, in the user's registry: its version and
 // folder.
@@ -102,7 +105,7 @@ func (i installation) install(ctx context.Context, downloadURL, version string, 
 		}
 	}()
 	setup := filepath.Join(tmp, setupName)
-	if err := download(ctx, downloadURL+"/v"+version+"/"+setupName, setup, progress); err != nil {
+	if err := download(ctx, downloadURL+"/v"+version+"/"+releaseFile(version), setup, progress); err != nil {
 		return "", err
 	}
 
