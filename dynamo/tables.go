@@ -34,7 +34,7 @@ func (s *Service) Connect(ctx context.Context, profile string) (Connection, erro
 	}
 	i := slices.IndexFunc(profiles, func(p AWSProfile) bool { return p.Name == profile })
 	if i < 0 {
-		return Connection{}, fmt.Errorf("There's no AWS profile named %q in ~/.aws.", profile)
+		return Connection{}, fmt.Errorf("There's no AWS profile named %q in %s.", profile, awsFolder)
 	}
 	region := profiles[i].Region
 	if region == "" {

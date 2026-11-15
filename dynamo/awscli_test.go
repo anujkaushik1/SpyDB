@@ -15,6 +15,7 @@ import (
 // fakeAWS writes a script that prints what `aws --version` would.
 func fakeAWS(t *testing.T, version string) string {
 	t.Helper()
+	shellFake(t)
 	path := filepath.Join(t.TempDir(), "aws")
 	script := "#!/bin/sh\necho 'aws-cli/" + version + " Python/3.13.3 Darwin/25.5.0 source/arm64'\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
@@ -170,11 +171,24 @@ func TestDownloadAWSCLIFromAWS(t *testing.T) {
 	t.Logf("downloaded and verified %s (%d MB)", path, info.Size()>>20)
 }
 
-// isolate points the settings folder at a temporary home for one test.
+// isolate points the settings folder at a temporary home for one test
+// (HOME on a Mac and Linux, APPDATA and USERPROFILE on Windows).
 func isolate(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+}
+
+// shellFake skips a test whose fake AWS CLI is a shell script, which
+// Windows can't run (awscli_windows_test.go has Windows' own fakes).
+func shellFake(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("this test's fake AWS CLI is a shell script")
+	}
 }
 
 // The folder goes in AWS's choices.xml as text: spaces kept, & and < escaped.

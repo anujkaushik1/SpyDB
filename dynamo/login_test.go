@@ -82,6 +82,20 @@ func TestAWSProfiles(t *testing.T) {
 	}
 }
 
+// Saved by Windows' Notepad: a byte-order mark first, and Windows line ends.
+func TestAWSProfilesWindowsFiles(t *testing.T) {
+	notepad := func(s string) string { return "\ufeff" + strings.ReplaceAll(s, "\n", "\r\n") }
+	awsFiles(t, notepad(testConfig), notepad(testCredentials))
+	profiles, err := (&Service{}).AWSProfiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(profiles, AWSProfile{Name: "default", Kind: "keys", Region: "ap-south-1"}) ||
+		!slices.Contains(profiles, AWSProfile{Name: "ci", Kind: "keys"}) || len(profiles) != 6 {
+		t.Fatalf("got %+v", profiles)
+	}
+}
+
 func TestAWSProfilesNoFiles(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
@@ -98,6 +112,7 @@ func TestAWSProfilesNoFiles(t *testing.T) {
 // I" works for the keys profile "ci" and for profiles signed in.
 func fakeLoginCLI(t *testing.T) (log string) {
 	t.Helper()
+	shellFake(t)
 	dir := t.TempDir()
 	log = filepath.Join(dir, "calls")
 	script := `#!/bin/sh

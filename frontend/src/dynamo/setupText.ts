@@ -1,6 +1,9 @@
 // What the sign-in card says while SpyDB installs its own AWS CLI
-// (dynamo.AWSCLISetup, sent as the event dynamo:aws-cli-setup). No React or
-// Wails imports, so the unit tests can load it.
+// (dynamo.AWSCLISetup, sent as the event dynamo:aws-cli-setup), and the
+// AWS words that differ on Windows. No React or Wails imports, so the unit
+// tests can load it.
+
+import { isWindows } from '../platform'
 
 export type Setup = { stage: string; done: number; total: number; older: string }
 
@@ -26,3 +29,9 @@ export function setupText(s: Setup): string {
 export function setupFraction(s: Setup): number | null {
   return s.stage === 'downloading' && s.total > 0 ? Math.min(1, s.done / s.total) : null
 }
+
+// Where the AWS CLI keeps your profiles (dynamo's awsFolder, as Go names it).
+export const awsFolder = (windows = isWindows) => (windows ? '%USERPROFILE%\\.aws' : '~/.aws')
+
+// Where you'd type `aws configure`: Terminal on a Mac and Ubuntu, PowerShell on Windows.
+export const awsTerminal = (windows = isWindows) => (windows ? 'PowerShell' : 'Terminal')

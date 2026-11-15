@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { setupFraction, setupText } from '../src/dynamo/setupText'
+import { awsFolder, awsTerminal, setupFraction, setupText } from '../src/dynamo/setupText'
 
 test('downloading says why and how much', () => {
   const s = { stage: 'downloading', done: 23_400_000, total: 61_141_180, older: '2.27.6' }
@@ -18,4 +18,11 @@ test('installing and done', () => {
   assert.equal(setupText({ stage: 'installing', done: 0, total: 0, older: '' }), 'Installing the AWS CLI in SpyDB’s folder (one time only)…')
   assert.equal(setupText({ stage: 'done', done: 0, total: 0, older: '' }), 'AWS CLI installed.')
   assert.equal(setupFraction({ stage: 'installing', done: 0, total: 0, older: '' }), null)
+})
+
+test('AWS words: ~/.aws and Terminal on a Mac and Ubuntu, Windows its own', () => {
+  assert.equal(awsFolder(false), '~/.aws')
+  assert.equal(awsFolder(true), '%USERPROFILE%\\.aws')
+  assert.equal(awsTerminal(false), 'Terminal')
+  assert.equal(awsTerminal(true), 'PowerShell')
 })

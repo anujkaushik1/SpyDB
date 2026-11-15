@@ -3,6 +3,7 @@ package dynamo
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -29,15 +30,28 @@ type cliSteps struct {
 	install  func(ctx context.Context, pkg string) (AWSCLI, error)
 }
 
-var realCLISteps = cliSteps{find: findAWSCLI, download: downloadAWSCLI, install: installAWSCLI}
+// SpyDB installs its own AWS CLI only on a Mac, with AWS's installer for
+// one user. Elsewhere there are no download and install steps: you install
+// it (cliInstallHelp says how).
+var realCLISteps = func() cliSteps {
+	steps := cliSteps{find: findAWSCLI}
+	if runtime.GOOS == "darwin" {
+		steps.download, steps.install = downloadAWSCLI, installAWSCLI
+	}
+	return steps
+}()
 
 // ensureAWSCLI returns an AWS CLI of at least version min: one already there
 // (yours, or SpyDB's own copy), else it downloads AWS's installer, checks
 // it's Amazon's, and installs SpyDB's own copy, telling report how it goes.
+// Without download steps (not a Mac) it says what to install instead.
 func ensureAWSCLI(ctx context.Context, steps cliSteps, min string, report func(AWSCLISetup)) (AWSCLI, error) {
 	found := steps.find(ctx, min)
 	if found.Path != "" {
 		return found, nil
+	}
+	if steps.download == nil {
+		return AWSCLI{}, noAWSCLI(found.Older, min)
 	}
 	older := found.Older
 	report(AWSCLISetup{Stage: "downloading", Total: -1, Older: older})
@@ -64,6 +78,15 @@ func ensureAWSCLI(ctx context.Context, steps cliSteps, min string, report func(A
 	}
 	report(AWSCLISetup{Stage: "done", Older: older})
 	return cli, nil
+}
+
+// noAWSCLI is the error when no AWS CLI is new enough and SpyDB can't install
+// its own: which version it needs, and how to get it.
+func noAWSCLI(older, min string) error {
+	if older != "" {
+		return fmt.Errorf("Your AWS CLI %s is too old for this: it needs %s or newer. Update it (%s), then try again.", older, min, cliInstallHelp)
+	}
+	return fmt.Errorf("SpyDB signs in to AWS with the AWS CLI, and there's none on this computer. Install it (%s), then try again.", cliInstallHelp)
 }
 
 // awsCLI is ensureAWSCLI for a sign-in: one setup at a time (two sign-ins
