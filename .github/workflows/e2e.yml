@@ -117,10 +117,29 @@ jobs:
           SPYDB_DYNAMO_LOCAL: http://127.0.0.1:8000
           SPYDB_TEST_HOST: localhost
           SPYDB_TEST_DATABASE: postgres
-        run: SPYDB_TEST_USER="$E2E_PG_USER" go test ./... -count=1
+        run: |
+          tags=""
+          if [ "$RUNNER_OS" = Linux ]; then tags=gtk3; fi # Ubuntu 22.04's window libraries, as the .deb is built
+          SPYDB_TEST_USER="$E2E_PG_USER" go test -tags "$tags" ./... -count=1
 
       - name: The app in Chrome (e2e/run.mjs)
+        if: ${{ !cancelled() }} # even if a Go test failed: this says what works for a person
         run: node e2e/run.mjs
+
+      - name: "Ubuntu: the real window opens, on a virtual screen"
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: |
+          sudo apt-get install -y xvfb x11-utils imagemagick
+          go build -tags production,gtk3 -o bin/spydb .
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x860x24 & sleep 2
+          HOME="$(mktemp -d)" ./bin/spydb > native.log 2>&1 & app=$!
+          for i in $(seq 1 30); do xwininfo -root -tree | grep -q '"SpyDB"' && break; sleep 1; done
+          sleep 4
+          kill -0 $app || { echo "SpyDB quit:"; cat native.log; exit 1; }
+          xwininfo -root -tree | grep '"SpyDB"' || { echo "no SpyDB window:"; cat native.log; exit 1; }
+          mkdir -p "$E2E_SHOTS" && import -window root "$E2E_SHOTS/native-window-${{ matrix.os }}.png"
+          kill $app
 
       - name: Keep the screenshots on this run's page
         if: always()

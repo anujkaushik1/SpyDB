@@ -335,7 +335,10 @@ func (s *DBService) closeLocked() {
 		cancel()
 	}
 	if s.pool != nil {
-		s.pool.Close()
+		// In the background: after the network changed, pgx can take up to a
+		// minute to finish closing the pool's silent connections, and nothing
+		// needs to wait for that (no one can reach this pool any more).
+		go s.pool.Close()
 	}
 	s.editor = nil
 	s.editorLoss = ""

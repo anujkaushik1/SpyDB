@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -29,6 +31,12 @@ func connectForTest(t *testing.T) *DBService {
 
 func TestListColumns(t *testing.T) {
 	s := connectForTest(t)
+	// A table of its own (the test database may have none), and a temporary one.
+	schema := fmt.Sprintf("spydb_cols_%d", os.Getpid())
+	if _, err := s.pool.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s; CREATE TABLE %s.listed (id int, "Name" text)`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.pool.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE") })
 	if _, err := s.pool.Exec(t.Context(), `CREATE TEMP TABLE spydb_cols_probe (id int, "Name" text, gone int)`); err != nil {
 		t.Fatal(err)
 	}
@@ -36,8 +44,8 @@ func TestListColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) == 0 {
-		t.Fatal("no tables")
+	if !slices.ContainsFunc(tables, func(tc TableColumns) bool { return tc.Schema == schema && tc.Table == "listed" && slices.Equal(tc.Columns, []string{"id", "Name"}) }) {
+		t.Fatalf("%s.listed (id, Name) isn't listed: %v", schema, tables)
 	}
 	for _, tc := range tables {
 		if tc.Table == "spydb_cols_probe" {
