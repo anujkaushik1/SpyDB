@@ -2,11 +2,11 @@
 // deletes, PartiQL (</> and ⌘T / Ctrl+T tabs), the tab menu, and switching to
 // Postgres and back with both staying connected. DynamoDB Local's made-up
 // tables (dynamo-local.mjs) and the test Postgres; run by run.mjs.
-import { check, MOD, sleep } from './cdp.mjs'
-import { changedKeys, ddb, getItem, snapshot } from './dynamo-local.mjs'
+import { check, MOD, SHIFT, sleep } from './cdp.mjs'
+import { changedKeys, ddb, getItem, scanItems, snapshot } from './dynamo-local.mjs'
 
 export default async function dynamo(p, { shots, pg }) {
-const { evaluate, click, dblclick, rightClick, key, type, waitFor, shot } = p
+const { evaluate, click, clickWith, dblclick, rightClick, key, type, waitFor, shot } = p
 
 // Page helpers: the shown tab, a grid's cells by item key and column name.
 const helpers = `window.__t = {
@@ -17,6 +17,7 @@ const helpers = `window.__t = {
   cell: (where, key, name) => __t.row(where, key)?.children[__t.col(where, name)],
   rows: (where) => __t.grid(where)?.querySelectorAll('tbody tr').length ?? -1,
   bar: () => __t.pane().querySelector('.changes-bar')?.innerText ?? '',
+  status: () => __t.pane().querySelector('.grid-footer .grid-status')?.innerText ?? '',
   error: () => __t.pane().querySelector('.changes-error')?.innerText ?? '',
 }`
 const cell = (key, name, where = 'items') => `__t.cell('${where}', '${key}', '${name}')`
@@ -77,6 +78,56 @@ const sameExcept = async (before, keys, what) => {
   check(`${what}: of 120 items, only ${keys.join(', ')} changed`, JSON.stringify(diff) === JSON.stringify(keys.map(keyOf).sort()), diff)
 }
 
+// 0b. Filters: every shape a person can set, the plan SpyDB says it uses, and the items it
+// finds, each checked against what DynamoDB Local holds (a direct read of every item).
+const setValue = (js, value) => evaluate(`(() => { const el = ${js}; const set = Object.getOwnPropertyDescriptor(el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype, 'value').set; set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })) })()`)
+const filterRow = (i) => `__t.pane().querySelectorAll('.filter-bar .filter-row')[${i}]`
+const setFilter = async (i, field, operator, value) => {
+  await click(`${filterRow(i)}.querySelector('.field-picker-btn')`); await type(field); await key('Enter')
+  await waitFor(`${filterRow(i)}.querySelector('.field-picker-btn').dataset.value === '${field}'`)
+  await setValue(`${filterRow(i)}.querySelector('select[aria-label="Filter condition"]')`, operator)
+  if (value !== undefined) await setValue(`${filterRow(i)}.querySelector('.filter-value')`, value)
+}
+const addFilter = () => click(`__t.pane().querySelector('.filter-bar [aria-label="Add filter"]')`)
+const planText = () => evaluate(`__t.pane().querySelector('.dynamo-plan')?.innerText.replace('⚡ ', '') ?? ''`)
+const applyAll = async () => { // Apply, then Load more until every item was checked
+  // The plan badge appears beside Apply a few ms after a filter changes and reflows the bar: let it settle first.
+  await waitFor(`__t.pane().querySelector('.dynamo-plan')`); await sleep(200)
+  await click(`[...__t.pane().querySelectorAll('.filter-bar .btn')].find((b) => b.innerText.includes('Apply'))`)
+  if (!(await waitFor(`__t.status().includes('found') && !__t.pane().querySelector('.grid-wrap.loading')`))) {
+    throw new Error('Apply didn’t filter: ' + JSON.stringify(await evaluate(`(() => { const row = __t.pane().querySelector('.filter-bar .filter-row'); return { field: row.querySelector('.field-picker-btn').dataset.value, value: row.querySelector('.filter-value').value, status: __t.status(), plan: __t.pane().querySelector('.dynamo-plan')?.innerText, error: __t.pane().querySelector('.table-error')?.innerText, focused: document.activeElement?.className } })()`)))
+  }
+  for (let i = 0; i < 10 && !(await evaluate(`__t.status().includes('all of them')`)); i++) {
+    await click(`[...__t.pane().querySelectorAll('.grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
+    await waitFor(`!__t.pane().querySelector('.grid-wrap.loading')`)
+  }
+  const status = await evaluate(`__t.status()`)
+  const m = /(\d+) found · (\d+) checked/.exec(status.replace(/,/g, ''))
+  return { keys: (await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td[data-col="0"]').innerText)`)).sort(), found: Number(m?.[1]), checked: Number(m?.[2]), status }
+}
+const items = await scanItems('orders')
+const truth = (pick) => items.filter(pick).map((it) => it.userId.S).sort()
+const num = (it, f) => Number(it[f].N)
+const filterCase = async (what, plan, pick, checked) => {
+  const got = await applyAll()
+  const want = truth(pick)
+  check(`filter ${what}: plan "${plan}", exactly the ${want.length} items DynamoDB holds`, (await planText()) === plan && JSON.stringify(got.keys) === JSON.stringify(want) && got.found === want.length,
+    { plan: await planText(), found: got.found, want: want.length, extra: got.keys.filter((k) => !want.includes(k)), missing: want.filter((k) => !got.keys.includes(k)) })
+  if (checked !== undefined) check(`…and read ${checked === want.length ? 'only those' : checked + ' items'} (${got.checked} checked)`, got.checked === checked, got.status)
+}
+const pune = items.filter((it) => it.city.S === 'Pune').length
+await setFilter(0, 'city', 'eq', 'Pune'); await filterCase('city = Pune', 'uses cityIndex', (it) => it.city.S === 'Pune', pune)
+await addFilter(); await setFilter(1, 'amount', 'gt', '150'); await filterCase('city = Pune AND amount > 150 (the index’s sort key: no filtering)', 'uses cityIndex', (it) => it.city.S === 'Pune' && num(it, 'amount') > 150, truth((it) => it.city.S === 'Pune' && num(it, 'amount') > 150).length)
+await setFilter(1, 'amount', 'lte', '130'); await filterCase('city = Pune AND amount ≤ 130', 'uses cityIndex', (it) => it.city.S === 'Pune' && num(it, 'amount') <= 130, truth((it) => it.city.S === 'Pune' && num(it, 'amount') <= 130).length)
+await setFilter(1, 'paid', 'eq', 'true'); await filterCase('city = Pune AND paid = true (a filter on the index’s items)', 'uses cityIndex', (it) => it.city.S === 'Pune' && it.paid.BOOL, pune)
+await setFilter(1, 'amount', 'neq', '150.5'); await filterCase('city = Pune AND amount ≠ 150.5 (a sort key can’t do ≠: every item)', 'checks every item', (it) => it.city.S === 'Pune' && num(it, 'amount') !== 150.5, items.length)
+await setFilter(0, 'paid', 'eq', 'true'); await setFilter(1, 'city', 'eq', 'Pune'); await filterCase('paid = true first, city = Pune second (the key row counts wherever it is)', 'uses cityIndex', (it) => it.paid.BOOL && it.city.S === 'Pune', pune)
+await setFilter(0, 'userId', 'eq', 'u010'); await setFilter(1, 'city', 'eq', 'Pune'); await filterCase('userId = u010 AND city = Pune (the table’s key wins)', 'uses the table’s key', (it) => it.userId.S === 'u010' && it.city.S === 'Pune')
+await setFilter(0, 'city', 'starts', 'P'); await setFilter(1, 'note', 'exists'); await filterCase('city starts with P AND note exists (no key fits)', 'checks every item', (it) => it.city.S.startsWith('P') && 'note' in it, items.length)
+await setFilter(0, 'gone', 'not_exists'); await setFilter(1, 'amount', 'lt', '105'); await filterCase('gone doesn’t exist AND amount < 105', 'checks every item', (it) => !('gone' in it) && num(it, 'amount') < 105, items.length)
+await click(`[...__t.pane().querySelectorAll('.filter-bar .btn')].find((b) => b.innerText === 'Clear')`)
+check('Clear: the first page again, same 50 items', await waitFor(`__t.rows('items') === 50 && !__t.status().includes('found')`) && JSON.stringify(await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].map((tr) => tr.children[1].innerText).sort()`)) === JSON.stringify(K), null)
+
 // 1. A text cell: type, Enter, ⌘S; saved as text, shown in place.
 let before = await snapshot('orders', KEYS)
 check('the table holds 120 items before any edit', Object.keys(before).length === 120, Object.keys(before).length)
@@ -101,11 +152,21 @@ await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b
 
 // 3. Booleans and NULL.
 await editCell(K[4], 'paid', 'false')
-await dblclick(cell(K[6], 'city'))
+await dblclick(cell(K[6], 'paid'))
 await click(`[...document.querySelectorAll('.cell-editor .cell-null-btn')].find((b) => b.innerText === 'NULL')`)
 await save()
 check('boolean saved', JSON.stringify((await o(K[4])).paid) === '{"BOOL":false}', (await o(K[4])).paid)
-check('NULL saved', JSON.stringify((await o(K[6])).city) === '{"NULL":true}', (await o(K[6])).city)
+check('NULL saved', JSON.stringify((await o(K[6])).paid) === '{"NULL":true}', (await o(K[6])).paid)
+// city is the key of cityIndex: NULL there is refused up front, with why, and nothing is saved.
+before = await snapshot('orders', KEYS)
+await editCell(K[9], 'paid', 'true')
+await dblclick(cell(K[6], 'city'))
+await click(`[...document.querySelectorAll('.cell-editor .cell-null-btn')].find((b) => b.innerText === 'NULL')`)
+await save()
+check('NULL on an index’s key is refused, saying so', await waitFor(`__t.error().includes('city is the key of an index (cityIndex)') && __t.error().includes('Nothing was saved')`), await evaluate(`__t.error()`))
+await sameExcept(before, [], 'refused: nothing saved, not even the other item in the same save')
+await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText === 'Discard')`)
+await waitFor(`!__t.bar()`)
 
 // 4. The cell editor's ✕ removes a field.
 await dblclick(cell(noted[0], 'note'))
@@ -166,6 +227,7 @@ await key('f', MOD)
 await waitFor(`document.querySelector('.json-modal .cm-search input[name="search"]')`)
 await type('line')
 check('search as you type: "1 of 2" for "line" (lines, line 1)', await waitFor(`document.querySelector('.json-modal .json-search-count')?.innerText === '1 of 2'`), await evaluate(`document.querySelector('.json-modal .json-search-count')?.innerText`))
+check('…and the first match is selected and on screen', await evaluate(`(() => { const sel = document.querySelector('.json-modal .cm-selectionBackground, .json-modal .cm-searchMatch-selected'); if (!sel) return false; const r = sel.getBoundingClientRect(); const e = document.querySelector('.json-modal .cm-scroller').getBoundingClientRect(); return r.height > 0 && r.top >= e.top && r.bottom <= e.bottom })()`), null)
 await key('Enter')
 check('Enter: the next match, "2 of 2"', await waitFor(`document.querySelector('.json-modal .json-search-count')?.innerText === '2 of 2'`), await evaluate(`document.querySelector('.json-modal .json-search-count')?.innerText`))
 await type('zzz')
@@ -299,6 +361,201 @@ check('Dy: DynamoDB still connected, the orders tab as it was', await waitFor(`d
 await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.startsWith('Pg'))`)
 check('Pg again: still connected, no connect form', await waitFor(`!document.querySelector('.dynamo-sidebar') && document.querySelector('.rail-engine.active')?.innerText.trim() === 'Pg' && !document.querySelector('aside[aria-label="Connections"]')`), null)
 check('both engines show a connected dot', (await evaluate(`document.querySelectorAll('.rail-engine-dot').length`)) === 2, await evaluate(`document.querySelectorAll('.rail-engine-dot').length`))
+
+// ----- Several items at once: exactly those change, nothing else, never the other table -----
+await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.trim() === 'Dy')`)
+await waitFor(`document.querySelector('.dynamo-sidebar') && __t.rows('items') >= 50`)
+await evaluate(helpers)
+const keyAt = (n) => evaluate(`__t.grid('items').querySelectorAll('tbody tr')[${n}].querySelector('td[data-col="0"]').innerText`)
+const numAt = (n) => `__t.grid('items').querySelectorAll('tbody tr')[${n}].querySelector('td.grid-rownum')`
+const selectedCount = () => evaluate(`__t.grid('items').querySelectorAll('tbody tr.row-selected').length`)
+const dialogText = () => evaluate(`document.querySelector('.delete-rows')?.innerText ?? ''`)
+const eventsBefore = JSON.stringify(await snapshot('events', ['id']))
+// Rows 30–33: click + Shift-click, then right-click outside the selection.
+const four = [await keyAt(30), await keyAt(31), await keyAt(32), await keyAt(33)]
+await click(numAt(30)); await clickWith(numAt(33), SHIFT)
+check('click + Shift-click selects 4 items', (await selectedCount()) === 4, await selectedCount())
+const outside = await keyAt(40)
+await rightClick(numAt(40))
+check('right-clicking an unselected item selects just it', (await selectedCount()) === 1, await selectedCount())
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole item…')`)
+check('…and the dialog names only that item', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('Delete the whole item') && document.querySelector('.delete-rows')?.innerText.includes('userId = ${outside}')`), await dialogText())
+before = await snapshot('orders', KEYS)
+await click(`[...document.querySelectorAll('.delete-rows .btn')].find((b) => b.innerText === 'Cancel')`)
+await waitFor(`!document.querySelector('.delete-rows')`)
+await sameExcept(before, [], 'Cancel: nothing deleted')
+// The 4 again, right-click inside: 4 whole items, named, exactly those go.
+await click(numAt(30)); await clickWith(numAt(33), SHIFT)
+await rightClick(numAt(31))
+check('right-clicking inside the selection keeps all 4', (await selectedCount()) === 4, await selectedCount())
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete 4 whole items…')`)
+check('the dialog names the 4', await waitFor(`${JSON.stringify(four)}.every((k) => document.querySelector('.delete-rows')?.innerText.includes('userId = ' + k))`), await dialogText())
+before = await snapshot('orders', KEYS)
+await click(`document.querySelector('.delete-rows .btn-danger')`)
+check('deleted 4', await waitFor(`__t.bar().includes('Deleted 4 items')`), await evaluate(`__t.bar()`))
+await sameExcept(before, four, 'four items deleted together')
+check('the events table is untouched', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
+// ⌘-click 3 apart, then an edit in 4 different rows: one save, exactly those 4.
+await click(numAt(5)); await clickWith(numAt(20), MOD); await clickWith(numAt(40), MOD)
+check('⌘-click adds items one by one', (await selectedCount()) === 3, await selectedCount())
+const edited = [await keyAt(5), await keyAt(20), await keyAt(40), await keyAt(44)]
+before = await snapshot('orders', KEYS)
+for (const k of edited) { await editCell(k, 'city', `Edited ${k}`) }
+check('4 unsaved changes in 4 items', (await evaluate(`__t.bar()`)).includes('4 unsaved changes in 4 items'), await evaluate(`__t.bar()`))
+await save()
+check('saved 4', await waitFor(`__t.bar().includes('Saved 4 items')`), await evaluate(`__t.bar()`))
+await sameExcept(before, edited, 'four cells saved together')
+check('each got its own value', (await Promise.all(edited.map(o))).every((it, i) => it.city?.S === `Edited ${edited[i]}`), await Promise.all(edited.map((k) => o(k).then((it) => it.city))))
+// Sorted the other way round: the item edited is the item meant.
+const sortBy = (name) => `[...__t.grid('items').querySelectorAll('thead .grid-head')].find((b) => b.querySelector('.grid-col-name')?.innerText === '${name}')`
+await click(sortBy('amount')); await click(sortBy('amount'))
+await waitFor(`__t.status().includes('sorted by amount ↓')`)
+const top = await keyAt(0)
+check('sorted by amount ↓: the biggest amount first', Number((await o(top)).amount.N) >= 999, (await o(top)).amount)
+before = await snapshot('orders', KEYS)
+await editCell(top, 'city', 'Top')
+await save()
+await sameExcept(before, [top], 'edit while sorted')
+await click(sortBy('amount'))
+await waitFor(`!__t.status().includes('sorted')`)
+// A pinned column, then 2 picked with ⌘ and deleted: the pin changes nothing about which items go.
+await evaluate(`${sortBy('city').replace('.grid-head', 'th')}.querySelector('.grid-pin').click()`)
+await waitFor(`__t.grid('items').querySelector('th.pinned')`)
+const two = [await keyAt(8), await keyAt(30)]
+await click(numAt(8)); await clickWith(numAt(30), MOD)
+await rightClick(numAt(30))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete 2 whole items…')`)
+await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
+before = await snapshot('orders', KEYS)
+await click(`document.querySelector('.delete-rows .btn-danger')`)
+await waitFor(`__t.bar().includes('Deleted 2 items')`)
+await sameExcept(before, two, 'two items deleted with a column pinned')
+await evaluate(`__t.grid('items').querySelector('th.pinned .grid-pin').click()`)
+// Select all and delete: the number must be typed; a wrong number keeps the button off; Esc deletes nothing.
+await click(numAt(0)); await key('a', MOD)
+const all = await evaluate(`__t.rows('items')`)
+await rightClick(numAt(0))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.includes('whole items…'))`)
+await waitFor(`document.querySelector('.delete-rows .save-query-input')`)
+check(`deleting all ${all} asks you to type the number`, await evaluate(`document.querySelector('.delete-rows')?.innerText.includes('${all}')`), await dialogText())
+await click(`document.querySelector('.delete-rows .save-query-input')`); await type(String(all - 1))
+check('a wrong number keeps Delete off', await waitFor(`document.querySelector('.delete-rows .btn-danger')?.disabled === true`), null)
+before = await snapshot('orders', KEYS)
+await key('Escape')
+await waitFor(`!document.querySelector('.delete-rows')`)
+await sameExcept(before, [], 'Esc: nothing deleted')
+check('the events table is still untouched', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
+
+
+// ===== More: items sharing a partition key, conflicts among several, the multi-item JSON view, edits and deletes inside a filter, PartiQL writes =====
+const put = (userId, createdAt, city) => ddb('PutItem', { TableName: 'orders', Item: { userId: { S: userId }, createdAt: { N: String(createdAt) }, city: { S: city }, amount: { N: '1.00' }, paid: { BOOL: false } } })
+const item = (userId, createdAt) => getItem('orders', { userId: { S: userId }, createdAt: { N: String(createdAt) } })
+const keyRow = (userId, createdAt) => `[...__t.grid('items').querySelectorAll('tbody tr')].find((tr) => tr.querySelector('td[data-col="0"]').innerText === '${userId}' && tr.querySelector('td[data-col="1"]').innerText === '${createdAt}')`
+const loadAll = async () => { for (let i = 0; i < 6 && !(await evaluate(`__t.status().includes('all of them')`)); i++) { await click(`[...__t.pane().querySelectorAll('.grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`); await waitFor(`!__t.pane().querySelector('.grid-wrap.loading')`) } }
+const reload = async () => { await click(`__t.pane().querySelector('.grid-pager [aria-label="Reload items"]')`); await waitFor(`!__t.pane().querySelector('.grid-wrap.loading') && __t.rows('items') > 0`); await loadAll() }
+const deleteSelected = async (count) => { await rightClick(`__t.grid('items').querySelector('tbody tr.row-selected td.grid-rownum')`); await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.includes('Delete'))`); await waitFor(`document.querySelector('.delete-rows .btn-danger')`); await click(`document.querySelector('.delete-rows .btn-danger')`); await waitFor(`__t.bar().includes('Deleted ${count}')`) }
+const snapAll = () => snapshot('orders', KEYS)
+const onlyKeys = async (what, before, keys) => { const diff = changedKeys(before, await snapAll()); check(`${what}: only ${keys.length ? keys.join(', ') : 'nothing'} changed`, JSON.stringify(diff) === JSON.stringify([...keys].sort()), diff) }
+
+// Three items of one user (the same partition key, different sort keys): the middle one goes alone; an edit lands on one.
+await put('u900', 1, 'One'); await put('u900', 2, 'Two'); await put('u900', 3, 'Three')
+await reload()
+check('the three u900 items are shown', await evaluate(`!!(${keyRow('u900', 1)} && ${keyRow('u900', 2)} && ${keyRow('u900', 3)})`), null)
+await rightClick(`${keyRow('u900', 2)}.querySelector('td.grid-rownum')`)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.includes('Delete'))`)
+check('the dialog names both key parts', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('userId = u900, createdAt = 2')`), await dialogText())
+let before2 = await snapAll()
+await click(`document.querySelector('.delete-rows .btn-danger')`); await waitFor(`__t.bar().includes('Deleted 1')`)
+await onlyKeys('delete u900/2', before2, ['u900|2'])
+check('u900/1 and u900/3 stay', !!(await item('u900', 1)) && !!(await item('u900', 3)) && !(await item('u900', 2)), null)
+before2 = await snapAll()
+await dblclick(`${keyRow('u900', 3)}.children[__t.col('items', 'city')]`); await key('a', MOD); await type('Three!'); await key('Enter'); await save()
+await onlyKeys('edit u900/3', before2, ['u900|3'])
+check('…u900/1 kept its city', (await item('u900', 1)).city.S === 'One', null)
+
+// Conflicts among several: one item changed behind the grid's back refuses the whole save; the whole delete too.
+const c3 = [await keyAt(2), await keyAt(3), await keyAt(4)]
+for (const k of c3) await editCell(k, 'city', `Mine ${k}`)
+await ddb('UpdateItem', { TableName: 'orders', Key: { userId: { S: c3[1] }, createdAt: { N: String(1731400000 + Number(c3[1].slice(1))) } }, UpdateExpression: 'SET city = :c', ExpressionAttributeValues: { ':c': { S: 'Theirs' } } })
+before2 = await snapAll()
+await save()
+check('a save of 3 where 1 changed meanwhile is refused, naming it', await waitFor(`__t.error().includes('${c3[1]}') && __t.error().includes('changed since you loaded it')`), await evaluate(`__t.error()`))
+await onlyKeys('refused save: nothing written, not even the other 2', before2, [])
+await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText === 'Discard')`); await waitFor(`!__t.bar()`)
+await click(numAt(6)); await clickWith(numAt(7), SHIFT); await clickWith(numAt(8), SHIFT)
+const d3 = [await keyAt(6), await keyAt(7), await keyAt(8)]
+await ddb('UpdateItem', { TableName: 'orders', Key: { userId: { S: d3[2] }, createdAt: { N: String(1731400000 + Number(d3[2].slice(1))) } }, UpdateExpression: 'SET amount = :a', ExpressionAttributeValues: { ':a': { N: '0.5' } } })
+await rightClick(numAt(7))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.includes('Delete 3'))`)
+await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
+before2 = await snapAll()
+await click(`document.querySelector('.delete-rows .btn-danger')`)
+check('a delete of 3 where 1 changed meanwhile is refused, naming it', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('${d3[2]}') && document.querySelector('.delete-rows')?.innerText.includes('changed since you loaded it')`), await dialogText())
+await key('Escape'); await waitFor(`!document.querySelector('.delete-rows')`)
+await onlyKeys('refused delete: nothing deleted', before2, [])
+await reload()
+
+// The JSON view of 3 items: change 2 of them, Apply, save: exactly those 2.
+const j3 = [await keyAt(10), await keyAt(11), await keyAt(12)]
+await click(numAt(10)); await clickWith(numAt(12), SHIFT)
+await rightClick(numAt(11))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.startsWith('View 3 items as JSON'))`)
+await waitFor(`document.querySelector('.json-modal .cm-content')`)
+const three = JSON.parse(await evaluate(`document.querySelector('.json-modal .cm-content').cmTile.view.state.doc.toString()`))
+three[0].city = 'Json A'; three[2].city = 'Json C'
+await evaluate(`(() => { const v = document.querySelector('.json-modal .cm-content').cmTile.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: ${JSON.stringify(JSON.stringify(three, null, 2))} } }) })()`)
+await sleep(600)
+await click(`[...document.querySelectorAll('.json-modal .btn-primary')].find((b) => b.innerText === 'Apply')`)
+await waitFor(`!document.querySelector('.json-modal')`)
+check('the JSON view queued 2 changes in 2 items', (await evaluate(`__t.bar()`)).includes('2 unsaved changes in 2 items'), await evaluate(`__t.bar()`))
+before2 = await snapAll()
+await save()
+await onlyKeys('JSON view of 3 items, 2 changed', before2, [j3[0], j3[2]].map(keyOf))
+check('…with the values typed; the middle one untouched', (await o(j3[0])).city.S === 'Json A' && (await o(j3[2])).city.S === 'Json C' && (await o(j3[1])).city.S !== 'Json B', null)
+
+// Inside a filter: edits and a delete touch only matching items; Clear shows the rest unchanged.
+await setFilter(0, 'city', 'eq', 'Agra'); await applyAll()
+const agra = await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td[data-col="0"]').innerText)`)
+check('filter city = Agra for the edits', agra.length > 3 && agra.every((k) => true), agra.length)
+before2 = await snapAll()
+await editCell(agra[0], 'paid', 'true'); await editCell(agra[2], 'amount', '42')
+await save()
+await onlyKeys('edits inside a filter', before2, [agra[0], agra[2]].map(keyOf))
+before2 = await snapAll()
+await click(`${keyRow(agra[1], 1731400000 + Number(agra[1].slice(1)))}.querySelector('td.grid-rownum')`); await clickWith(`${keyRow(agra[3], 1731400000 + Number(agra[3].slice(1)))}.querySelector('td.grid-rownum')`, MOD)
+await deleteSelected(2)
+await onlyKeys('a delete inside a filter', before2, [agra[1], agra[3]].map(keyOf))
+await click(`[...__t.pane().querySelectorAll('.filter-bar .btn')].find((b) => b.innerText === 'Clear')`)
+await waitFor(`__t.rows('items') === 50 && !__t.status().includes('found')`)
+
+// PartiQL writes: UPDATE and DELETE by key touch one item; INSERT adds one; edits in SELECT results save to exactly those.
+const pql = async (statement) => { await click(`__t.pane().querySelector('.sql-bar .cm-content')`); await key('a', MOD); await type(statement); await key('Enter', MOD); await sleep(500) }
+await click(`__t.pane().querySelector('.filter-bar .sql-toggle')`)
+await waitFor(`__t.pane().querySelector('.sql-bar .cm-content')`)
+const pk = await keyAt(20)
+const pkAt = 1731400000 + Number(pk.slice(1))
+before2 = await snapAll()
+await pql(`UPDATE "orders" SET city = 'ViaPartiQL' WHERE userId = '${pk}' AND createdAt = ${pkAt}`)
+await waitFor(`__t.pane().querySelector('.tab-notice.ok')?.innerText.includes('UPDATE')`)
+await onlyKeys('PartiQL UPDATE by key', before2, [keyOf(pk)])
+before2 = await snapAll()
+await pql(`INSERT INTO "orders" VALUE {'userId': 'u901', 'createdAt': 1, 'city': 'Inserted'}`)
+await waitFor(`__t.pane().querySelector('.tab-notice.ok')?.innerText.includes('INSERT')`)
+await onlyKeys('PartiQL INSERT', before2, ['u901|1'])
+before2 = await snapAll()
+await pql(`DELETE FROM "orders" WHERE userId = 'u901' AND createdAt = 1`)
+await waitFor(`__t.pane().querySelector('.tab-notice.ok')?.innerText.includes('DELETE')`)
+await onlyKeys('PartiQL DELETE by key', before2, ['u901|1'])
+await pql(`SELECT * FROM "orders"`)
+await waitFor(`__t.rows('results') === 50`)
+const rk = await evaluate(`[...__t.grid('results').querySelectorAll('tbody tr')].slice(0, 3).map((tr) => tr.querySelector('td[data-col="0"]').innerText)`)
+before2 = await snapAll()
+for (const k of rk) await editCell(k, 'city', `Result ${k}`, 'results')
+await save()
+await onlyKeys('3 PartiQL result rows saved', before2, rk.map(keyOf))
+await click(`__t.pane().querySelector('.sql-toggle.on')`)
+await waitFor(`__t.pane().querySelector('.filter-bar') && __t.rows('items') > 0`)
+check('the events table never moved', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
 
 check('no page errors', p.errors.length === 0, p.errors)
 }

@@ -30,12 +30,12 @@ export async function open(debugPort, appUrl, { width = 1280, height = 860 } = {
     return r.result?.result?.value
   }
   const center = (js) => evaluate(`(() => { const el = (${js}); if (!el) return null; el.scrollIntoView({ block: 'center', inline: 'nearest' }); const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
-  const mouse = async (js, { button = 'left', count = 1 } = {}) => {
+  const mouse = async (js, { button = 'left', count = 1, modifiers = 0 } = {}) => {
     const r = await center(js)
     if (!r) throw new Error('not found: ' + js)
     for (let c = 1; c <= count; c++) {
       for (const type of ['mousePressed', 'mouseReleased']) {
-        await send('Input.dispatchMouseEvent', { type, x: r.x, y: r.y, button, buttons: button === 'right' ? 2 : 1, clickCount: c })
+        await send('Input.dispatchMouseEvent', { type, x: r.x, y: r.y, button, buttons: button === 'right' ? 2 : 1, clickCount: c, modifiers })
       }
     }
     await sleep(250)
@@ -56,7 +56,8 @@ export async function open(debugPort, appUrl, { width = 1280, height = 860 } = {
   await send('Page.enable'); await send('Runtime.enable')
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
   await send('Page.navigate', { url: appUrl }); await sleep(1500)
-  return { send, evaluate, click: (js) => mouse(js), dblclick: (js) => mouse(js, { count: 2 }), rightClick: (js) => mouse(js, { button: 'right' }), key, type, waitFor, shot, errors, close: () => ws.close() }
+  // clickWith(js, SHIFT) / clickWith(js, MOD): a click holding a modifier, as for selecting several rows.
+  return { send, evaluate, click: (js) => mouse(js), clickWith: (js, modifiers) => mouse(js, { modifiers }), dblclick: (js) => mouse(js, { count: 2 }), rightClick: (js) => mouse(js, { button: 'right' }), key, type, waitFor, shot, errors, close: () => ws.close() }
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

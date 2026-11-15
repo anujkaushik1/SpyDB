@@ -85,20 +85,30 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
     return editor.current?.get() as { json: unknown } | { text: string } | undefined
   }
   // Live search: the editor's ⌘F panel only highlights until you press Next.
-  // As you type, this scrolls to the first match and shows "1 of 3"; Next
-  // and Previous keep the count. The matches are counted in the text itself,
-  // with the panel's own options (match case, regexp, by word).
-  const searchIndex = useRef(0)
+  // As you type, this selects the first match (CodeMirror scrolls to it) and
+  // shows "1 of 3"; Next, Previous and Enter keep the count. The bundled
+  // editor doesn't hand out its CodeMirror view, but CodeMirror leaves it on
+  // the content element (cmView.view), which is enough to move the cursor.
   useEffect(() => {
     const root = host.current
     if (!root) return
-    const matches = (): number[] => {
+    type View = {
+      state: { doc: { toString(): string }; selection: { main: { from: number; to: number } } }
+      dispatch: (spec: object) => void
+      lineBlockAt: (pos: number) => { top: number; height: number }
+      scrollDOM: HTMLElement
+    }
+    // CodeMirror 6.38+ keeps it as cmTile.view; older builds as cmView.view.
+    const view = (): View | null => {
+      const content = root.querySelector('.cm-content') as unknown as { cmTile?: { view?: View }; cmView?: { view?: View } } | null
+      return content?.cmTile?.view ?? content?.cmView?.view ?? null
+    }
+    const matches = (): { from: number; to: number }[] => {
       const panel = root.querySelector('.cm-search')
-      const input = panel?.querySelector<HTMLInputElement>('input[name="search"]')
-      const query = input?.value ?? ''
-      if (!panel || !query) return []
-      const content = editor.current?.get() as { json?: unknown; text?: string } | undefined
-      const text = content && 'text' in content && content.text != null ? content.text : content?.json !== undefined ? (stringify(content.json) ?? '') : ''
+      const query = panel?.querySelector<HTMLInputElement>('input[name="search"]')?.value ?? ''
+      const v = view()
+      if (!panel || !query || !v) return []
+      const text = v.state.doc.toString()
       const flag = (name: string) => panel.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.checked ?? false
       let re: RegExp
       try {
@@ -107,15 +117,15 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
       } catch {
         return []
       }
-      const at: number[] = []
+      const at: { from: number; to: number }[] = []
       for (const m of text.matchAll(re)) {
-        at.push(m.index ?? 0)
         if (m[0] === '') break
+        at.push({ from: m.index ?? 0, to: (m.index ?? 0) + m[0].length })
         if (at.length > 5000) break
       }
       return at
     }
-    const showCount = (count: number, index: number) => {
+    const showCount = (at: { from: number }[]) => {
       const panel = root.querySelector('.cm-search')
       if (!panel) return
       let badge = panel.querySelector<HTMLSpanElement>('.json-search-count')
@@ -124,51 +134,68 @@ export default function JsonEditorModal({ title, tag, note, value, readOnly, rea
         badge.className = 'json-search-count'
         panel.querySelector('input[name="search"]')?.insertAdjacentElement('afterend', badge)
       }
-      badge.textContent = count === 0 ? (panel.querySelector<HTMLInputElement>('input[name="search"]')?.value ? 'No matches' : '') : `${index + 1} of ${count}`
+      const typed = panel.querySelector<HTMLInputElement>('input[name="search"]')?.value
+      const here = view()?.state.selection.main.from
+      const index = at.findIndex((m) => m.from === here)
+      badge.textContent = at.length === 0 ? (typed ? 'No matches' : '') : `${index < 0 ? '–' : index + 1} of ${at.length}`
     }
-    // Scroll the editor so the line of the match at `offset` is in view.
-    const scrollTo = (offset: number) => {
-      const content = editor.current?.get() as { text?: string } | undefined
-      const text = content?.text ?? ''
-      const line = text.slice(0, offset).split('\n').length - 1
-      const scroller = root.querySelector<HTMLElement>('.cm-scroller')
-      const lineEl = root.querySelector<HTMLElement>('.cm-line')
-      if (!scroller || !lineEl) return
-      const lineHeight = lineEl.getBoundingClientRect().height || 24
-      scroller.scrollTop = Math.max(0, line * lineHeight - scroller.clientHeight / 3)
+    const reveal = (m: { from: number; to: number }) => {
+      const v = view()
+      if (!v) return
+      v.dispatch({ selection: { anchor: m.from, head: m.to }, scrollIntoView: true })
+      const block = v.lineBlockAt(m.from)
+      const scroller = v.scrollDOM
+      scroller.scrollTop = Math.max(0, block.top - (scroller.clientHeight - block.height) / 2)
     }
     const onInput = (e: Event) => {
       const target = e.target as HTMLInputElement
       if (!target.closest?.('.cm-search') || (target.name !== 'search' && target.type !== 'checkbox')) return
       const at = matches()
-      searchIndex.current = 0
-      showCount(at.length, 0)
-      if (at.length > 0) scrollTo(at[0])
+      // The first match from the start: selected (Next goes on from it) and scrolled
+      // into the middle of the editor. The line's place comes from the editor's own
+      // measurements (lineBlockAt), which it keeps for lines it hasn't drawn too.
+      if (at.length > 0) reveal(at[0])
+      showCount(at)
     }
-    const onClick = (e: Event) => {
-      const button = (e.target as HTMLElement).closest?.('.cm-search button') as HTMLButtonElement | null
-      if (!button) return
+    // Next, Previous, Enter and Shift+Enter move between the counted matches
+    // (the panel's own Enter does nothing in this build, and its moves leave
+    // the match at the edge): the match after or before the cursor, round the
+    // ends. All, Replace and Replace All stay the panel's.
+    const move = (step: 1 | -1) => {
       const at = matches()
-      if (at.length === 0) return
-      if (button.name === 'next') searchIndex.current = (searchIndex.current + 1) % at.length
-      else if (button.name === 'prev') searchIndex.current = (searchIndex.current - 1 + at.length) % at.length
-      else return
-      showCount(at.length, searchIndex.current)
+      const v = view()
+      if (at.length === 0 || !v) { showCount(at); return }
+      const here = v.state.selection.main.from
+      let index = at.findIndex((m) => m.from === here)
+      if (index < 0) {
+        index = step > 0 ? at.findIndex((m) => m.from > here) : -1
+        if (step < 0) for (let k = at.length - 1; k >= 0; k--) if (at[k].from < here) { index = k; break }
+      }
+      else index += step
+      if (index < 0 || index >= at.length) index = step > 0 ? 0 : at.length - 1
+      reveal(at[index])
+      showCount(at)
     }
     const onKey = (e: globalThis.KeyboardEvent) => {
       const target = e.target as HTMLInputElement
       if (target.name !== 'search' || !target.closest?.('.cm-search') || e.key !== 'Enter') return
-      const at = matches()
-      if (at.length === 0) return
-      searchIndex.current = (searchIndex.current + (e.shiftKey ? -1 : 1) + at.length) % at.length
-      showCount(at.length, searchIndex.current)
+      e.preventDefault()
+      e.stopPropagation()
+      move(e.shiftKey ? -1 : 1)
+    }
+    const onClick = (e: Event) => {
+      const button = (e.target as HTMLElement).closest?.('.cm-search button') as HTMLButtonElement | null
+      if (!button || (button.name !== 'next' && button.name !== 'prev')) return
+      e.preventDefault()
+      e.stopPropagation()
+      move(button.name === 'next' ? 1 : -1)
     }
     root.addEventListener('input', onInput)
-    root.addEventListener('click', onClick)
-    root.addEventListener('keydown', onKey, true) // before the panel's own handler, which may stop it
+    root.addEventListener('click', onClick, true) // before the panel's own handlers
+    root.addEventListener('keydown', onKey, true)
     return () => {
       root.removeEventListener('input', onInput)
-      root.removeEventListener('click', onClick)
+      root.removeEventListener('click', onClick, true)
       root.removeEventListener('keydown', onKey, true)
     }
   }, [])

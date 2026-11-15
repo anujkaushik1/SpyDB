@@ -120,6 +120,12 @@ func (s *Service) SaveItems(ctx context.Context, table string, edits []ItemEdit)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %s %v Nothing was saved.", name, field, err)
 			}
+			// A key field of an index must keep the index's type: AWS refuses
+			// NULL or another type with a bare "Invalid attribute value type".
+			if keyType, isKey := details.KeyTypes[field]; isKey && typeOf(v) != keyType {
+				return nil, fmt.Errorf("%s: %s is the key of an index (%s), so it must stay %s and can't be %s. Nothing was saved. (To take the item out of that index, remove the field with ✕ instead.)",
+					name, field, indexesUsing(details, field), keyTypeNames[keyType], valueTypeName(v))
+			}
 			set = append(set, fmt.Sprintf("%s = %s", e.name(field), e.value(v)))
 		}
 		var update []string
@@ -426,6 +432,39 @@ func newValue(change FieldChange, now types.AttributeValue) (types.AttributeValu
 		like = emptyOf(kind)
 	}
 	return fromJSON(v, like)
+}
+
+// What messages call a key's type, and a value's.
+var keyTypeNames = map[string]string{"S": "text", "N": "a number", "B": "binary"}
+
+func valueTypeName(v types.AttributeValue) string {
+	switch typeOf(v) {
+	case "S":
+		return "text"
+	case "N":
+		return "a number"
+	case "BOOL":
+		return "true or false"
+	case "NULL":
+		return "NULL"
+	case "B":
+		return "binary"
+	}
+	return typeNames[typeOf(v)]
+}
+
+// indexesUsing names the indexes (or the table) whose key the field is in.
+func indexesUsing(details TableDetails, field string) string {
+	var names []string
+	if field == details.PartitionKey || field == details.SortKey {
+		names = append(names, "the table")
+	}
+	for _, ix := range details.Indexes {
+		if field == ix.PartitionKey || field == ix.SortKey {
+			names = append(names, ix.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // What messages call each type.

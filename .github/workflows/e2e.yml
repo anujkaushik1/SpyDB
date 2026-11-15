@@ -24,7 +24,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       E2E_DDB: http://127.0.0.1:8000
       E2E_PG_DB: postgres

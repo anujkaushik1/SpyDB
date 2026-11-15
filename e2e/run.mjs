@@ -33,8 +33,14 @@ const suites = {
     before: () => sql(`DROP TABLE IF EXISTS spydb_ui_test; DROP TABLE IF EXISTS spydb_ui_parent;
       CREATE TABLE spydb_ui_parent (id int PRIMARY KEY, label text); INSERT INTO spydb_ui_parent SELECT i, 'parent ' || i FROM generate_series(1, 20) i;
       CREATE TABLE spydb_ui_test (id int PRIMARY KEY, name text, n int, flag boolean, j jsonb, parent_id int REFERENCES spydb_ui_parent(id), wide1 text, wide2 text, wide3 text, wide4 text);
-      INSERT INTO spydb_ui_test SELECT i, 'name ' || i, i * 10, i % 2 = 0, jsonb_build_object('k', i), i, repeat('w', 40), repeat('x', 40), repeat('y', 40), repeat('z', 40) FROM generate_series(1, 20) i`),
-    after: () => sql('DROP TABLE IF EXISTS spydb_ui_test; DROP TABLE IF EXISTS spydb_ui_parent'),
+      INSERT INTO spydb_ui_test SELECT i, 'name ' || i, i * 10, i % 2 = 0, jsonb_build_object('k', i), i, repeat('w', 40), repeat('x', 40), repeat('y', 40), repeat('z', 40) FROM generate_series(1, 20) i;
+      DROP TABLE IF EXISTS spydb_ui_big; CREATE TABLE spydb_ui_big (id int PRIMARY KEY, grp text, val int);
+      INSERT INTO spydb_ui_big SELECT i, chr(65 + i % 3), i * 2 FROM generate_series(1, 250) i;
+      DROP TABLE IF EXISTS spydb_ui_nokey; CREATE TABLE spydb_ui_nokey (status text, n int);
+      INSERT INTO spydb_ui_nokey VALUES ('a', 1), ('a', 1), ('a', 1), ('b', 2), ('b', 2), ('c', 3);
+      DROP TABLE IF EXISTS spydb_ui_pair; CREATE TABLE spydb_ui_pair (a int, b int, note text, PRIMARY KEY (a, b));
+      INSERT INTO spydb_ui_pair SELECT a, b, 'n' || a || b FROM generate_series(1, 3) a, generate_series(1, 3) b`),
+    after: () => sql('DROP TABLE IF EXISTS spydb_ui_test; DROP TABLE IF EXISTS spydb_ui_parent; DROP TABLE IF EXISTS spydb_ui_big; DROP TABLE IF EXISTS spydb_ui_nokey; DROP TABLE IF EXISTS spydb_ui_pair'),
   },
   dynamo: { before: seed, after: () => {} },
 }

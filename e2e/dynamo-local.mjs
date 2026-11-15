@@ -37,6 +37,18 @@ export async function snapshot(table, keyNames) {
   return out
 }
 
+// Every item of a table, raw (the AttributeValue JSON), for working out what a filter should find.
+export async function scanItems(table) {
+  const out = []
+  let start
+  do {
+    const page = await ddb('Scan', { TableName: table, ConsistentRead: true, ...(start && { ExclusiveStartKey: start }) })
+    out.push(...page.Items)
+    start = page.LastEvaluatedKey
+  } while (start)
+  return out
+}
+
 // Which keys differ between two snapshots (changed, added or removed), sorted.
 export const changedKeys = (before, after) =>
   [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort()
@@ -49,8 +61,11 @@ export async function seed() {
   }
   await ddb('CreateTable', {
     TableName: 'orders', BillingMode: 'PAY_PER_REQUEST',
-    AttributeDefinitions: [{ AttributeName: 'userId', AttributeType: 'S' }, { AttributeName: 'createdAt', AttributeType: 'N' }],
+    AttributeDefinitions: [{ AttributeName: 'userId', AttributeType: 'S' }, { AttributeName: 'createdAt', AttributeType: 'N' },
+      { AttributeName: 'city', AttributeType: 'S' }, { AttributeName: 'amount', AttributeType: 'N' }],
     KeySchema: [{ AttributeName: 'userId', KeyType: 'HASH' }, { AttributeName: 'createdAt', KeyType: 'RANGE' }],
+    // An index like a real table's: by city, sorted by amount, keeping every field.
+    GlobalSecondaryIndexes: [{ IndexName: 'cityIndex', KeySchema: [{ AttributeName: 'city', KeyType: 'HASH' }, { AttributeName: 'amount', KeyType: 'RANGE' }], Projection: { ProjectionType: 'ALL' } }],
   })
   await ddb('CreateTable', {
     TableName: 'events', BillingMode: 'PAY_PER_REQUEST',

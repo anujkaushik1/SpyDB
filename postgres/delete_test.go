@@ -176,3 +176,114 @@ func TestDeleteAsEditorRole(t *testing.T) {
 	}
 	refuseDelete(t, s, r.Target, "SELECT id, v FROM "+testSchema+".open", "ermission denied", rowDelete(r, 0))
 }
+
+// Several rows saved or deleted at once touch exactly those rows: not their
+// neighbours, not the rest of the table, not another table. Checked by
+// comparing every row of both tables before and after, as a person would
+// fear "I picked 4 and everything went".
+func TestOnlyThoseRowsChange(t *testing.T) {
+	s := editFixture(t,
+		"CREATE TABLE "+testSchema+".orders (id int PRIMARY KEY, city text, amount numeric(10,2), paid boolean)",
+		"INSERT INTO "+testSchema+".orders SELECT i, (ARRAY['Delhi','Mumbai','Pune'])[i % 3 + 1], i * 10.5, i % 2 = 0 FROM generate_series(1, 30) i",
+		"CREATE TABLE "+testSchema+".bystander (id int PRIMARY KEY, city text)",
+		"INSERT INTO "+testSchema+".bystander SELECT i, 'Delhi' FROM generate_series(1, 10) i",
+		"CREATE TABLE "+testSchema+".nokey (status text, n int)",
+		"INSERT INTO "+testSchema+".nokey VALUES ('a', 1), ('a', 1), ('a', 1), ('b', 2), ('b', 2), ('c', 3)")
+	orders := "SELECT id, city, amount, paid FROM " + testSchema + ".orders ORDER BY id"
+	bystander := "SELECT id, city FROM " + testSchema + ".bystander ORDER BY id"
+	nokey := "SELECT status, n FROM " + testSchema + ".nokey ORDER BY status, n"
+	r := editable(t, query(t, s, orders), "pk", "id")
+	col := func(name string) int {
+		for j, c := range r.Columns {
+			if c.Name == name {
+				return j
+			}
+		}
+		t.Fatalf("no column %s", name)
+		return -1
+	}
+	text := func(v string) *string { return &v }
+	// Rows 5, 12, 19 and 26 (ids 6, 13, 20, 27): a different column each, in one save.
+	before, beforeOther := table(t, s, orders), table(t, s, bystander)
+	edits := []RowEdit{
+		{Key: keyOf(r, 5), Old: map[string]*string{"city": r.Rows[5][col("city")]}, Values: map[string]*string{"city": text("Goa")}},
+		{Key: keyOf(r, 12), Old: map[string]*string{"amount": r.Rows[12][col("amount")]}, Values: map[string]*string{"amount": text("999.00")}},
+		{Key: keyOf(r, 19), Old: map[string]*string{"paid": r.Rows[19][col("paid")]}, Values: map[string]*string{"paid": text("f")}}, // id 20 is paid: unpaid now
+		{Key: keyOf(r, 26), Old: map[string]*string{"city": r.Rows[26][col("city")]}, Values: map[string]*string{"city": nil}},
+	}
+	if saved := save(t, s, r.Target, edits...); len(saved) != 4 {
+		t.Fatalf("saved %d rows", len(saved))
+	}
+	after := table(t, s, orders)
+	changed := diffRows(before, after)
+	if want := []int{5, 12, 19, 26}; !slices.Equal(changed, want) {
+		t.Fatalf("rows changed by the save: %v (0-based); want %v\nbefore %v\nafter  %v", changed, want, before, after)
+	}
+	if !strings.HasPrefix(after[5], "6|Goa|") || !strings.Contains(after[12], "|Mumbai|{99900 ") || !strings.HasSuffix(after[19], "|false") || !strings.HasPrefix(after[26], "27|NULL|") {
+		t.Fatalf("the saved rows: %q %q %q %q", after[5], after[12], after[19], after[26])
+	}
+	if other := table(t, s, bystander); !slices.Equal(other, beforeOther) {
+		t.Fatalf("the other table changed: %v", other)
+	}
+
+	// Delete 4 rows at once (ids 3, 4, 17, 30): exactly those go.
+	r = editable(t, query(t, s, orders), "pk", "id")
+	before = table(t, s, orders)
+	n, err := s.DeleteRows(t.Context(), *r.Target, []RowDelete{rowDelete(r, 2), rowDelete(r, 3), rowDelete(r, 16), rowDelete(r, 29)})
+	if err != nil || n != 4 {
+		t.Fatalf("deleted %d, %v", n, err)
+	}
+	after = table(t, s, orders)
+	if len(after) != 26 {
+		t.Fatalf("%d rows left; want 26", len(after))
+	}
+	gone := map[string]bool{}
+	for _, row := range before {
+		gone[row] = true
+	}
+	for _, row := range after {
+		if !gone[row] {
+			t.Fatalf("a row that stayed is not as it was: %q", row)
+		}
+		delete(gone, row)
+	}
+	var goneIDs []string
+	for row := range gone {
+		goneIDs = append(goneIDs, strings.SplitN(row, "|", 2)[0])
+	}
+	slices.Sort(goneIDs)
+	if !slices.Equal(goneIDs, []string{"17", "3", "30", "4"}) {
+		t.Fatalf("rows gone: %v; want 3, 4, 17, 30", goneIDs)
+	}
+	if other := table(t, s, bystander); !slices.Equal(other, beforeOther) {
+		t.Fatalf("the other table changed: %v", other)
+	}
+
+	// No primary key, identical rows: delete 2 of the 3 'a' rows and 1 of
+	// the 2 'b' rows picked by position; the third 'a', the other 'b' and 'c' stay.
+	rn := editable(t, query(t, s, nokey), "ctid", "ctid", "md5")
+	n, err = s.DeleteRows(t.Context(), *rn.Target, []RowDelete{rowDelete(rn, 0), rowDelete(rn, 2), rowDelete(rn, 4)})
+	if err != nil || n != 3 {
+		t.Fatalf("no-key delete: %d, %v", n, err)
+	}
+	assertRows(t, s, nokey, "a|1", "b|2", "c|3")
+	// And an edit of 2 of 3 identical rows changes 2, not 3.
+	exec(t, s, "INSERT INTO "+testSchema+".nokey VALUES ('a', 1), ('a', 1)")
+	rn = editable(t, query(t, s, "SELECT status, n FROM "+testSchema+".nokey WHERE status = 'a'"), "ctid", "ctid", "md5")
+	save(t, s, rn.Target,
+		RowEdit{Key: keyOf(rn, 0), Old: map[string]*string{"n": text("1")}, Values: map[string]*string{"n": text("7")}},
+		RowEdit{Key: keyOf(rn, 2), Old: map[string]*string{"n": text("1")}, Values: map[string]*string{"n": text("7")}})
+	assertRows(t, s, nokey, "a|1", "a|7", "a|7", "b|2", "c|3")
+}
+
+// diffRows is the indexes of rows that differ between two listings of the
+// same length.
+func diffRows(before, after []string) []int {
+	var out []int
+	for i := range before {
+		if i >= len(after) || before[i] != after[i] {
+			out = append(out, i)
+		}
+	}
+	return out
+}

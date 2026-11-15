@@ -490,6 +490,86 @@ func TestOnlyThatItemChangesOnDynamoDBLocal(t *testing.T) {
 		}
 	}
 
+	// Four at once, across partition keys (c|1, c|3, f|2, j|1), with a second
+	// table alongside that must not move: a person's "I picked 4 and everything went".
+	other := table + "-other"
+	client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{TableName: aws.String(other)})
+	if _, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+		TableName: aws.String(other),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("id"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("n"), AttributeType: types.ScalarAttributeTypeN},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("id"), KeyType: types.KeyTypeHash},
+			{AttributeName: aws.String("n"), KeyType: types.KeyTypeRange},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(other)})
+	})
+	for _, id := range []string{"c", "f", "j"} {
+		put(t, client, other, sampleItem(id))
+	}
+	otherBefore := snapshot(t, client, other)
+	before = snapshot(t, client, table)
+	if n, err := s.DeleteItems(t.Context(), table, []ItemDelete{
+		{Key: map[string]string{"id": "c", "n": "1"}, Old: map[string]Shown{"city": text("Delhi")}},
+		{Key: map[string]string{"id": "c", "n": "3"}, Old: map[string]Shown{"city": text("Delhi")}},
+		{Key: map[string]string{"id": "f", "n": "2"}, Old: map[string]Shown{"amount": text("152")}},
+		{Key: map[string]string{"id": "j", "n": "1"}, Old: map[string]Shown{"paid": text("f")}},
+	}); err != nil || n != 4 {
+		t.Fatal(n, err)
+	}
+	after = snapshot(t, client, table)
+	if len(after) != len(before)-4 {
+		t.Fatalf("%d items after deleting 4 of %d", len(after), len(before))
+	}
+	for key, was := range before {
+		switch key {
+		case "c|1", "c|3", "f|2", "j|1":
+			if _, there := after[key]; there {
+				t.Errorf("%s wasn't deleted", key)
+			}
+		default:
+			if after[key] != was {
+				t.Errorf("%s changed when 4 others were deleted", key)
+			}
+		}
+	}
+	if otherAfter := snapshot(t, client, other); !reflect.DeepEqual(otherAfter, otherBefore) {
+		t.Fatalf("the other table changed: %v", otherAfter)
+	}
+	// Four saved at once (a|2, d|1, g|3, i|2), the other table still untouched.
+	before = after
+	if _, err := s.SaveItems(t.Context(), table, []ItemEdit{
+		{Key: map[string]string{"id": "a", "n": "2"}, Old: map[string]Shown{"city": text("Delhi")}, Changes: map[string]FieldChange{"city": {Text: "Goa"}}},
+		{Key: map[string]string{"id": "d", "n": "1"}, Old: map[string]Shown{"amount": text("151")}, Changes: map[string]FieldChange{"amount": {Text: "1"}}},
+		{Key: map[string]string{"id": "g", "n": "3"}, Old: map[string]Shown{"paid": text("f")}, Changes: map[string]FieldChange{"paid": {Text: "true"}}},
+		{Key: map[string]string{"id": "i", "n": "2"}, Old: map[string]Shown{"note": {}}, Changes: map[string]FieldChange{"note": {Text: "four"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after = snapshot(t, client, table)
+	for key, was := range before {
+		switch key {
+		case "a|2", "d|1", "g|3", "i|2":
+			if after[key] == was {
+				t.Errorf("%s should have changed", key)
+			}
+		default:
+			if after[key] != was {
+				t.Errorf("%s changed when 4 others were saved", key)
+			}
+		}
+	}
+	if otherAfter := snapshot(t, client, other); !reflect.DeepEqual(otherAfter, otherBefore) {
+		t.Fatalf("the other table changed: %v", otherAfter)
+	}
+
 	// Delete two in one transaction (b|2 and h|3): only those.
 	if n, err := s.DeleteItems(t.Context(), table, []ItemDelete{
 		{Key: map[string]string{"id": "b", "n": "2"}, Old: map[string]Shown{"amount": text("152")}},
@@ -498,12 +578,64 @@ func TestOnlyThatItemChangesOnDynamoDBLocal(t *testing.T) {
 		t.Fatal(n, err)
 	}
 	before, after = after, snapshot(t, client, table)
-	if len(after) != 27 || after["b|2"] != "" || after["h|3"] != "" {
+	if len(after) != 23 || after["b|2"] != "" || after["h|3"] != "" {
 		t.Fatalf("%d items after deleting b|2 and h|3", len(after))
 	}
 	for key, was := range before {
 		if key != "b|2" && key != "h|3" && after[key] != was {
 			t.Errorf("%s changed when only b|2 and h|3 were deleted", key)
 		}
+	}
+}
+
+// A field that is an index's key can't become NULL or another type (AWS
+// would answer "Invalid attribute value type"): SpyDB says why first, and
+// nothing is saved. Removing the field is allowed: the item leaves the index.
+func TestIndexKeyTypeOnDynamoDBLocal(t *testing.T) {
+	s, client, table := localDynamo(t)
+	// An index by city (text), with the table's items in it.
+	if _, err := client.UpdateTable(t.Context(), &dynamodb.UpdateTableInput{
+		TableName:            aws.String(table),
+		AttributeDefinitions: []types.AttributeDefinition{{AttributeName: aws.String("city"), AttributeType: types.ScalarAttributeTypeS}},
+		GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexUpdate{{Create: &types.CreateGlobalSecondaryIndexAction{
+			IndexName:  aws.String("cityIndex"),
+			KeySchema:  []types.KeySchemaElement{{AttributeName: aws.String("city"), KeyType: types.KeyTypeHash}},
+			Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+		}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	put(t, client, table, sampleItem("a"))
+	put(t, client, table, sampleItem("b"))
+	key := func(id string) map[string]string { return map[string]string{"id": id, "n": "1"} }
+	text := func(s string) Shown { return Shown{Has: true, Text: s} }
+	before := snapshot(t, client, table)
+	for _, c := range []struct {
+		change FieldChange
+		want   string
+	}{
+		{FieldChange{Null: true}, "city is the key of an index (cityIndex), so it must stay text and can't be NULL"},
+		{FieldChange{Text: "5", Type: "N", Typed: true}, "must stay text and can't be a number"},
+	} {
+		_, err := s.SaveItems(t.Context(), table, []ItemEdit{
+			{Key: key("b"), Old: map[string]Shown{"paid": text("f")}, Changes: map[string]FieldChange{"paid": {Text: "true"}}}, // fine on its own…
+			{Key: key("a"), Old: map[string]Shown{"city": text("Delhi")}, Changes: map[string]FieldChange{"city": c.change}},
+		})
+		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "Nothing was saved") {
+			t.Fatalf("got %v; want …%s…", err, c.want)
+		}
+		if after := snapshot(t, client, table); !reflect.DeepEqual(after, before) {
+			t.Fatalf("a refused save changed the table: %v", after)
+		}
+	}
+	// Text stays text; removing the field is fine.
+	if _, err := s.SaveItems(t.Context(), table, []ItemEdit{
+		{Key: key("a"), Old: map[string]Shown{"city": text("Delhi")}, Changes: map[string]FieldChange{"city": {Text: "Goa"}}},
+		{Key: key("b"), Old: map[string]Shown{"city": text("Delhi")}, Changes: map[string]FieldChange{"city": {Remove: true}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := get(t, client, table, "a", "1"), get(t, client, table, "b", "1"); typedJSON(a["city"]) != `{"S":"Goa"}` || b["city"] != nil {
+		t.Fatalf("a.city %s, b.city %v", typedJSON(a["city"]), b["city"])
 	}
 }

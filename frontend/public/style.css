@@ -2742,4 +2742,4 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 .details-error { margin: 0 0 12px; font-size: 13px; color: var(--error); }
 
 /* The JSON editor's search: how many matches, and which one (live, as you type). */
-.json-search-count { margin: 0 8px 0 2px; font-size: 11.5px; color: var(--text-subtle); white-space: nowrap; }
+.json-modal .cm-search .json-search-count { margin: 0 8px 0 2px; font-size: 11.5px; line-height: 1; color: var(--text-subtle); white-space: nowrap; }
