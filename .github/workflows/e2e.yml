@@ -1,0 +1,131 @@
+# Tests SpyDB on GitHub's own Ubuntu (22.04 and 24.04), Windows and Mac
+# computers, against a real database of each kind SpyDB opens:
+#   - the Go tests, with Postgres and DynamoDB Local for the ones that need them;
+#   - e2e/run.mjs: the app (its server build) in headless Chrome, used like a
+#     person would: connect, open tables, edit, save, delete, query, switch.
+# Postgres and DynamoDB Local run on the test computer itself, with made-up
+# data; nothing here reaches AWS or any real database.
+# Runs on every push to a branch, or from Actions → "End-to-end tests" → Run.
+name: End-to-end tests
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      E2E_DDB: http://127.0.0.1:8000
+      E2E_PG_DB: postgres
+      E2E_SHOTS: ${{ github.workspace }}/e2e-shots
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # ----- The databases, on this computer ---------------------------------
+      - name: "Ubuntu: Postgres and DynamoDB Local in Docker"
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16
+          docker run -d --name ddb -p 8000:8000 amazon/dynamodb-local:latest
+          echo "E2E_PG_USER=postgres" >> "$GITHUB_ENV"
+
+      - name: "Windows: its own Postgres, trusting this computer"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-Content -Path "$env:PGDATA\pg_hba.conf" -Value "host all all 127.0.0.1/32 trust`nhost all all ::1/128 trust"
+          $service = (Get-Service -Name "postgresql*" | Select-Object -First 1).Name
+          Set-Service -Name $service -StartupType Manual
+          Start-Service -Name $service
+          "$env:PGBIN" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "E2E_PG_USER=postgres" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: "Mac: Postgres from Homebrew"
+        if: runner.os == 'macOS'
+        run: |
+          brew install postgresql@16
+          brew services start postgresql@16
+          echo "$(brew --prefix postgresql@16)/bin" >> "$GITHUB_PATH"
+          echo "E2E_PG_USER=$(whoami)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        if: runner.os != 'Linux'
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: "Windows and Mac: DynamoDB Local (AWS's download, on Java)"
+        if: runner.os != 'Linux'
+        run: |
+          curl -fsSL -o ddb.zip https://d1ni2b6xgvw0s0.cloudfront.net/v2.x/dynamodb_local_latest.zip
+          mkdir -p "$RUNNER_TEMP/ddb" && unzip -q ddb.zip -d "$RUNNER_TEMP/ddb"
+          cd "$RUNNER_TEMP/ddb"
+          nohup java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -inMemory -sharedDb -port 8000 > ddb.log 2>&1 &
+
+      - name: Wait for both
+        run: |
+          for i in $(seq 1 90); do
+            pg_isready -h localhost -p 5432 -q && curl -s -o /dev/null http://127.0.0.1:8000 && { echo "both up"; exit 0; }
+            sleep 2
+          done
+          echo "the databases didn't start"; exit 1
+
+      # ----- Build ----------------------------------------------------------------
+      - name: "Ubuntu: window libraries (to build against)"
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build the screens
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: The screens' unit tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build the server version of the app
+        run: |
+          tags=server
+          if [ "$RUNNER_OS" = Linux ]; then tags=server,gtk3; fi
+          go build -tags "$tags" -o "bin/spydb-server$( [ "$RUNNER_OS" = Windows ] && echo .exe )" .
+
+      # ----- Test -----------------------------------------------------------------
+      - name: Go tests, with the databases
+        env:
+          SPYDB_DYNAMO_LOCAL: http://127.0.0.1:8000
+          SPYDB_TEST_HOST: localhost
+          SPYDB_TEST_DATABASE: postgres
+        run: SPYDB_TEST_USER="$E2E_PG_USER" go test ./... -count=1
+
+      - name: The app in Chrome (e2e/run.mjs)
+        run: node e2e/run.mjs
+
+      - name: Keep the screenshots on this run's page
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-screenshots-${{ matrix.os }}
+          path: e2e-shots
+          if-no-files-found: ignore
