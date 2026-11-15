@@ -40,7 +40,7 @@ To require an update, raise the platform's minimum in [`updates.json`](updates.j
 
 ## Features
 
-- **Connect** from a form or a pasted `postgres://` URL. Test first, save connections by name, and reconnect from the 10 most recent. Errors are in plain language ("Nothing is accepting connections on localhost:5433").
+- **Connect** from a form or a pasted `postgres://` URL. Test first, and save connections by name. Errors are in plain language ("Nothing is accepting connections on localhost:5433").
 - **Switch** databases or saved connections from the top of the sidebar. Each connection keeps its own tabs.
 - **Browse** every schema's tables and views with approximate row counts. Filter by name, or press ⌘P / Ctrl+P to jump to any table.
 - **Table tabs:** 100 rows per page, sort by any column, filters (equals, contains, >, is null and 6 more), jump to a page, or write SQL right on the table with `</>`.
@@ -64,22 +64,27 @@ To require an update, raise the platform's minimum in [`updates.json`](updates.j
 ### DynamoDB
 
 - **Sign in** with an AWS profile from `~/.aws` (keys, SSO or browser sign-in); SpyDB stores no keys.
-- **Tables:** 50 items at a time with Load more, and filters that use a table or index key when they can (it says which) instead of reading every item.
-- **Edit in place:** type in a cell, add a field as a new column (text, number, boolean or JSON), or edit an item as JSON, where adding a key adds the field and deleting one removes it. Fields keep their DynamoDB type (a number stays a number; sets stay sets). Saves are checked like Postgres's: every item must still hold what you saw, and several items save in one transaction, all or none.
+- **Tables:** 50 items at a time with Load more, sort the loaded items by any column, and filters that use a table or index key when they can (it says which) instead of reading every item.
+- **Edit in place:** type in a cell, or edit an item as JSON, where adding a key adds the field (a new column) and deleting one removes it; ✕ in a cell removes a field. Fields keep their DynamoDB type (a number stays a number; sets stay sets). Saves are checked like Postgres's: every item must still hold what you saw, and several items save in one transaction, all or none.
 - **Delete** items from the right-click menu, after a confirmation.
 - **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time and its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
 
 ### MongoDB
 
-- **Connect** with a connection string (`mongodb://` or `mongodb+srv://`, as Atlas gives it) or host, port, user, password and auth database, with TLS for hosted servers. Test first, save connections by name, and reconnect from the 10 most recent.
+- **Connect** with a connection string (`mongodb://` or `mongodb+srv://`, as Atlas gives it) or host, port, user, password and auth database, with TLS for hosted servers. Test first, and save connections by name.
 - **Browse** a database's collections with about how many documents each holds (from the server's metadata: nothing is scanned). Switch to another database or saved connection from the top of the sidebar; each database keeps its own tabs. ⌘P / Ctrl+P jumps to a collection.
 - **Collection tabs:** 50 documents per page, `_id` first and then fields in the order they appear, sort by any field, and filters (equals, contains, >, exists and 6 more) that type your value like the field (an ObjectId, a number, a date).
-- **Edit in place:** type in a cell, add a field as a new column (text, number, true / false, date, ObjectId or JSON), edit a document as JSON (adding a key adds the field, deleting one removes it), ✕ in a cell to remove a field. Fields keep their type: a long stays a long, a date a date, and the untouched parts of an object keep theirs. Saves are checked: each changed field must still hold what you saw, by `_id`; on a replica set or cluster all of them save in one transaction.
+- **Edit in place:** type in a cell, or edit a document as JSON (adding a key adds the field, as a new column; deleting one removes it), ✕ in a cell to remove a field. Fields keep their type: a long stays a long, a date a date, and the untouched parts of an object keep theirs. Saves are checked: each changed field must still hold what you saw, by `_id`; on a replica set or cluster all of them save in one transaction.
 - **Delete** documents from the right-click menu, after a confirmation.
 - **Queries:** `</>` in a collection tab, or ⌘T / Ctrl+T for a query tab, in mongosh's syntax: `db.orders.find({status: "PAID"}).sort({_id: -1})`, `aggregate`, `countDocuments`, `distinct`, `insertOne` / `insertMany`, `updateOne` / `updateMany`, `replaceOne`, `deleteOne` / `deleteMany`, with `ObjectId(…)`, `ISODate(…)`, `NumberLong(…)` and the like. Results come 50 at a time; `find` results are editable. Esc cancels.
 - **Export** filtered documents or a whole collection to CSV or Excel.
 
-**Switch engines without disconnecting:** Pg / Dy / Mg in the left rail. Each engine stays connected, with its tabs, while you use another.
+### The three together
+
+- **One connect screen:** the left sidebar lists every saved connection under its database's heading (PostgreSQL, DynamoDB's AWS profiles, MongoDB), each with its logo. Click one to see it in its form, double-click to connect.
+- **The left rail** has a button per database, lit in its colour when that's the one on screen, with a green dot on each that's connected.
+- **Switch without disconnecting:** each database stays connected, with its tabs as you left them, while you use another. Postgres, DynamoDB and MongoDB are separate parts of the app that share only the grid, tabs and dialogs: nothing one does reaches another.
+- **Dark or light:** the sun / moon button at the bottom of the rail; SpyDB remembers your choice.
 
 ## How it works
 
@@ -198,6 +203,25 @@ How many times the app sent something to Postgres and waited for the answer. Low
 - **Paging** in a table tab takes 3 round trips against Beekeeper's 1, because SpyDB re-reads the table's columns and key for each page.
 - **The app itself:** SpyDB uses the system web view. Beekeeper bundles its own Chromium and Node and runs 5 processes.
 
+## Benchmark: DynamoDB
+
+The real app (its server build) in headless Chrome against DynamoDB Local with a table of 2,000 items, timed from the click or key press to the frame in which the screen shows the result, so it's the wait a person sees, grid and all. After every step the result is checked against DynamoDB Local itself: the rows shown are the items there, a filter found exactly the items a direct scan finds, a save or delete changed exactly that item. Run it yourself with `node e2e/bench.mjs` (see below); it writes only the table `spydb_bench` in DynamoDB Local.
+
+| What a person does | Screen (ms) | DynamoDB Local (ms) | Runs | Checked against DynamoDB Local |
+|---|---:|---:|---:|---|
+| Sign in and list the tables | 549 | — | 1 | ✓ the table is listed |
+| Open a table: its first 50 items on screen | 29 | 4.0 | 5 | ✓ 50 rows shown, each an item in the table with its city |
+| Load more: the next 50 items | 38 | — | 5 | ✓ 300 rows, all different, all items in the table |
+| Filter by the key (userId = u01000) | 28 | 3.0 | 5 | ✓ the one item, with its amount, read by its key |
+| Filter on a field (city = Goa): first page of matches | 33 | 4.0 | 1 | ✓ 400 found of 2000, the same 400 a direct scan finds |
+| …and Load more with the filter: the next 50 checked (40 pages, until every item was) | 37 | — | 40 | ✓ every match shown once, none missing |
+| Edit a cell and save | 24 | — | 5 | ✓ the 5 edited items hold the new value; the other items are untouched |
+| Delete an item | 34 | — | 3 | ✓ the 3 items are gone from the table, 1997 remain |
+| PartiQL: SELECT one item by its key | 39 | — | 5 | ✓ the one item comes back |
+| Open an item as JSON | 20 | — | 5 | ✓ the JSON matches the item, numbers as numbers |
+
+Measured on 15 Nov 2026: macOS 26.5.1 · Apple M4 · 16 GB, DynamoDB Local in Docker, a table of 2,000 items. Medians of the runs shown. "DynamoDB Local (ms)" is what the database itself reported for the request, as the footer shows it; the rest of the screen time is SpyDB and the grid. Signing in runs the AWS CLI once, which is most of its time.
+
 ## Requirements
 
 - Go 1.26+, Node.js 22.12+
@@ -213,6 +237,7 @@ SPYDB_TEST_DATABASE=mydb go test ./...    # Go tests against a local Postgres (t
 SPYDB_DYNAMO_LOCAL=http://127.0.0.1:8000 go test ./dynamo/   # DynamoDB writes, against DynamoDB Local (docker run -p 8000:8000 amazon/dynamodb-local)
 SPYDB_MONGO_URL=mongodb://127.0.0.1:27017 go test ./mongodb/   # MongoDB, in databases named spydb_test_* it makes and drops (docker run -p 27017:27017 mongo:8.0)
 go build -tags server -o bin/spydb-server . && E2E_PG_USER=me E2E_PG_DB=mydb node e2e/run.mjs   # the app in headless Chrome
+E2E_DDB=http://127.0.0.1:8000 node e2e/bench.mjs   # the DynamoDB benchmark above, against DynamoDB Local
 wails3 build                              # binary in bin/
 wails3 task package                       # macOS app bundle in bin/spydb.app
 ```

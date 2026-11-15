@@ -1,20 +1,19 @@
 import { Events } from '@wailsio/runtime'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableFilter, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
-import { Service as Dynamo, type AWSIdentity, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import { Service as Dynamo, type AWSIdentity, type AWSProfile, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { Service as Mongo, type CollectionInfo, type ConnectionInfo as MongoConnectionInfo, type ConnectionLists as MongoConnectionLists, type Filter as MongoFilter, type SavedConnection as MongoSavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/mongodb'
 import { errorMessage } from './Banner'
 import ConfirmDialog from './ConfirmDialog'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
-import ConnectionsSidebar from './ConnectionsSidebar'
+import ConnectionsSidebar, { ENGINES, type Engine } from './ConnectionsSidebar'
 import DynamoSidebar from './dynamo/DynamoSidebar'
 import DynamoQueryTab from './dynamo/DynamoQueryTab'
 import DynamoTableTab from './dynamo/DynamoTableTab'
-import DynamoSignIn from './dynamo/DynamoSignIn'
+import DynamoSignIn, { type ProfilePick } from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
 import MongoCollectionTab from './mongo/MongoCollectionTab'
 import MongoConnectForm, { type MongoFormRequest } from './mongo/MongoConnectForm'
-import MongoConnectionsSidebar from './mongo/MongoConnectionsSidebar'
 import MongoQueryTab from './mongo/MongoQueryTab'
 import MongoSidebar from './mongo/MongoSidebar'
 import { mongoWorkspace } from './mongo/mongoConnection'
@@ -28,7 +27,7 @@ import TabBar, { type Tab } from './TabBar'
 import TablePalette from './TablePalette'
 import TableTab, { type FollowTarget } from './TableTab'
 import { targetKey } from './connectionSearch'
-import { CodeIcon, TableIcon } from './icons'
+import { CodeIcon, MoonIcon, SunIcon, TableIcon } from './icons'
 import { isWindows } from './platform'
 import { upsertQuery } from './savedQueries'
 import { activeAfterClose, tabsToClose, type CloseCommand } from './tabActions'
@@ -55,6 +54,17 @@ function App() {
   // connected. Each keeps its own connection while another is shown, so
   // switching back finds it (and its tabs) as it was.
   const [engine, setEngine] = useState<Engine>('postgres')
+  // Dark or light, remembered on this computer (the rail's last button).
+  const [theme, setTheme] = useState<Theme>(readTheme)
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try { localStorage.setItem(THEME_KEY, theme) } catch { /* private window: not remembered */ }
+  }, [theme])
+  // The DynamoDB sign-in's AWS profiles, for the connect screen's sidebar, and the one picked there.
+  const [dynamoProfiles, setDynamoProfiles] = useState<AWSProfile[] | null>(null)
+  const [dynamoProfilesError, setDynamoProfilesError] = useState<string | null>(null)
+  const [dynamoProfile, setDynamoProfile] = useState('')
+  const [dynamoPick, setDynamoPick] = useState<ProfilePick | null>(null)
   // Signed in to AWS and showing its DynamoDB tables, or null.
   const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
   // Connected to MongoDB, or null.
@@ -129,10 +139,12 @@ function App() {
     }
   }, [])
 
-  // Reload on every return to the connect screen; the last connect is now in Recent.
+  // The connect screen (the shown database isn't connected) lists every
+  // database's saved connections: reload them on every return to it.
+  const onConnectScreen = (engine === 'postgres' && !connection) || (engine === 'dynamo' && !dynamo) || (engine === 'mongo' && !mongo)
   useEffect(() => {
-    if (!connection) loadLists()
-  }, [connection, loadLists])
+    if (onConnectScreen) loadLists()
+  }, [onConnectScreen, loadLists])
 
   const loadSchemas = useCallback(async () => {
     setSchemasLoading(true)
@@ -180,10 +192,9 @@ function App() {
     }
   }, [])
 
-  // On every return to MongoDB's connect screen; the last connect is now in Recent.
   useEffect(() => {
-    if (engine === 'mongo' && !mongo) loadMongoLists()
-  }, [engine, mongo, loadMongoLists])
+    if (onConnectScreen) loadMongoLists()
+  }, [onConnectScreen, loadMongoLists])
 
   const loadMongoCollections = useCallback(async () => {
     setMongoCollectionsLoading(true)
@@ -286,15 +297,6 @@ function App() {
     loadLists()
   }
 
-  const clearRecent = async () => {
-    try {
-      await DBService.ClearRecent()
-    } catch (err) {
-      setListsError(errorMessage(err))
-    }
-    loadLists()
-  }
-
   // After switching database or server. The old connection's tabs stay in
   // their workspace; this one's (if any) come back.
   const reconnected = (info: ConnectionInfo) => {
@@ -363,14 +365,13 @@ function App() {
     }
     loadMongoLists()
   }
-  const clearMongoRecent = async () => {
-    try {
-      await Mongo.ClearRecent()
-    } catch (err) {
-      setMongoListsError(errorMessage(err))
-    }
-    loadMongoLists()
+  // A connection picked in the connect screen's sidebar: its database's form shows it.
+  const pickFromSidebar = {
+    postgres: (c: SavedConnection, connect: boolean) => { showEngine('postgres'); pickConnection(c, true, connect) },
+    mongo: (c: MongoSavedConnection, connect: boolean) => { showEngine('mongo'); pickMongoConnection(c, true, connect) },
+    dynamo: (name: string, connect: boolean) => { showEngine('dynamo'); setDynamoProfile(name); setDynamoPick((p) => ({ name, connect, seq: (p?.seq ?? 0) + 1 })) },
   }
+  const newForEngine = () => (engine === 'postgres' ? newConnection() : engine === 'mongo' ? newMongoConnection() : showEngine('dynamo'))
   // Another database on the same server: the same connection, so it's
   // instant; each database keeps its own tabs.
   const switchMongoDatabase = async (name: string) => {
@@ -614,14 +615,14 @@ function App() {
       </header>
 
       <div className="workspace">
-        {(connection || dynamo || mongo) && (
-          <nav className="rail" aria-label="Sidebar">
-            {ENGINES.map(([value, label, short]) => (
-              <button key={value} type="button" className={engine === value ? 'rail-btn rail-engine active' : 'rail-btn rail-engine'}
-                      onClick={() => showEngine(value)} aria-pressed={engine === value}
-                      title={`${label}${connectedTo[value] ? ' · connected' : ''}`}>
-                {short}
-                {connectedTo[value] && <span className="rail-engine-dot" aria-label="connected" />}
+        <nav className="rail" aria-label="Sidebar">
+            {ENGINES.map(({ id, label, short, logo }) => (
+              <button key={id} type="button" className={`rail-btn rail-engine rail-engine-${id}${engine === id ? ' active' : ''}`}
+                      onClick={() => showEngine(id)} aria-pressed={engine === id} aria-label={label}
+                      title={`${label}${connectedTo[id] ? ' · connected' : ''}${engine === id ? ' · shown' : ''}`}>
+                <span className="rail-engine-logo">{logo()}</span>
+                <span className="rail-engine-short">{short}</span>
+                {connectedTo[id] && <span className="rail-engine-dot" aria-label="connected" />}
               </button>
             ))}
             {shownPostgres && <span className="rail-sep" aria-hidden="true" />}
@@ -637,18 +638,24 @@ function App() {
                 </button>
               </>
             )}
+            <button type="button" className="rail-btn rail-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                    title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+            </button>
           </nav>
-        )}
-        {engine === 'postgres' && !connection && (
+        {onConnectScreen && (
           <ConnectionsSidebar
-            lists={lists}
-            error={listsError}
-            selectedId={selectedSaved}
-            onNew={newConnection}
-            onSelect={(c, saved) => pickConnection(c, saved, false)}
-            onOpen={(c) => pickConnection(c, (lists?.saved ?? []).some((s) => s.id === c.id), true)}
-            onDelete={deleteSaved}
-            onClearRecent={clearRecent}
+            engine={engine}
+            postgres={{ lists, error: listsError, selectedId: selectedSaved }}
+            dynamo={{ profiles: dynamoProfiles, error: dynamoProfilesError, selected: dynamoProfile }}
+            mongo={{ lists: mongoLists, error: mongoListsError, selectedId: mongoSelected }}
+            onNew={newForEngine}
+            onPickPostgres={pickFromSidebar.postgres}
+            onPickDynamo={pickFromSidebar.dynamo}
+            onPickMongo={pickFromSidebar.mongo}
+            onDeletePostgres={deleteSaved}
+            onDeleteMongo={deleteMongoSaved}
           />
         )}
         {shownPostgres && (
@@ -680,18 +687,6 @@ function App() {
             disconnecting={disconnecting}
           />
         )}
-        {engine === 'mongo' && !mongo && (
-          <MongoConnectionsSidebar
-            lists={mongoLists}
-            error={mongoListsError}
-            selectedId={mongoSelected}
-            onNew={newMongoConnection}
-            onSelect={(c, saved) => pickMongoConnection(c, saved, false)}
-            onOpen={(c) => pickMongoConnection(c, (mongoLists?.saved ?? []).some((s) => s.id === c.id), true)}
-            onDelete={deleteMongoSaved}
-            onClearRecent={clearMongoRecent}
-          />
-        )}
         {shownMongo && (
           <MongoSidebar connection={shownMongo} collections={mongoCollections} loading={mongoCollectionsLoading}
                         error={mongoCollectionsError} onRefresh={loadMongoCollections}
@@ -709,18 +704,6 @@ function App() {
         )}
         <SqlSchemaContext.Provider value={completion}>
         <main className={shownPostgres || shownDynamo || shownMongo ? 'main-area' : 'content'}>
-          {!shownPostgres && !shownDynamo && !shownMongo && (
-            <div className="engine-switch" role="tablist" aria-label="Database">
-              {ENGINES.map(([value, label]) => (
-                <button key={value} type="button" role="tab" aria-selected={engine === value}
-                        className={engine === value ? 'engine-option on' : 'engine-option'} onClick={() => showEngine(value)}
-                        title={connectedTo[value] ? `${label} is connected: switch back to it` : undefined}>
-                  {label}
-                  {connectedTo[value] && <span className="engine-connected" aria-label="connected" />}
-                </button>
-              ))}
-            </div>
-          )}
           {/* Stays mounted (and renders nothing) while connected or on DynamoDB, so the form keeps its values. */}
           <ConnectionForm
             connection={connection}
@@ -737,8 +720,14 @@ function App() {
             onSaved={(c) => { setMongoSelected(c.id); loadMongoLists() }}
             hidden={engine !== 'mongo'}
           />
-          {engine === 'dynamo' && !dynamo && (
-            <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} />
+          {/* Mounted whenever DynamoDB is signed out (hidden behind another database's form), so the
+              sidebar's DynamoDB list has its profiles and a pick there lands in it. */}
+          {!dynamo && (
+            <div hidden={engine !== 'dynamo'}>
+              <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} pick={dynamoPick}
+                            onProfiles={(list, error) => { setDynamoProfiles(list); setDynamoProfilesError(error) }}
+                            onProfileChange={setDynamoProfile} />
+            </div>
           )}
           {shownDynamo && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
@@ -879,9 +868,16 @@ function App() {
   )
 }
 
-type Engine = 'postgres' | 'dynamo' | 'mongo'
+type Theme = 'dark' | 'light'
+const THEME_KEY = 'spydb-theme'
 
-// The engines, as the switch and the rail name them.
-const ENGINES: [Engine, string, string][] = [['postgres', 'PostgreSQL', 'Pg'], ['dynamo', 'DynamoDB', 'Dy'], ['mongo', 'MongoDB', 'Mg']]
+// The remembered theme, else dark (SpyDB's own look).
+function readTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
 
 export default App

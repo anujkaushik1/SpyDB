@@ -163,3 +163,20 @@ export function fieldType(seen: SeenFields, field: string): string {
   if (types.length === 1 && (types[0] === 'N' || types[0] === 'BOOL')) return types[0]
   return 'S'
 }
+
+// The loaded items sorted by a column: numbers as numbers, the rest as text,
+// items without the field last. No sort: as AWS sent them.
+export function sortItems(items: Item[], sort: { column: string; desc: boolean } | null): Item[] {
+  if (!sort) return items
+  const { column, desc } = sort
+  const numeric = items.every((item) => !item[column] || item[column].type === 'N' || item[column].type === 'NULL')
+  const compare = (a: Item, b: Item) => {
+    const va = a[column], vb = b[column]
+    const ha = !!va && va.type !== 'NULL', hb = !!vb && vb.type !== 'NULL'
+    if (ha !== hb) return ha ? -1 : 1 // missing and NULL go last, whichever way
+    if (!ha) return 0
+    const c = numeric ? Number(va!.text) - Number(vb!.text) : va!.text.localeCompare(vb!.text, undefined, { numeric: true })
+    return desc ? -c : c
+  }
+  return items.map((item, i) => [item, i] as const).sort(([a, i], [b, j]) => compare(a, b) || i - j).map(([item]) => item)
+}

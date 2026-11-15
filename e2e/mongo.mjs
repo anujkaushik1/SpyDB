@@ -49,11 +49,23 @@ const sameExcept = (before, ids, what) => {
 
 await evaluate(helpers)
 
-// 1. The engine switch has MongoDB, with a connect screen and sidebar of its own.
-check('engine switch: PostgreSQL / DynamoDB / MongoDB', (await evaluate(`[...document.querySelectorAll('.engine-option')].map((b) => b.innerText.trim()).join(',')`)) === 'PostgreSQL,DynamoDB,MongoDB',
-  await evaluate(`[...document.querySelectorAll('.engine-option')].map((b) => b.innerText)`))
-await click(`[...document.querySelectorAll('.engine-option')].find((b) => b.innerText.startsWith('MongoDB'))`)
-check('MongoDB’s form and connections sidebar', await waitFor(`__t.mongoForm() && document.querySelector('aside[aria-label="MongoDB connections"]')`), null)
+// 1. The rail has MongoDB; the connections sidebar groups every database's saved connections.
+check('the rail: Pg, Dy, Mg', (await evaluate(`[...document.querySelectorAll('.rail-engine')].map((b) => b.innerText.trim()).join(',')`)) === 'Pg,Dy,Mg', null)
+check('the sidebar has a PostgreSQL, DynamoDB and MongoDB group', (await evaluate(`[...document.querySelectorAll('.conn-group')].map((e) => e.getAttribute('aria-label')).join(',')`)) === 'PostgreSQL connections,DynamoDB connections,MongoDB connections',
+  await evaluate(`[...document.querySelectorAll('.conn-group')].map((e) => e.getAttribute('aria-label'))`))
+// A DynamoDB profile clicked from Postgres's screen: the rail goes to Dy and its sign-in shows that profile.
+await click(`[...document.querySelectorAll('.conn-group')].find((g) => g.getAttribute('aria-label') === 'DynamoDB connections').querySelector('.conn-item')`)
+check('clicking it shows DynamoDB’s sign-in with that profile', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Dy' && document.getElementById('aws-profile')?.value === 'demo' && !document.querySelector('.aws-card')?.closest('[hidden]')`),
+  await evaluate(`[document.querySelector('.rail-engine.active')?.innerText, document.getElementById('aws-profile')?.value]`))
+check('no Recent section', !(await evaluate(`document.querySelector('aside[aria-label="Connections"]').innerText.includes('RECENT')`)), null)
+await click(railButton('Mg'))
+check('Mg lit on the rail; MongoDB’s form; New MongoDB connection', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Mg' && __t.mongoForm() && document.querySelector('.new-connection-btn')?.innerText.includes('MongoDB')`), null)
+await click(`document.querySelector('.rail-theme')`)
+check('a theme switch on the rail: light mode applies and is remembered', await waitFor(`document.documentElement.dataset.theme === 'light' && localStorage.getItem('spydb-theme') === 'light' && getComputedStyle(document.body).backgroundColor === 'rgb(246, 246, 248)'`), await evaluate(`[document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor]`))
+await sleep(400)
+await shot(`${shots}/m0-light.png`)
+await click(`document.querySelector('.rail-theme')`)
+check('…and back to dark', await waitFor(`document.documentElement.dataset.theme === 'dark'`), null)
 await shot(`${shots}/m1-connect.png`)
 
 // 2. A connection string: a non-MongoDB one is refused before anything is sent.
@@ -69,7 +81,6 @@ await click(formButton('Connect'))
 check('connected: the picker shows the database', await waitFor(`document.querySelector('.mongo-sidebar .db-picker-name')?.innerText === '${DB}'`, 15000), null)
 check('collections with about how many documents', await waitFor(`[...document.querySelectorAll('.mongo-sidebar .tree-item')].map((b) => b.innerText.replace(/\\s+/g, ' ').trim()).join(',') === 'orders ~120,people ~2'`),
   await evaluate(`[...document.querySelectorAll('.mongo-sidebar .tree-item')].map((b) => b.innerText)`))
-check('the rail: Pg, Dy, Mg', (await evaluate(`[...document.querySelectorAll('.rail-engine')].map((b) => b.innerText.trim()).join(',')`)) === 'Pg,Dy,Mg', null)
 
 // 3. A collection: a page of 50, columns, types, paging, sorting, filters.
 await click(`[...document.querySelectorAll('.mongo-sidebar .tree-item')].find((b) => b.innerText.includes('orders'))`)
@@ -126,20 +137,13 @@ await save()
 check('text in a whole-number field is refused, saying why', await waitFor(`__t.error().includes('isn’t a whole number')`), await evaluate(`__t.error()`))
 await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText === 'Discard')`)
 
-// 5. Add field: a column; values typed into it save with its type.
-await click(`[...__t.pane().querySelectorAll('.grid-pager .btn')].find((b) => b.innerText.includes('Field'))`)
-await waitFor(`__t.pane().querySelector('.add-field input')`)
-await type('rating')
-await choose(`__t.pane().querySelector('.add-field select')`, 'double')
-await click(`[...__t.pane().querySelectorAll('.add-field .btn')].find((b) => b.innerText === 'Add')`)
-check('the new column is there', await waitFor(`__t.col('docs', 'rating') > 0`), null)
+// 5. Two documents edited, saved together; no "+ Field" button (the JSON view adds fields).
+check('no "+ Field" button', !(await evaluate(`[...__t.pane().querySelectorAll('.grid-pager .btn')].some((b) => b.innerText.includes('Field'))`)), null)
 before = snapshot('orders')
-await editCell('3', 'rating', '4.5')
-await editCell('4', 'rating', '3')
+await editCell('3', 'total', '301')
+await editCell('4', 'total', '401')
 await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText.includes('Save'))`)
 check('Saved 2 documents', await waitFor(`__t.bar().includes('Saved 2 documents to orders')`), await evaluate(`[__t.bar(), __t.error()]`))
-check('rating is a double (3 saved as a number)', (await evaluate(`__t.colType('docs', 'rating')`)) === 'double' && (await text('4', 'rating')) === '3',
-  [await evaluate(`__t.colType('docs', 'rating')`), await text('4', 'rating')])
 sameExcept(before, [3, 4], 'two documents saved together')
 
 // 6. The JSON view: change, add (typed by the JSON), remove; _id can't change.
@@ -301,7 +305,7 @@ check('back: its tabs come back', await waitFor(`document.querySelectorAll('.tab
 
 // 14. Postgres, DynamoDB and MongoDB connected at once; switching keeps each.
 await click(railButton('Pg'))
-check('Pg: Postgres’s connect screen (Mongo stays connected)', await waitFor(`!document.querySelector('.mongo-sidebar') && document.querySelector('.engine-switch')`), null)
+check('Pg: Postgres’s connect screen (Mongo stays connected)', await waitFor(`!document.querySelector('.mongo-sidebar') && document.querySelector('aside[aria-label="Connections"]') && document.querySelector('.rail-engine-mongo .rail-engine-dot')`), null)
 await setLabelled('Host', 'localhost'); await setLabelled('Port', '5432'); await setLabelled('User', pg.user); await setLabelled('Database', pg.db)
 if (pg.password) await setLabelled('Password', pg.password)
 await click(`[...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Connect')`)
@@ -320,15 +324,17 @@ check('every engine shows connected on the rail', (await evaluate(`[...document.
 await click(railButton('Mg'))
 await waitFor(`!!document.querySelector('.mongo-sidebar')`)
 
-// 15. Disconnect: the form says so; Recent has it; Save names it; double-click reconnects.
+// 15. Disconnect: the form says so; Save puts it under MongoDB in the sidebar; double-click reconnects.
 await click(`document.querySelector('.mongo-sidebar .sidebar-footer .danger')`)
 check('disconnected: the form says so', await waitFor(`__t.mongoForm()?.querySelector('.banner-info')?.innerText.includes('Disconnected')`), null)
-check('Recent lists it', await waitFor(`document.querySelector('aside[aria-label="MongoDB connections"]')?.innerText.includes('${DB}')`), null)
 check('Postgres and DynamoDB still connected', (await evaluate(`[...document.querySelectorAll('.rail-engine .rail-engine-dot')].length`)) === 2, null)
 await setInput('mongo-connection-name', 'E2E local')
 await click(formButton('Save'))
-check('saved, under Saved', await waitFor(`[...document.querySelectorAll('aside[aria-label="MongoDB connections"] .conn-name')].some((e) => e.innerText === 'E2E local')`), null)
-await dblclick(`[...document.querySelectorAll('aside[aria-label="MongoDB connections"] .conn-item')].find((e) => e.innerText.includes('E2E local'))`)
+const mongoGroup = `[...document.querySelectorAll('.conn-group')].find((g) => g.getAttribute('aria-label') === 'MongoDB connections')`
+check('saved, under MongoDB in the sidebar', await waitFor(`[...${mongoGroup}.querySelectorAll('.conn-name')].some((e) => e.innerText === 'E2E local')`), null)
+await click(`[...${mongoGroup}.querySelectorAll('.conn-item')].find((e) => e.innerText.includes('E2E local'))`)
+check('clicking it shows MongoDB’s form with it', await waitFor(`__t.mongoForm() && document.getElementById('mongo-connection-name')?.value === 'E2E local'`), await evaluate(`document.getElementById('mongo-connection-name')?.value`))
+await dblclick(`[...${mongoGroup}.querySelectorAll('.conn-item')].find((e) => e.innerText.includes('E2E local'))`)
 check('double-clicking it reconnects, tabs back', await waitFor(`document.querySelectorAll('.tab').length === 2 && !!document.querySelector('.mongo-sidebar')`, 15000), null)
 await shot(`${shots}/m4-final.png`)
 

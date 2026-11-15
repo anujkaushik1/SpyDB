@@ -35,6 +35,31 @@
     --grid-rownum: #0c0c0e;
     --grid-line: #1d1d22;
     --grid-col-line: rgba(255, 255, 255, 0.035);
+    --hover-weak: rgba(255, 255, 255, 0.035);   /* rows, items */
+    --hover: rgba(255, 255, 255, 0.05);         /* buttons */
+    --hover-strong: rgba(255, 255, 255, 0.08);  /* pressed, the chosen option */
+    --accent-bg: rgba(122, 162, 247, 0.14);     /* the active item */
+    --accent-bg-strong: rgba(122, 162, 247, 0.22);
+    --btn-primary-bg: #f4f4f5;
+    --btn-primary-bg-hover: #ffffff;
+    --btn-primary-text: #18181b;
+    --btn-bg: #232327;
+    --btn-bg-hover: #2b2b30;
+    --rownum-hover: #1f2330;
+    --row-selected: #1a2236;
+    --row-selected-num: #34477a;
+    --overlay: rgba(0, 0, 0, 0.55);
+    --shadow: rgba(0, 0, 0, 0.55);
+    --pg: #8fb8e0;     /* each database's colour: its mark, its rail button */
+    --dynamo: #f5b45c;
+    --mongo: #6fcf97;
+    --code-keyword: #bb9af7;
+    --code-string: #9ece6a;
+    --code-number: #ff9e64;
+    --code-comment: #6b6b74;
+    --code-type: #7dcfff;
+    --code-name: #7aa2f7;
+    --code-punct: #a9b1d6;
     --radius: 8px;
     --radius-lg: 14px;
 
@@ -49,6 +74,72 @@
     font-size: 14px;
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
+}
+
+/* Light mode (the rail's sun / moon button; remembered on this computer). */
+:root[data-theme="light"] {
+    --bg: #f6f6f8;
+    --titlebar: #ececf0;
+    --surface: #ffffff;
+    --surface-sunken: #eeeef2;
+    --border: #d9d9e0;
+    --border-hover: #c2c2cc;
+    --text: #1c1c21;
+    --text-muted: #55555f;
+    --text-subtle: #80808c;
+    --focus: #3b6fd9;
+    --focus-ring: rgba(59, 111, 217, 0.2);
+    --ok: #15803d;
+    --warn: #b45309;
+    --error: #dc2626;
+    --error-ring: rgba(220, 38, 38, 0.18);
+    --sidebar: #f0f0f4;
+    --kind-table: #2f6fb3;
+    --kind-view: #7c4fc4;
+    --kind-matview: #a16207;
+    --kind-query: #c2418f;
+    --kind-connections: #15803d;
+    --v-text: #26262c;
+    --v-number: #1d5fa8;
+    --v-time: #5b48b5;
+    --v-json: #0f766e;
+    --v-true: #15803d;
+    --v-false: #b91c1c;
+    --v-null: #a0a0aa;
+    --fk: #a16207;
+    --grid-head: #f0f0f4;
+    --grid-row: #ffffff;
+    --grid-row-alt: #f8f8fa;
+    --grid-row-hover: #eef2fb;
+    --grid-rownum: #f3f3f6;
+    --grid-line: #e6e6ec;
+    --grid-col-line: rgba(0, 0, 0, 0.05);
+    --hover-weak: rgba(0, 0, 0, 0.04);
+    --hover: rgba(0, 0, 0, 0.06);
+    --hover-strong: rgba(0, 0, 0, 0.09);
+    --accent-bg: rgba(59, 111, 217, 0.12);
+    --accent-bg-strong: rgba(59, 111, 217, 0.2);
+    --btn-primary-bg: #1c1c21;
+    --btn-primary-bg-hover: #000000;
+    --btn-primary-text: #ffffff;
+    --btn-bg: #ffffff;
+    --btn-bg-hover: #f0f0f4;
+    --rownum-hover: #e3e9f7;
+    --row-selected: #dde6fb;
+    --row-selected-num: #3b6fd9;
+    --overlay: rgba(20, 20, 30, 0.35);
+    --shadow: rgba(20, 20, 30, 0.18);
+    --pg: #336791;
+    --dynamo: #c2410c;
+    --mongo: #15803d;
+    --code-keyword: #7c3aed;
+    --code-string: #15803d;
+    --code-number: #c2410c;
+    --code-comment: #8a8a94;
+    --code-type: #0e7490;
+    --code-name: #1d4ed8;
+    --code-punct: #4b5563;
+    color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -181,7 +272,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     font-size: 10.5px;
     letter-spacing: 0;
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-strong);
     border-radius: 999px;
     font-variant-numeric: tabular-nums;
 }
@@ -197,7 +288,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     border-radius: 6px;
     cursor: pointer;
 }
-.sidebar-icon-btn:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.sidebar-icon-btn:hover:not(:disabled) { color: var(--text); background: var(--hover-strong); }
 .sidebar-icon-btn:focus-visible { outline: 2px solid var(--focus); }
 .sidebar-icon-btn svg { width: 14px; height: 14px; }
 
@@ -276,12 +367,12 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 }
 .tree-schema { font-weight: 600; color: var(--text); }
 .tree-schema:hover,
-.tree-item:hover { background: rgba(255, 255, 255, 0.045); color: var(--text); }
+.tree-item:hover { background: var(--hover-weak); color: var(--text); }
 .tree-schema:focus-visible,
 .tree-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .tree-item.active {
     color: var(--text);
-    background: rgba(122, 162, 247, 0.14);
+    background: var(--accent-bg);
 }
 .tree:focus { outline: none; }
 /* The row ↑/↓ and Enter act on, shown while the filter box or the list has focus. */
@@ -291,7 +382,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.6);
 }
 .sidebar-search:focus-within ~ .tree .tree-item.highlighted:not(.active),
-.tree:focus-within .tree-item.highlighted:not(.active) { background: rgba(255, 255, 255, 0.06); }
+.tree:focus-within .tree-item.highlighted:not(.active) { background: var(--hover-strong); }
 
 .tree-chevron {
     flex: 0 0 auto;
@@ -360,7 +451,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 24px 60px var(--shadow);
 }
 
 .card-header {
@@ -375,37 +466,14 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     height: 40px;
     display: grid;
     place-items: center;
-    color: #8fb8e0;
+    color: var(--pg);
     background: rgba(51, 103, 145, 0.2);
     border: 1px solid rgba(51, 103, 145, 0.5);
     border-radius: 10px;
 }
 .db-badge svg { width: 20px; height: 20px; }
-.db-badge-aws { color: #f5b45c; background: rgba(245, 180, 92, 0.12); border-color: rgba(245, 180, 92, 0.4); }
+.db-badge-aws { color: var(--dynamo); background: color-mix(in srgb, var(--dynamo) 12%, transparent); border-color: color-mix(in srgb, var(--dynamo) 40%, transparent); }
 
-/* The connect screen's PostgreSQL / DynamoDB switch, above the card. */
-.engine-switch {
-    display: flex;
-    width: fit-content;
-    margin: 0 auto 16px;
-    padding: 3px;
-    gap: 2px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-}
-.engine-option {
-    padding: 6px 16px;
-    font: inherit;
-    font-size: 13px;
-    color: var(--text-muted);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-}
-.engine-option:hover { color: var(--text); }
-.engine-option.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 .aws-note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-subtle); }
 /* Sign in with your browser: below the profiles (after "or"), or alone with none. */
 .aws-browser { margin-top: 20px; }
@@ -417,10 +485,10 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 .aws-browser-row .aws-region { flex: 1; min-width: 0; }
 .aws-browser-row .btn { flex: 0 0 auto; }
 /* SpyDB installing its own AWS CLI: what it's doing, and a bar (moving when there's no size yet). */
-.aws-setup { margin-top: 16px; padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 8px; }
+.aws-setup { margin-top: 16px; padding: 12px 14px; background: var(--hover-weak); border: 1px solid var(--border); border-radius: 8px; }
 .aws-setup p { margin: 0 0 8px; font-size: 12.5px; color: var(--text-muted); }
-.aws-setup-bar { height: 4px; overflow: hidden; background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
-.aws-setup-bar span { display: block; height: 100%; background: #f5b45c; border-radius: 2px; transition: width 0.2s; }
+.aws-setup-bar { height: 4px; overflow: hidden; background: var(--hover-strong); border-radius: 2px; }
+.aws-setup-bar span { display: block; height: 100%; background: var(--dynamo); border-radius: 2px; transition: width 0.2s; }
 .aws-setup-bar span.busy { width: 30% !important; animation: aws-setup-busy 1.2s ease-in-out infinite; }
 @keyframes aws-setup-busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .aws-card .banner { margin-top: 16px; }
@@ -519,7 +587,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
     border-radius: 6px;
     cursor: pointer;
 }
-.icon-btn:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.icon-btn:hover:not(:disabled) { color: var(--text); background: var(--hover-strong); }
 .icon-btn:disabled { cursor: not-allowed; opacity: 0.5; }
 .icon-btn:focus-visible { outline: 2px solid var(--focus); }
 .icon-btn svg { width: 16px; height: 16px; }
@@ -555,7 +623,7 @@ html:not([data-platform="mac"]) .titlebar { display: none; }
 }
 .banner-info {
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--hover-weak);
     border-color: var(--border);
 }
 .banner-info .banner-title { color: var(--text); }
@@ -654,17 +722,17 @@ kbd {
 /* Min-widths stop the buttons resizing when the label swaps to "…ing". */
 .btn-primary {
     min-width: 128px;
-    color: #18181b;
-    background: #f4f4f5;
+    color: var(--btn-primary-text);
+    background: var(--btn-primary-bg);
 }
-.btn-primary:hover:not(:disabled) { background: #ffffff; }
+.btn-primary:hover:not(:disabled) { background: var(--btn-primary-bg-hover); }
 .btn-secondary {
     min-width: 96px;
     color: var(--text);
-    background: #232327;
+    background: var(--btn-bg);
     border-color: var(--border);
 }
-.btn-secondary:hover:not(:disabled) { background: #2b2b30; border-color: var(--border-hover); }
+.btn-secondary:hover:not(:disabled) { background: var(--btn-bg-hover); border-color: var(--border-hover); }
 .btn-danger {
     min-width: 136px;
     color: var(--error);
@@ -900,7 +968,7 @@ kbd {
     user-select: text;
 }
 .table tbody tr:last-child td { border-bottom: none; }
-.table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+.table tbody tr:hover td { background: var(--hover-weak); }
 .table .mono {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -919,7 +987,7 @@ kbd {
     display: inline-block;
     padding: 1px 8px;
     font-size: 11.5px;
-    color: #8fb8e0;
+    color: var(--pg);
     background: rgba(51, 103, 145, 0.2);
     border: 1px solid rgba(51, 103, 145, 0.5);
     border-radius: 999px;
@@ -1022,7 +1090,7 @@ kbd {
     border-radius: 8px 8px 0 0;
     cursor: pointer;
 }
-.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.035); }
+.tab:hover { color: var(--text); background: var(--hover-weak); }
 .tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .tab.active {
     height: 35px;
@@ -1068,7 +1136,7 @@ kbd {
     opacity: 0;
 }
 .tab:hover .tab-close, .tab.active .tab-close, .tab-close:focus-visible { opacity: 1; }
-.tab-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.tab-close:hover { color: var(--text); background: var(--hover-strong); }
 .tab-close svg { width: 12px; height: 12px; }
 
 .tab-panel {
@@ -1176,7 +1244,7 @@ kbd {
     border: none;
     cursor: pointer;
 }
-.grid-head:hover { background: rgba(255, 255, 255, 0.03); }
+.grid-head:hover { background: var(--hover-weak); }
 .grid-head:hover .grid-sort:not(.active) { opacity: 0.45; }
 .grid-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .grid-head.static { cursor: default; }
@@ -1185,7 +1253,7 @@ kbd {
 .grid-key svg { width: 12px; height: 12px; }
 .grid-fk { align-self: center; display: grid; place-items: center; color: var(--fk); }
 .grid-fk svg { width: 12px; height: 12px; }
-.grid-col-name { font-size: 12.5px; font-weight: 600; color: #e6e6ea; }
+.grid-col-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .grid-col-type {
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -1241,7 +1309,7 @@ kbd {
 .grid td.cell-bool-false { color: var(--v-false); }
 .grid td.cell-null { color: var(--v-null); font-style: italic; }
 /* A field this document (DynamoDB item) hasn't got: an empty cell, faintly hatched. */
-.grid td.cell-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.025) 6px 7px); }
+.grid td.cell-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--hover-weak) 6px 7px); }
 
 /* Foreign key cells: room on the right for the button that opens the row the
    value points at, shown on hover and on the selected cell. */
@@ -1265,7 +1333,7 @@ kbd {
 }
 .grid td:hover .cell-link,
 .grid td.cell-selected .cell-link { opacity: 1; }
-.grid td .cell-link:hover { color: var(--fk); background: rgba(255, 255, 255, 0.07); border-color: var(--border-hover); }
+.grid td .cell-link:hover { color: var(--fk); background: var(--hover-strong); border-color: var(--border-hover); }
 .grid td .cell-link svg { width: 13px; height: 13px; }
 .grid-empty {
     margin: 0;
@@ -1308,12 +1376,12 @@ kbd {
     place-items: center;
     padding: 0;
     color: var(--text);
-    background: #232327;
+    background: var(--btn-bg);
     border: 1px solid var(--border);
     border-radius: 6px;
     cursor: pointer;
 }
-.pager-btn:hover:not(:disabled) { background: #2b2b30; border-color: var(--border-hover); }
+.pager-btn:hover:not(:disabled) { background: var(--btn-bg-hover); border-color: var(--border-hover); }
 .pager-btn:disabled { opacity: 0.4; cursor: default; }
 .pager-btn:focus-visible { outline: 2px solid var(--focus); }
 .pager-btn svg { width: 14px; height: 14px; }
@@ -1342,7 +1410,7 @@ kbd {
     align-items: flex-start;
     justify-content: center;
     padding-top: 72px;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--overlay);
 }
 .palette {
     width: min(640px, calc(100vw - 48px));
@@ -1353,7 +1421,7 @@ kbd {
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--shadow);
 }
 .palette-search {
     flex: 0 0 auto;
@@ -1397,7 +1465,7 @@ kbd {
     border-radius: 7px;
     cursor: pointer;
 }
-.palette-item.active { color: var(--text); background: rgba(122, 162, 247, 0.16); }
+.palette-item.active { color: var(--text); background: var(--accent-bg); }
 .palette-name {
     flex: 1;
     min-width: 0;
@@ -1456,8 +1524,8 @@ kbd {
 .grid td.cell-selected { box-shadow: inset 0 0 0 2px var(--focus); }
 /* An unsaved edit: a blue tint and a bar on the left edge. */
 .grid tbody tr td.cell-changed {
-    color: #f2f4ff;
-    background: rgba(122, 162, 247, 0.16);
+    color: var(--text);
+    background: var(--accent-bg);
     box-shadow: inset 2px 0 0 var(--focus);
 }
 .grid tbody tr td.cell-changed.cell-selected { box-shadow: inset 0 0 0 2px var(--focus); }
@@ -1472,7 +1540,7 @@ kbd {
     display: flex;
     align-items: center;
     background: var(--surface-sunken);
-    box-shadow: inset 0 0 0 2px var(--focus), 0 6px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: inset 0 0 0 2px var(--focus), 0 6px 18px var(--shadow);
     z-index: 1;
 }
 .cell-editor input {
@@ -1496,7 +1564,7 @@ kbd {
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--text-subtle);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover);
     border: 1px solid var(--border);
     border-radius: 4px;
     cursor: pointer;
@@ -1599,7 +1667,7 @@ kbd {
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 10px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 18px 50px var(--shadow);
 }
 .db-menu-search {
     display: flex;
@@ -1645,7 +1713,7 @@ kbd {
     border-radius: 6px;
     cursor: pointer;
 }
-.db-menu-item:hover:not(:disabled) { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.db-menu-item:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .db-menu-item.current { color: var(--text); font-weight: 600; }
 .db-menu-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .db-menu-item svg { width: 13px; height: 13px; }
@@ -1661,7 +1729,7 @@ kbd {
     color: var(--text-subtle);
 }
 .db-menu-section:first-child { padding-top: 4px; }
-.db-menu-item.highlighted:not(:disabled) { color: var(--text); background: rgba(122, 162, 247, 0.14); }
+.db-menu-item.highlighted:not(:disabled) { color: var(--text); background: var(--accent-bg); }
 .db-menu-item.two-line { height: auto; min-height: 40px; padding: 5px 8px; }
 .db-menu-conn { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .db-menu-detail {
@@ -1693,7 +1761,10 @@ kbd {
     text-transform: uppercase;
     color: var(--text-subtle);
 }
-.conn-clear { margin-left: auto; font-size: 11.5px; letter-spacing: 0; text-transform: none; text-decoration: none; }
+.conn-group + .conn-group { margin-top: 6px; }
+.conn-group-logo { display: grid; place-items: center; }
+.conn-group-logo svg { width: 14px; height: 14px; }
+.conn-group.current .conn-section-title { color: var(--text-muted); }
 .conn-list { margin: 0; padding: 0; list-style: none; }
 .conn-item {
     display: flex;
@@ -1705,9 +1776,9 @@ kbd {
     border-radius: 7px;
     cursor: pointer;
 }
-.conn-item:hover { color: var(--text); background: rgba(255, 255, 255, 0.045); }
+.conn-item:hover { color: var(--text); background: var(--hover-weak); }
 .conn-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.conn-item.active { color: var(--text); background: rgba(122, 162, 247, 0.14); }
+.conn-item.active { color: var(--text); background: var(--accent-bg); }
 .conn-item.confirm { cursor: default; gap: 10px; font-size: 12.5px; }
 .conn-confirm-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); }
 .conn-icon {
@@ -1720,8 +1791,13 @@ kbd {
     background: rgba(143, 184, 224, 0.1);
     border-radius: 7px;
 }
-.conn-icon.recent { color: var(--text-subtle); background: rgba(255, 255, 255, 0.04); }
-.conn-icon svg { width: 13px; height: 13px; }
+.conn-icon svg { width: 15px; height: 15px; }
+.conn-icon-postgres, .conn-group-logo.conn-icon-postgres { color: var(--pg); }
+.conn-icon-dynamo, .conn-group-logo.conn-icon-dynamo { color: var(--dynamo); }
+.conn-icon-mongo, .conn-group-logo.conn-icon-mongo { color: var(--mongo); }
+.conn-icon.conn-icon-postgres { background: color-mix(in srgb, var(--pg) 12%, transparent); }
+.conn-icon.conn-icon-dynamo { background: color-mix(in srgb, var(--dynamo) 12%, transparent); }
+.conn-icon.conn-icon-mongo { background: color-mix(in srgb, var(--mongo) 12%, transparent); }
 .conn-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .conn-name, .conn-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .conn-name { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -1806,7 +1882,7 @@ kbd {
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 10px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 18px 50px var(--shadow);
 }
 .export-group { padding: 6px 6px 8px; }
 .export-group + .export-group { border-top: 1px solid var(--border); }
@@ -1884,9 +1960,9 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
 
 /* ----- Row selection, right-click menu, "Copied" toast ----------------------- */
 .grid .grid-rownum { cursor: pointer; -webkit-user-select: none; user-select: none; }
-.grid th.grid-rownum:hover { background: #1f2330; }
-.grid tbody tr.row-selected td:not(.cell-changed) { background: #1a2236; }
-.grid tbody tr.row-selected td.grid-rownum { color: #fff; background: #34477a; }
+.grid th.grid-rownum:hover { background: var(--rownum-hover); }
+.grid tbody tr.row-selected td:not(.cell-changed) { background: var(--row-selected); }
+.grid tbody tr.row-selected td.grid-rownum { color: #fff; background: var(--row-selected-num); }
 
 .row-menu {
     position: fixed;
@@ -1896,7 +1972,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 9px;
-    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 16px 44px var(--shadow);
 }
 .row-menu-title {
     margin: 0;
@@ -1924,7 +2000,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
 }
 .row-menu-item kbd { font-size: 10px; color: var(--text-subtle); }
 .row-menu-item:hover,
-.row-menu-item:focus-visible { outline: none; background: rgba(122, 162, 247, 0.16); }
+.row-menu-item:focus-visible { outline: none; background: var(--accent-bg); }
 .row-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 .link-menu .row-menu-item { gap: 18px; }
 
@@ -1940,7 +2016,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     background: var(--surface);
     border: 1px solid rgba(74, 222, 128, 0.35);
     border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 10px 30px var(--shadow);
     pointer-events: none;
 }
 .copy-toast.error { color: var(--error); border-color: rgba(248, 113, 113, 0.4); }
@@ -1954,14 +2030,14 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--overlay);
 }
 .json-modal,
 .json-modal-loading {
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--shadow);
 }
 .json-modal {
     width: min(1040px, 100%);
@@ -2004,7 +2080,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     cursor: pointer;
 }
 .json-modal-close svg { width: 16px; height: 16px; }
-.json-modal-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.json-modal-close:hover { color: var(--text); background: var(--hover-strong); }
 .json-modal-editor { flex: 1; min-height: 0; }
 .json-modal-footer {
     flex: 0 0 auto;
@@ -2044,9 +2120,9 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     --jse-delimiter-color: #8b8f9e;
     --jse-selection-background-color: rgba(122, 162, 247, 0.22);
     --jse-selection-background-inactive-color: rgba(122, 162, 247, 0.12);
-    --jse-hover-background-color: rgba(255, 255, 255, 0.04);
+    --jse-hover-background-color: var(--hover-weak);
     --jse-edit-outline: 2px solid var(--focus);
-    --jse-active-line-background-color: rgba(255, 255, 255, 0.035);
+    --jse-active-line-background-color: var(--hover-weak);
 }
 /* The text view, DynamoDB style: roomy lines, a quiet line-number gutter. */
 .json-modal-editor .cm-editor { padding-top: 6px; }
@@ -2058,7 +2134,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     border-right: 1px solid var(--border) !important;
 }
 .json-modal-editor .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 14px; }
-.json-modal-editor .cm-activeLineGutter { color: var(--text); background: rgba(255, 255, 255, 0.035) !important; }
+.json-modal-editor .cm-activeLineGutter { color: var(--text); background: var(--hover-weak) !important; }
 .json-modal-editor .cm-content { padding-left: 4px; }
 .json-modal-editor .jse-status-bar {
     padding: 4px 12px;
@@ -2093,9 +2169,9 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     cursor: pointer;
 }
 .rail-btn svg { width: 18px; height: 18px; }
-.rail-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.rail-btn:hover { color: var(--text); background: var(--hover); }
 .rail-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.rail-btn.active { color: var(--focus); background: rgba(122, 162, 247, 0.14); }
+.rail-btn.active { color: var(--focus); background: var(--accent-bg); }
 .rail-btn.active::before {
     content: '';
     position: absolute;
@@ -2106,18 +2182,36 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     border-radius: 2px;
     background: var(--focus);
 }
-/* The engines at the top of the rail: Pg, Dy… A green dot: it's connected
-   (and stays so while another is shown). */
-.rail-engine { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
-.rail-engine-dot, .engine-connected {
-    width: 6px;
-    height: 6px;
+/* The databases at the top of the rail, each with its mark and its colour.
+   The shown one is lit in that colour; a green dot: it's connected (and
+   stays so while another is shown). */
+.rail-engine { flex-direction: column; gap: 1px; height: 44px; color: var(--text-subtle); }
+.rail-engine-logo { display: grid; place-items: center; }
+.rail-engine-logo svg { width: 20px; height: 20px; }
+.rail-engine-short { font-size: 9px; font-weight: 600; letter-spacing: 0.04em; line-height: 1; }
+.rail-engine:hover { color: var(--text); background: var(--hover); }
+.rail-engine-postgres.active { --engine: var(--pg); }
+.rail-engine-dynamo.active { --engine: var(--dynamo); }
+.rail-engine-mongo.active { --engine: var(--mongo); }
+.rail-engine.active {
+    color: var(--engine);
+    background: color-mix(in srgb, var(--engine) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--engine) 45%, transparent);
+}
+.rail-engine.active::before { background: var(--engine); top: 6px; bottom: 6px; width: 3px; }
+.rail-engine-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--ok);
+    box-shadow: 0 0 0 2px var(--surface-sunken);
 }
-.rail-engine-dot { position: absolute; top: 5px; right: 5px; }
-.engine-connected { display: inline-block; margin-left: 7px; vertical-align: 1px; }
 .rail-sep { width: 24px; height: 1px; margin: 4px 0; background: var(--border); }
+/* Dark / light, at the bottom. */
+.rail-theme { margin-top: auto; margin-bottom: 12px; }
 
 /* ----- Saved queries list ----------------------------------------------------- */
 .sq-list { margin: 0; padding: 0; list-style: none; }
@@ -2128,7 +2222,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     border-radius: 7px;
 }
 .sq-item.highlighted,
-.sq-item:hover { background: rgba(255, 255, 255, 0.045); }
+.sq-item:hover { background: var(--hover-weak); }
 .sq-open {
     flex: 1;
     min-width: 0;
@@ -2177,7 +2271,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
 .sq-item:hover .sq-action,
 .sq-item.highlighted .sq-action,
 .sq-action:focus-visible { opacity: 1; }
-.sq-action:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.sq-action:hover { color: var(--text); background: var(--hover-strong); }
 .sq-action.danger:hover { color: var(--error); background: rgba(248, 113, 113, 0.12); }
 .sq-action svg { width: 13px; height: 13px; }
 .sq-item.confirm { gap: 10px; padding: 8px; font-size: 12.5px; }
@@ -2205,7 +2299,7 @@ body.resizing * { cursor: col-resize !important; user-select: none !important; -
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--shadow);
 }
 .save-query-title { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--text); }
 .save-query-label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--text-muted); }
@@ -2326,7 +2420,7 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--shadow);
 }
 .import-header {
     display: flex;
@@ -2456,7 +2550,7 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
     background: var(--surface);
     border: 1px solid var(--border-hover);
     border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 12px 32px var(--shadow);
 }
 .add-field-title { margin: 0; font-size: 13px; font-weight: 600; }
 .add-field-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--text-subtle); }
@@ -2481,7 +2575,7 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
     background: var(--surface);
     border: 1px solid rgba(248, 113, 113, 0.35);
     border-radius: 12px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--shadow);
 }
 .delete-rows-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
 .delete-rows-title strong { color: var(--error); font-weight: 600; }
@@ -2538,8 +2632,7 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 .update-progress svg { flex: 0 0 auto; width: 13px; height: 13px; }
 
 /* ----- MongoDB ------------------------------------------------------------- */
-.db-badge-mongo { color: #6fcf97; background: rgba(0, 237, 100, 0.08); border-color: rgba(0, 237, 100, 0.32); }
-.conn-icon.mongo { color: #6fcf97; background: rgba(0, 237, 100, 0.08); }
+.db-badge-mongo { color: var(--mongo); background: color-mix(in srgb, var(--mongo) 10%, transparent); border-color: color-mix(in srgb, var(--mongo) 32%, transparent); }
 /* The TLS box under the fields. */
 .mongo-tls { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
 .mongo-tls input { margin: 0; }

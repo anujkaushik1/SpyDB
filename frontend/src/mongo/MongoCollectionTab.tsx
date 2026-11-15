@@ -4,11 +4,10 @@ import Banner, { errorMessage } from '../Banner'
 import DataGrid, { type Sort } from '../DataGrid'
 import ExportMenu, { type ExportChoice } from '../ExportMenu'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
-import { addSeen, docColumns, docKeys, docRows, fieldType, NEW_FIELD_TYPES, toDoc, type Doc, type NewField, type SeenFields } from './docGrid'
+import { addSeen, docColumns, docKeys, docRows, fieldType, toDoc, type Doc, type NewField, type SeenFields } from './docGrid'
 import MongoQueryEditor from './MongoQueryEditor'
 import { mongoStore, replaceDocs } from './mongoStore'
 import { collectionRef } from './shellText'
-import { useDismiss } from '../useDismiss'
 
 const PAGE_SIZE = 50
 
@@ -129,7 +128,6 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
   const [docs, setDocs] = useState<Doc[]>([])
   const [seen, setSeen] = useState<SeenFields>({})
   const [added, setAdded] = useState<NewField[]>([]) // "Add field" columns no document has yet
-  const [adding, setAdding] = useState<Adding | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pageInput, setPageInput] = useState('1')
@@ -217,17 +215,7 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
   }
 
   // "Add field": a new column; typing in its cells adds the field to those documents.
-  const addField = () => {
-    if (!adding) return
-    const name = adding.name.trim()
-    const problem = !name ? 'Give it a name.'
-      : name === '_id' || columns.some((c) => c.name === name) ? `There’s a ${name} column already.`
-      : /^\$|\./.test(name) ? 'A field name can’t start with $ or have a dot.'
-      : null
-    if (problem) return setAdding({ ...adding, error: problem })
-    setAdded((current) => [...current, { name, type: adding.type }])
-    setAdding(null)
-  }
+
 
   // Export: every document that matches, in the order shown; or the whole collection.
   const exportOrder = { collection, sortBy: sort?.column ?? '', sortDesc: sort?.desc ?? false }
@@ -336,15 +324,6 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
         </span>
         <div className="grid-pager">
           {columns.length > 0 && <ExportMenu choices={exportChoices} />}
-          <div className="add-field-wrap">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding((a) => (a ? null : { name: '', type: 'string' }))}
-                    title="Add a field: a new column to type values into, saved with the documents you fill in">
-              <PlusIcon /> Field
-            </button>
-            {adding && (
-              <AddField adding={adding} onChange={setAdding} onAdd={addField} onClose={() => setAdding(null)} />
-            )}
-          </div>
           <button type="button" className="sidebar-icon-btn" onClick={() => setReloadToken((t) => t + 1)} disabled={loading}
                   aria-label="Reload documents" title="Reload">
             {loading ? <Spinner /> : <RefreshIcon />}
@@ -369,29 +348,3 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
   )
 }
 
-type Adding = { name: string; type: string; error?: string }
-
-// The Add field form (the look of DynamoDB's): a name and what its values
-// are. The field is a column until a document has it; values typed into it
-// save with their documents.
-function AddField({ adding, onChange, onAdd, onClose }: { adding: Adding; onChange: (a: Adding) => void; onAdd: () => void; onClose: () => void }) {
-  const root = useRef<HTMLFormElement>(null)
-  useDismiss(true, root, onClose)
-  return (
-    <form className="add-field" ref={root} onSubmit={(e) => { e.preventDefault(); onAdd() }}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}>
-      <p className="add-field-title">Add a field</p>
-      <input className="input" value={adding.name} onChange={(e) => onChange({ ...adding, name: e.target.value, error: undefined })}
-             placeholder="Field name" aria-label="Field name" autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-      <select className="select" value={adding.type} onChange={(e) => onChange({ ...adding, type: e.target.value })} aria-label="Field type">
-        {NEW_FIELD_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
-      {adding.error && <p className="add-field-note">{adding.error}</p>}
-      <p className="add-field-note">It appears as a column; fill it in for the documents you want, then save.</p>
-      <div className="save-query-actions">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
-        <button type="submit" className="btn btn-primary btn-sm" disabled={!adding.name.trim()}>Add</button>
-      </div>
-    </form>
-  )
-}

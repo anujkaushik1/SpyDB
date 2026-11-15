@@ -32,15 +32,15 @@ type Props = {
   onEscape: () => boolean // Esc; true when it did something (cancelled a query)
 }
 
-// Colours for SQL, matching the app (and the JSON editor).
+// Colours for SQL from the app's theme tokens (style.css), so they follow dark / light.
 const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.operatorKeyword, t.modifier], color: '#bb9af7' },
-  { tag: [t.string, t.special(t.string)], color: '#9ece6a' },
-  { tag: [t.number, t.bool, t.null], color: '#ff9e64' },
-  { tag: t.comment, color: '#6b6b74', fontStyle: 'italic' },
-  { tag: t.typeName, color: '#7dcfff' },
-  { tag: t.special(t.name), color: '#7aa2f7' }, // "quoted identifiers"
-  { tag: [t.operator, t.punctuation, t.bracket], color: '#a9b1d6' },
+  { tag: [t.keyword, t.operatorKeyword, t.modifier], color: 'var(--code-keyword)' },
+  { tag: [t.string, t.special(t.string)], color: 'var(--code-string)' },
+  { tag: [t.number, t.bool, t.null], color: 'var(--code-number)' },
+  { tag: t.comment, color: 'var(--code-comment)', fontStyle: 'italic' },
+  { tag: t.typeName, color: 'var(--code-type)' },
+  { tag: t.special(t.name), color: 'var(--code-name)' }, // "quoted identifiers"
+  { tag: [t.operator, t.punctuation, t.bracket], color: 'var(--code-punct)' },
 ])
 
 const theme = EditorView.theme({
@@ -50,33 +50,33 @@ const theme = EditorView.theme({
   '.cm-content': { padding: '8px 0', caretColor: 'var(--focus)' },
   '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--text-subtle)', border: 'none' },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 14px', minWidth: '24px' },
-  '.cm-activeLine': { backgroundColor: 'rgba(255, 255, 255, 0.03)' },
+  '.cm-activeLine': { backgroundColor: 'var(--hover-weak)' },
   '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--focus)', borderLeftWidth: '2px' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
-    { backgroundColor: 'rgba(122, 162, 247, 0.28)' },
-  '.cm-selectionMatch': { backgroundColor: 'rgba(122, 162, 247, 0.14)' },
-  '&.cm-focused .cm-matchingBracket': { backgroundColor: 'rgba(122, 162, 247, 0.25)', outline: 'none' },
+    { backgroundColor: 'var(--accent-bg-strong)' },
+  '.cm-selectionMatch': { backgroundColor: 'var(--accent-bg)' },
+  '&.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--accent-bg-strong)', outline: 'none' },
   '.cm-placeholder': { color: 'var(--text-subtle)' },
   '.cm-tooltip': { backgroundColor: 'var(--surface)', border: '1px solid var(--border-hover)', borderRadius: '8px', overflow: 'hidden' },
   '.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', fontSize: '12.5px', maxHeight: '16em' },
   '.cm-tooltip-autocomplete > ul > li': { padding: '3px 10px', color: 'var(--text-muted)' },
-  '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'rgba(122, 162, 247, 0.22)', color: 'var(--text)' },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--accent-bg-strong)', color: 'var(--text)' },
   '.cm-completionDetail': { color: 'var(--text-subtle)', fontStyle: 'normal', marginLeft: '10px' },
   // Small text tags instead of the default emoji icons.
   '.cm-completionIcon': { width: '2.6em', paddingRight: '6px', opacity: '1', fontSize: '10px', fontFamily: 'var(--font-mono)', textAlign: 'right' },
-  '.cm-completionIcon-keyword::after': { content: "'kw'", color: '#bb9af7' },
+  '.cm-completionIcon-keyword::after': { content: "'kw'", color: 'var(--code-keyword)' },
   '.cm-completionIcon-type::after': { content: "'tbl'", color: 'var(--kind-table)' },
-  '.cm-completionIcon-property::after': { content: "'col'", color: '#9ece6a' },
-  '.cm-completionIcon-constant::after': { content: "'as'", color: '#ff9e64' },
+  '.cm-completionIcon-property::after': { content: "'col'", color: 'var(--code-string)' },
+  '.cm-completionIcon-constant::after': { content: "'as'", color: 'var(--code-number)' },
   '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--focus)' },
   '.cm-panels': { backgroundColor: 'var(--grid-head)', color: 'var(--text)' },
   '.cm-panels-top': { borderBottom: '1px solid var(--border)' },
   '.cm-search': { fontFamily: 'var(--font-ui)', fontSize: '12px' },
   '.cm-textfield': { backgroundColor: 'var(--surface-sunken)', border: '1px solid var(--border-hover)', borderRadius: '5px', color: 'var(--text)' },
   '.cm-button': { backgroundImage: 'none', backgroundColor: 'var(--surface)', border: '1px solid var(--border-hover)', borderRadius: '5px', color: 'var(--text)' },
-  '.cm-searchMatch': { backgroundColor: 'rgba(255, 158, 100, 0.22)' },
-  '.cm-searchMatch-selected': { backgroundColor: 'rgba(255, 158, 100, 0.5)' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--code-number) 25%, transparent)' },
+  '.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--code-number) 50%, transparent)' },
 }, { dark: true })
 
 // Suggestions that fit where the cursor is:

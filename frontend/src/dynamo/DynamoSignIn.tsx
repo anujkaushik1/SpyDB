@@ -32,7 +32,17 @@ const REGIONS = [
 // Either may first install SpyDB's own AWS CLI, with its progress shown.
 // Once signed in, it connects to that profile's DynamoDB (Connect) and
 // onConnect opens its tables.
-export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Connection, identity: AWSIdentity) => void }) {
+// A profile picked in the connections sidebar: show it, and sign in if asked.
+export type ProfilePick = { name: string; connect: boolean; seq: number }
+
+type Props = {
+  onConnect: (connection: Connection, identity: AWSIdentity) => void
+  pick?: ProfilePick | null
+  onProfiles?: (profiles: AWSProfile[] | null, error: string | null) => void // for the sidebar's DynamoDB list
+  onProfileChange?: (name: string) => void // the profile the form shows now
+}
+
+export default function DynamoSignIn({ onConnect, pick, onProfiles, onProfileChange }: Props) {
   const [profiles, setProfiles] = useState<AWSProfile[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -48,11 +58,21 @@ export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Co
       .then((list) => {
         const all = list ?? []
         setProfiles(all)
+        onProfiles?.(all, null)
         setName((current) => select ?? (current || (all.find((p) => p.name === 'default') ?? all[0])?.name || ''))
         const home = all.find((p) => p.name === 'default')?.region || all.find((p) => p.region)?.region
         if (home && !select) setRegion(home)
       })
-      .catch((err) => setLoadError(errorMessage(err)))
+      .catch((err) => { setLoadError(errorMessage(err)); onProfiles?.(null, errorMessage(err)) })
+
+  useEffect(() => { onProfileChange?.(name) }, [name])
+  // Picked in the sidebar: show that profile; a double-click signs in with it.
+  useEffect(() => {
+    if (!pick || !profiles) return
+    setName(pick.name)
+    setError(null)
+    if (pick.connect && busy === null) run('profile', Dynamo.AWSSignIn(pick.name))
+  }, [pick?.seq, profiles === null])
 
   useEffect(() => {
     loadProfiles()

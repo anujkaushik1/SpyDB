@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, itemTypes, type Item } from '../src/dynamo/itemGrid'
+import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, itemTypes, sortItems, type Item } from '../src/dynamo/itemGrid'
 
 const details = { name: 'orders', partitionKey: 'userId', sortKey: 'createdAt', itemCount: 3, sizeBytes: 100 }
 const v = (type: string, text = '') => ({ type, text })
@@ -110,4 +110,21 @@ test('a field’s type, from what it has held', () => {
   assert.equal(fieldType(seen, 'onlyNull'), 'S')
   assert.equal(fieldType(seen, 'never seen'), 'S')
   assert.ok('onlyNull' in seen, 'a field only ever NULL is still listed')
+})
+
+test('sortItems: numbers as numbers, text as text, missing and NULL last, stable', () => {
+  const rows: Item[] = [
+    { userId: v('S', 'a'), n: v('N', '10'), name: v('S', 'b10') },
+    { userId: v('S', 'b'), name: v('S', 'B2') },
+    { userId: v('S', 'c'), n: v('N', '9'), name: v('S', 'a1') },
+    { userId: v('S', 'd'), n: v('NULL'), name: v('S', 'b2') },
+    { userId: v('S', 'e'), n: v('N', '100'), name: v('S', 'b2') },
+  ]
+  const ids = (items: Item[]) => items.map((i) => i.userId.text).join('')
+  assert.equal(ids(sortItems(rows, null)), 'abcde')
+  assert.equal(ids(sortItems(rows, { column: 'n', desc: false })), 'caebd') // 9, 10, 100, then no n / NULL in their order
+  assert.equal(ids(sortItems(rows, { column: 'n', desc: true })), 'eacbd')
+  assert.equal(ids(sortItems(rows, { column: 'name', desc: false })), 'cdeba') // a1, b2, b2 (d before e: stable), B2, b10 (numeric-aware, lower case first)
+  assert.equal(ids(sortItems(rows, { column: 'name', desc: true })), 'abdec')
+  assert.deepEqual(rows.map((i) => i.userId.text), ['a', 'b', 'c', 'd', 'e'], 'the input is left alone')
 })
