@@ -1,10 +1,21 @@
 import type { TableDetails, Value } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
-import type { GridColumn } from '../DataGrid'
+import type { CellValue, GridColumn } from '../DataGrid'
 
-// Turns DynamoDB items (from dynamo.Service.ScanItems) into the columns and
+// Turns DynamoDB items (from dynamo.Service.FindItems) into the columns and
 // rows the shared DataGrid shows. Kept free of React so tests can load it.
 
 export type Item = { [field: string]: Value | undefined }
+
+// A field added with "Add field" (or in the JSON view) that no item loaded
+// has yet: a column to type its values into. type: what they are.
+export type NewField = { name: string; type: NewFieldType }
+export type NewFieldType = 'S' | 'N' | 'BOOL' | 'JSON'
+export const NEW_FIELD_TYPES: { type: NewFieldType; label: string; category: string }[] = [
+  { type: 'S', label: 'string', category: 'text' },
+  { type: 'N', label: 'number', category: 'number' },
+  { type: 'BOOL', label: 'boolean', category: 'bool' },
+  { type: 'JSON', label: 'map / list (JSON)', category: 'json' },
+]
 
 // Each DynamoDB type's name in the column header, and the grid's colour
 // category for it (number, bool, json, text or other; see cellValues.ts).
@@ -22,10 +33,11 @@ const TYPES: Record<string, { label: string; category: string }> = {
 
 // Items needn't share fields, so the columns are every field in the items
 // loaded so far: the table's key first (partition, then sort; there even
-// before any item is), then the rest A to Z. A field that holds one type
-// is coloured as that type; one holding several is plain text. NULL values
-// don't count as a type.
-export function itemColumns(details: TableDetails | null, items: Item[]): GridColumn[] {
+// before any item is), then the rest A to Z, then fields just added (extra).
+// A field that holds one type is coloured as that type; one holding several
+// is plain text. NULL values don't count as a type. Key fields can't be
+// edited (source ''); the others save to the field of their name.
+export function itemColumns(details: TableDetails | null, items: Item[], extra: NewField[] = []): GridColumn[] {
   const seen = new Map<string, Set<string>>()
   for (const item of items) {
     for (const [name, value] of Object.entries(item)) {
@@ -36,26 +48,47 @@ export function itemColumns(details: TableDetails | null, items: Item[]): GridCo
   }
   const keys = [details?.partitionKey, details?.sortKey].filter((k): k is string => !!k)
   const rest = [...seen.keys()].filter((name) => !keys.includes(name)).sort((a, b) => a.localeCompare(b))
-  return [...keys, ...rest].map((name) => {
+  const columns = [...keys, ...rest].map((name) => {
     const types = [...(seen.get(name) ?? [])]
     return {
       name,
       type: types.length ? types.map((t) => TYPES[t]?.label ?? t).join(' / ') : '',
       category: types.length === 1 ? TYPES[types[0]]?.category ?? 'other' : 'text',
       primaryKey: keys.includes(name),
-      source: '', // read-only
+      source: keys.includes(name) ? '' : name,
     }
   })
+  for (const field of extra) {
+    if (seen.has(field.name) || keys.includes(field.name)) continue
+    const t = NEW_FIELD_TYPES.find((x) => x.type === field.type)
+    columns.push({ name: field.name, type: t?.label ?? '', category: t?.category ?? 'text', primaryKey: false, source: field.name })
+  }
+  return columns
+}
+
+// Each field's DynamoDB type when every item loaded that has it (not as
+// NULL) holds the same one: S, N, BOOL, M, SS…; fields of mixed types are
+// left out. New values typed into a column take this type.
+export function itemTypes(items: Item[]): Record<string, string> {
+  const types: Record<string, string | null> = {}
+  for (const item of items) {
+    for (const [name, value] of Object.entries(item)) {
+      if (!value || value.type === 'NULL') continue
+      types[name] = name in types && types[name] !== value.type ? null : value.type
+    }
+  }
+  return Object.fromEntries(Object.entries(types).filter((e): e is [string, string] => e[1] !== null))
 }
 
 // One row per item, its fields under their columns. A field the item
-// doesn't have is an empty cell; DynamoDB's NULL shows as NULL. In a
-// boolean column, true / false go to the grid as t / f, as Postgres sends them.
-export function itemRows(columns: GridColumn[], items: Item[]): (string | null)[][] {
+// doesn't have is undefined (an empty cell); DynamoDB's NULL shows as NULL.
+// In a boolean column, true / false go to the grid as t / f, as Postgres
+// sends them.
+export function itemRows(columns: GridColumn[], items: Item[]): CellValue[][] {
   return items.map((item) =>
     columns.map((column) => {
       const value = item[column.name]
-      if (!value) return ''
+      if (!value) return undefined
       if (value.type === 'NULL') return null
       if (value.type === 'BOOL' && column.category === 'bool') return value.text === 'true' ? 't' : 'f'
       return value.text

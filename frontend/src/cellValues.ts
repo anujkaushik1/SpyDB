@@ -4,7 +4,7 @@
 export function cellClass(value: string | null | undefined, category: string) {
   if (value === null) return 'cell-null'
   if (value === undefined) return 'cell-absent'
-  if (category === 'bool') return value === 't' ? 'cell-bool-true' : 'cell-bool-false'
+  if (category === 'bool') return value === 't' || value === 'true' ? 'cell-bool-true' : 'cell-bool-false'
   return `cell-${category}`
 }
 

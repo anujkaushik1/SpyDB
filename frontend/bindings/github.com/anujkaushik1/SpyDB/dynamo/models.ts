@@ -75,6 +75,38 @@ export interface Connection {
 }
 
 /**
+ * FieldChange is one field's new value.
+ */
+export interface FieldChange {
+    /**
+     * take the field off the item
+     */
+    "remove": boolean;
+
+    /**
+     * set it to DynamoDB's NULL
+     */
+    "null": boolean;
+
+    /**
+     * otherwise the value: as typed, or JSON for maps, lists and sets
+     */
+    "text": string;
+
+    /**
+     * Type is what Text is: S text, N number, BOOL, B base64, or JSON (a map,
+     * list or set, from its JSON). It's used when Typed, or for a field the
+     * item hasn't got; otherwise the field keeps the type it has.
+     */
+    "type": string;
+
+    /**
+     * Type was chosen in the JSON view (5 a number, "5" text): it wins
+     */
+    "typed": boolean;
+}
+
+/**
  * Filter is one row of a table tab's filter bar: "sip_status equals PENDING".
  */
 export interface Filter {
@@ -138,6 +170,38 @@ export interface IndexDetails {
 }
 
 /**
+ * ItemDelete is one item to delete: its key, and its fields as loaded.
+ */
+export interface ItemDelete {
+    "key": { [_ in string]?: string } | null;
+
+    /**
+     * nothing is deleted if one changed since
+     */
+    "old": { [_ in string]?: Shown } | null;
+}
+
+/**
+ * ItemEdit is one item's changed fields.
+ */
+export interface ItemEdit {
+    /**
+     * the key fields' values as text; their types are the table's
+     */
+    "key": { [_ in string]?: string } | null;
+
+    /**
+     * each changed field as loaded: nothing is saved if one changed since
+     */
+    "old": { [_ in string]?: Shown } | null;
+
+    /**
+     * field → its new value
+     */
+    "changes": { [_ in string]?: FieldChange } | null;
+}
+
+/**
  * ItemsPage is one page of a table's items, in the order DynamoDB keeps them.
  */
 export interface ItemsPage {
@@ -165,6 +229,61 @@ export interface ItemsPage {
      * how long AWS took
      */
     "durationMs": number;
+}
+
+/**
+ * PartiQLResult is what one PartiQL statement gave.
+ */
+export interface PartiQLResult {
+    /**
+     * a SELECT's items (a page of them), or an UPDATE … RETURNING's
+     */
+    "items": ({ [_ in string]?: Value } | null)[] | null;
+
+    /**
+     * more items: pass it back to RunPartiQL for the next page; "" after the last
+     */
+    "next": string;
+
+    /**
+     * it was a SELECT
+     */
+    "select": boolean;
+
+    /**
+     * the table a SELECT read (not an index): its items can be edited there; "" otherwise
+     */
+    "table": string;
+
+    /**
+     * capacity units AWS charged for it, as it reports them
+     */
+    "capacity": number;
+
+    /**
+     * how long AWS took
+     */
+    "durationMs": number;
+}
+
+/**
+ * Shown is a field as the table tab showed it when it loaded the item.
+ */
+export interface Shown {
+    /**
+     * the item had the field
+     */
+    "has": boolean;
+
+    /**
+     * it was DynamoDB's NULL
+     */
+    "null": boolean;
+
+    /**
+     * otherwise its Value.Text, e.g. "1500"
+     */
+    "text": string;
 }
 
 /**

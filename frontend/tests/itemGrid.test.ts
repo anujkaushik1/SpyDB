@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, type Item } from '../src/dynamo/itemGrid'
+import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, itemTypes, type Item } from '../src/dynamo/itemGrid'
 
 const details = { name: 'orders', partitionKey: 'userId', sortKey: 'createdAt', itemCount: 3, sizeBytes: 100 }
 const v = (type: string, text = '') => ({ type, text })
@@ -24,7 +24,7 @@ test('a field of one type is coloured as it; a mix is plain text; NULL is no typ
   assert.deepEqual([byName.address.type, byName.address.category], ['map', 'json'])
   assert.deepEqual([byName.note.type, byName.note.category], ['', 'text'])
   assert.equal(byName.total.primaryKey, false)
-  assert.ok(itemColumns(details, items).every((c) => c.source === ''), 'every column is read-only')
+  assert.deepEqual(itemColumns(details, items).map((c) => c.source), ['', '', 'address', 'note', 'paid', 'total', 'Zone'], 'the key can’t be edited')
 })
 
 test('an empty table still shows its key columns', () => {
@@ -33,13 +33,26 @@ test('an empty table still shows its key columns', () => {
   assert.deepEqual(itemColumns(null, []), [])
 })
 
-test('rows: missing fields are empty, NULL is null, booleans are t / f', () => {
+test('rows: missing fields are undefined, NULL is null, booleans are t / f', () => {
   const columns = itemColumns(details, items)
   assert.deepEqual(itemRows(columns, items), [
-    ['u1', '1731400000', '{"city":"Delhi"}', '', 't', '1500', ''],
-    ['u2', '1731400001', '', null, 'f', 'n/a', ''],
-    ['u3', '1731400002', '', null, '', '', 'north'],
+    ['u1', '1731400000', '{"city":"Delhi"}', undefined, 't', '1500', undefined],
+    ['u2', '1731400001', undefined, null, 'f', 'n/a', undefined],
+    ['u3', '1731400002', undefined, null, undefined, undefined, 'north'],
   ])
+})
+
+test('fields just added come last, typed; once an item has one, it is an ordinary column', () => {
+  const extra = [{ name: 'tier', type: 'N' as const }, { name: 'Zone', type: 'S' as const }, { name: 'meta', type: 'JSON' as const }]
+  const columns = itemColumns(details, items, extra)
+  assert.deepEqual(columns.slice(-3).map((c) => [c.name, c.type, c.category, c.source]), [
+    ['Zone', 'string', 'text', 'Zone'], ['tier', 'number', 'number', 'tier'], ['meta', 'map / list (JSON)', 'json', 'meta'],
+  ])
+  assert.equal(itemRows(columns, items)[0].at(-2), undefined)
+})
+
+test('each field’s one type, if it has one', () => {
+  assert.deepEqual(itemTypes(items), { userId: 'S', createdAt: 'N', paid: 'BOOL', address: 'M', Zone: 'S' })
 })
 
 test('a boolean in a mixed column stays true / false', () => {

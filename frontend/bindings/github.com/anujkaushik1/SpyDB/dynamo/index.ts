@@ -11,10 +11,15 @@ export type {
     AWSIdentity,
     AWSProfile,
     Connection,
+    FieldChange,
     Filter,
     FindPlan,
     IndexDetails,
+    ItemDelete,
+    ItemEdit,
     ItemsPage,
+    PartiQLResult,
+    Shown,
     TableDetails,
     Value
 } from "./models.js";

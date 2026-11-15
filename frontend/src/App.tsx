@@ -7,6 +7,7 @@ import ConfirmDialog from './ConfirmDialog'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
 import DynamoSidebar from './dynamo/DynamoSidebar'
+import DynamoQueryTab from './dynamo/DynamoQueryTab'
 import DynamoTableTab from './dynamo/DynamoTableTab'
 import DynamoSignIn from './dynamo/DynamoSignIn'
 import DatabasePicker from './DatabasePicker'
@@ -151,7 +152,7 @@ function App() {
   }, [dynamo, loadDynamoTables])
 
   // While the shown engine is connected: ⌘P / Ctrl+P opens its table
-  // switcher, ⌘T / Ctrl+T a new query tab (Postgres only, for now),
+  // switcher, ⌘T / Ctrl+T a new query tab (SQL, or PartiQL in DynamoDB),
   // ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows instead
   // of the whole window; so does F5 on Windows, where that's the key for it
   // (the window itself never reloads: Wails turns WebView2's off).
@@ -171,9 +172,10 @@ function App() {
       } else if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
-      } else if (key === 't' && shownPostgres) {
+      } else if (key === 't') {
         e.preventDefault()
-        newQueryTab()
+        if (shownPostgres) newQueryTab()
+        else newPartiqlTab()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -320,6 +322,11 @@ function App() {
     queryNumber.current += 1
     openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `Query ${queryNumber.current}` })
   }
+  const newPartiqlTab = () => {
+    if (!workspace) return
+    queryNumber.current += 1
+    openTab({ id: `query-${queryNumber.current}`, workspace, kind: 'dynamo-query', title: `PartiQL ${queryNumber.current}` })
+  }
 
   // A saved query opens in a query tab, or switches to the one already showing it.
   const openSavedQuery = (q: SavedQuery) => {
@@ -392,8 +399,8 @@ function App() {
   }
 
   // A second tab like this one, right after it: a table with the same
-  // filters, a query with the same SQL (not linked to its saved query), or
-  // a DynamoDB table from its first page.
+  // filters, a query with the same SQL (not linked to its saved query), a
+  // DynamoDB table from its first page, or a PartiQL tab with the same text.
   const duplicateTab = (id: string) => {
     const tab = workspaceTabs.find((t) => t.id === id)
     if (!tab || !workspace) return
@@ -411,6 +418,9 @@ function App() {
     } else if (tab.kind === 'dynamo-table') {
       duplicateSeq.current += 1
       copy = { id: `${tab.id}#${duplicateSeq.current}`, workspace, kind: 'dynamo-table', title: tab.title, table: tab.table }
+    } else if (tab.kind === 'dynamo-query') {
+      queryNumber.current += 1
+      copy = { id: `query-${queryNumber.current}`, workspace, kind: 'dynamo-query', title: `${tab.title} (copy)`, initialStatement: state?.sql ?? tab.initialStatement ?? '' }
     } else {
       return
     }
@@ -563,6 +573,7 @@ function App() {
               <p className="workspace-empty-text">
                 Signed in as {shownDynamo.identity.arn.split('/').pop()} (account {shownDynamo.identity.account}) with the profile “{shownDynamo.connection.profile}”.
                 Pick a table on the left to see its items, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
+                Press <span className="keys"><kbd>Ctrl</kbd> <kbd>T</kbd></span> for a PartiQL tab, or click <kbd>&lt;/&gt;</kbd> in a table.
               </p>
             </div>
           )}
@@ -602,7 +613,14 @@ function App() {
                 {tab.kind === 'connections' && (
                   <ServerConnectionsPanel config={tab.config} temporary={false} />
                 )}
-                {tab.kind === 'dynamo-table' && <DynamoTableTab table={tab.table} refreshSignal={refreshes[tab.id]} />}
+                {tab.kind === 'dynamo-table' && (
+                  <DynamoTableTab table={tab.table} refreshSignal={refreshes[tab.id]} onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} />
+                )}
+                {tab.kind === 'dynamo-query' && (
+                  <DynamoQueryTab initialStatement={tab.initialStatement ?? ''} active={shown}
+                                  onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)}
+                                  onStatementChange={(sql) => { tabState.current[tab.id] = { ...tabState.current[tab.id], sql } }} />
+                )}
               </div>
             )
           })}
