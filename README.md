@@ -72,7 +72,17 @@ SpyDB checks for a newer release each time it opens and offers to install it. To
 
 ## Benchmarks vs Beekeeper Studio
 
-Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12: each app's own database code ran the same jobs on an Apple M4 (16 GB), local Postgres 15, a 1M-row table among 257 tables. Medians of 7 runs. Lower is better.
+Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12 (Electron 31, Node 20). Setup: Apple M4 (10 cores, 16 GB), macOS 26.5.1, local Postgres 15.15, a 1M-row table among 257 tables.
+
+**How:** each app's real database code ran the same jobs:
+- SpyDB: its `DBService` methods.
+- Beekeeper: its own bundled database process (`dist/utility.js`), run on its own Electron binary and sent the same requests its window sends.
+
+Times are medians of 7 runs after a warm-up, and include handing the data to the window (JSON for SpyDB, Electron's structured clone for Beekeeper). Drawing the grid on screen isn't measured. App figures come from launching each app 3 times in the background.
+
+### The apps
+
+Lower is better in every row.
 
 | | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
@@ -83,6 +93,8 @@ Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12: each app's own database 
 | CPU while idle | 0.12 % | 3.47 % | SpyDB 29× less |
 
 ### Speed
+
+Time for each job. Lower is better.
 
 | Job | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
@@ -95,26 +107,72 @@ Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12: each app's own database 
 | Query returning 100,000 rows | 45.7 ms | 146 ms | SpyDB 3.2× faster |
 | Query returning 1,000,000 rows | 0.40 s | 1.95 s | SpyDB 4.9× faster |
 
-SpyDB sends the window at most 1,000 rows at a time and uses the system web view; Beekeeper sends every row to its window and bundles its own Chromium and Node. Small queries and saves are a millisecond or two slower in SpyDB because it does extra lookups and checks so results can be edited safely.
+### CPU time per job
 
-## Benchmark: DynamoDB
+Processor time the app spent on the job. Lower is better: less battery, more room for everything else.
 
-The real app in headless Chrome against DynamoDB Local (2,000 items), timed from the click to the frame that shows the result, so it's the wait a person sees. Every step is checked against DynamoDB Local itself. Run it with `node e2e/bench.mjs`.
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 3.6 ms | 19.5 ms | SpyDB, 5.5× less |
+| Open a 1M-row table | 0.5 ms | 5.2 ms | SpyDB, 11× less |
+| Jump to page 5,000 | 0.8 ms | 3.4 ms | SpyDB, 4.2× less |
+| Save one cell | 0.5 ms | 1.3 ms | SpyDB, 2.5× less |
+| Query, 1,000 rows | 2.1 ms | 3.5 ms | SpyDB, 1.6× less |
+| Query, 10,000 rows | 11 ms | 20 ms | SpyDB, 1.8× less |
+| Query, 100,000 rows | 50 ms | 188 ms | SpyDB, 3.8× less |
+| Query, 1,000,000 rows | 0.20 s | 3.18 s | SpyDB, 16× less |
 
-| What a person does | Screen (ms) | DynamoDB Local (ms) | Runs | Checked against DynamoDB Local |
-|---|---:|---:|---:|---|
-| Sign in and list the tables | 549 | — | 1 | ✓ the table is listed |
-| Open a table: its first 50 items on screen | 29 | 4.0 | 5 | ✓ 50 rows shown, each an item in the table with its city |
-| Load more: the next 50 items | 38 | — | 5 | ✓ 300 rows, all different, all items in the table |
-| Filter by the key (userId = u01000) | 28 | 3.0 | 5 | ✓ the one item, with its amount, read by its key |
-| Filter on a field (city = Goa): first page of matches | 33 | 4.0 | 1 | ✓ 400 found of 2000, the same 400 a direct scan finds |
-| …and Load more with the filter: the next 50 checked (40 pages, until every item was) | 37 | — | 40 | ✓ every match shown once, none missing |
-| Edit a cell and save | 24 | — | 5 | ✓ the 5 edited items hold the new value; the other items are untouched |
-| Delete an item | 34 | — | 3 | ✓ the 3 items are gone from the table, 1997 remain |
-| PartiQL: SELECT one item by its key | 39 | — | 5 | ✓ the one item comes back |
-| Open an item as JSON | 20 | — | 5 | ✓ the JSON matches the item, numbers as numbers |
+### Peak memory per job
 
-Measured on 15 Nov 2026, Apple M4 (16 GB), DynamoDB Local in Docker. "DynamoDB Local (ms)" is what the database itself reported; the rest is SpyDB and the grid. Signing in runs the AWS CLI once.
+Most memory the app's process used during the job. Lower is better. Before any work, that's about 20 MB for SpyDB's Go process and 254 MB for Beekeeper's database process.
+
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 28 MB | 258 MB | SpyDB, 9.1× less |
+| Open a 1M-row table | 26 MB | 258 MB | SpyDB, 10× less |
+| Jump to page 5,000 | 26 MB | 257 MB | SpyDB, 9.8× less |
+| Save one cell | 26 MB | 257 MB | SpyDB, 9.9× less |
+| Query, 1,000 rows | 28 MB | 260 MB | SpyDB, 9.4× less |
+| Query, 10,000 rows | 35 MB | 299 MB | SpyDB, 8.5× less |
+| Query, 100,000 rows | 94 MB | 719 MB | SpyDB, 7.7× less |
+| Query, 1,000,000 rows | 95 MB | 2,210 MB | SpyDB, 23× less |
+
+### Data sent to the window per job
+
+How much data the app copied from its database part to its window. Lower is better: less to copy and draw.
+
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 52 KB | 35 KB | Beekeeper, 1.5× less (SpyDB also sends every column, for autocomplete) |
+| Open a 1M-row table | 13 KB | 17 KB | SpyDB, 1.3× less |
+| Jump to page 5,000 | 14 KB | 16 KB | about even |
+| Save one cell | 53 B | 171 B | SpyDB, 3.2× less |
+| Query, 1,000 rows | 129 KB | 136 KB | about even |
+| Query, 10,000 rows | 129 KB | 1.3 MB | SpyDB, 11× less |
+| Query, 100,000 rows | 129 KB | 13 MB | SpyDB, 106× less |
+| Query, 1,000,000 rows | 129 KB | 135 MB | SpyDB, 1,068× less |
+
+### Round trips to Postgres per job
+
+How many times the app sent something to Postgres and waited for the answer. Lower is better, and it matters most on a remote database, where each round trip is a network delay (often 20–80 ms). Counted by a relay between each app and Postgres, in a separate pass.
+
+| Job | SpyDB | Beekeeper | Better |
+|---|---:|---:|---|
+| Connect + sidebar | 9 | 10 | SpyDB, 1 fewer |
+| Open a 1M-row table | 3 | 4 | SpyDB, 1 fewer |
+| Jump to page 5,000 | 3 | 1 | Beekeeper, 2 fewer |
+| Save one cell | 6 | 6 | even |
+| Query, 1,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 10,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 100,000 rows | 5 | 2 | Beekeeper, 3 fewer |
+| Query, 1,000,000 rows | 6 | 2 | Beekeeper, 4 fewer |
+
+### Why
+
+- **Big results:** SpyDB sends the window at most 1,000 rows and keeps at most 100,000. Beekeeper sends every row to its window, then keeps 50,000. That's the gap in time, memory and data at 100k and 1M rows.
+- **Small queries and saves:** after each query SpyDB makes three small lookups so results can be edited (5 round trips against 2). Its saves also run safety checks. That costs 1–2 ms locally, and more on a remote database, where every round trip is a network delay.
+- **Paging** in a table tab takes 3 round trips against Beekeeper's 1, because SpyDB re-reads the table's columns and key for each page.
+- **The app itself:** SpyDB uses the system web view. Beekeeper bundles its own Chromium and Node and runs 5 processes.
 
 ## Requirements
 
@@ -130,7 +188,7 @@ cd frontend && npm test                   # window unit tests
 SPYDB_TEST_DATABASE=mydb go test ./...    # Go tests against a local Postgres (they create and drop their own schemas)
 SPYDB_DYNAMO_LOCAL=http://127.0.0.1:8000 go test ./dynamo/   # DynamoDB writes, against DynamoDB Local (docker run -p 8000:8000 amazon/dynamodb-local)
 go build -tags server -o bin/spydb-server . && E2E_PG_USER=me E2E_PG_DB=mydb node e2e/run.mjs   # the app in headless Chrome
-E2E_DDB=http://127.0.0.1:8000 node e2e/bench.mjs   # the DynamoDB benchmark above, against DynamoDB Local
+E2E_DDB=http://127.0.0.1:8000 node e2e/bench.mjs   # times the app against DynamoDB Local, checking every step
 wails3 build                              # binary in bin/
 wails3 task package                       # macOS app bundle in bin/spydb.app
 ```
