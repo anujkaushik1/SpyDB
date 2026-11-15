@@ -33,7 +33,7 @@ const MIN_COLUMN = 56 // px
 const MAX_FIT = 2400 // double-click fits a column to its values, up to this (wider than the 400px cells start at in style.css)
 
 // A cell: text (Postgres's text output, or a document's field as text), null
-// for NULL, or undefined for a field a document (a DynamoDB item, a MongoDB
+// for NULL, or undefined for a field a document (a DynamoDB item, a
 // document) doesn't have, shown as an empty cell.
 export type CellValue = string | null | undefined
 
@@ -52,7 +52,7 @@ type Edits = Record<string, GridEdit>
 type Saved = Record<string, { key: GridValues; values: GridValues }>
 
 // Where edits go when it isn't a Postgres table (target): a DynamoDB table,
-// a MongoDB collection. Rows are found by keyNames (each row's values in
+// a document store. Rows are found by keyNames (each row's values in
 // rowKeys). Documents needn't share fields, so the JSON view and Copy as
 // JSON are the store's (each row's own fields, as their own types), and in
 // the JSON view fields can be added and removed.
@@ -74,7 +74,7 @@ type Props = {
   rows: CellValue[][]
   firstRowNumber: number
   target: EditTarget | null // where edits save in Postgres; null = read-only, unless store is given
-  store?: GridStore // where they save otherwise (DynamoDB, MongoDB)
+  store?: GridStore // where they save otherwise (DynamoDB)
   rowKeys: (string | null)[][] // per row, its key (target.key or store.keyNames); never shown
   readOnlyReason?: string // why it can't be edited, e.g. "a join"
   keepSavedValues?: boolean // query results: show saved values (the rows aren't reloaded)
@@ -101,7 +101,7 @@ type Link = { key: GridForeignKey; values: string[] }
 // shown) and cells can be edited: click to select, double-click / Enter /
 // type to edit. Changes wait in a bar at the bottom until Save, which sends
 // them as UPDATEs in one transaction (DBService.SaveRows). With `store`
-// instead, the same edits save to a DynamoDB table or MongoDB collection.
+// instead, the same edits save to a DynamoDB table.
 export default function DataGrid(props: Props) {
   const { columns, rows, rowKeys, firstRowNumber, target, store, keepSavedValues, onSaved, onDirtyChange, sort, onSort } = props
   const [one, many] = store?.noun ?? ['row', 'rows']
@@ -736,7 +736,7 @@ export default function DataGrid(props: Props) {
                       >
                         {isEditing && editing ? (
                           <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit}
-                                      removable={!!store && baseValue(i, j) !== undefined} />
+                                      removable={store && baseValue(i, j) !== undefined ? one : undefined} />
                         ) : value === null ? 'NULL' : value === undefined ? '' : cellText(value, category)}
                         {links.length > 0 && (
                           <button type="button" className="cell-link" tabIndex={-1}
@@ -892,7 +892,7 @@ function LinkMenu({ x, y, links, onPick, onClose }: { x: number; y: number; link
 type EditorProps = {
   initial: string
   typed: boolean // editing began by typing a character, so the value already changed
-  removable?: boolean // a document's field: offer taking it off the document
+  removable?: string // a document store's field: offer taking it off the row, named so (an item, a document)
   onDone: (result: { value: CellValue } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => void
 }
 
@@ -956,7 +956,7 @@ function CellEditor({ initial, typed, removable, onDone }: EditorProps) {
         NULL
       </button>
       {removable && (
-        <button type="button" className="cell-null-btn" title="Remove the field from this item"
+        <button type="button" className="cell-null-btn" title={`Remove the field from this ${removable}`}
                 onMouseDown={(e) => e.preventDefault()} onClick={() => finish({ value: undefined })}>
           ✕
         </button>

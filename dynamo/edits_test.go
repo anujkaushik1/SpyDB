@@ -3,8 +3,10 @@ package dynamo
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -373,5 +375,135 @@ func TestPartiQLOnDynamoDBLocal(t *testing.T) {
 	}
 	if _, err := s.RunPartiQL(t.Context(), `SELEC oops`, ""); err == nil || !strings.HasPrefix(err.Error(), "AWS: ") {
 		t.Fatalf("a bad statement: %v", err)
+	}
+}
+
+// snapshot is every item of the table, keyed "id|n", each as its typed JSON
+// (field by field, A to Z): equal strings mean an item is byte-for-byte the same.
+func snapshot(t *testing.T, client *dynamodb.Client, table string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	var start map[string]types.AttributeValue
+	for {
+		page, err := client.Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String(table), ConsistentRead: aws.Bool(true), ExclusiveStartKey: start})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			var fields []string
+			for _, name := range slices.Sorted(maps.Keys(item)) {
+				fields = append(fields, name+"="+typedJSON(item[name]))
+			}
+			out[item["id"].(*types.AttributeValueMemberS).Value+"|"+item["n"].(*types.AttributeValueMemberN).Value] = strings.Join(fields, " ")
+		}
+		if start = page.LastEvaluatedKey; len(start) == 0 {
+			return out
+		}
+	}
+}
+
+// Saving or deleting an item touches that item and no other: not its
+// neighbours, not the items that share its partition key (another sort
+// key), not everything.
+func TestOnlyThatItemChangesOnDynamoDBLocal(t *testing.T) {
+	s, client, table := localDynamo(t)
+	// 30 items: 10 partition keys, each with sort keys 1, 2 and 3.
+	for _, id := range strings.Split("a b c d e f g h i j", " ") {
+		for _, n := range []string{"1", "2", "3"} {
+			item := sampleItem(id)
+			item["n"] = &types.AttributeValueMemberN{Value: n}
+			item["amount"] = &types.AttributeValueMemberN{Value: "15" + n}
+			put(t, client, table, item)
+		}
+	}
+	before := snapshot(t, client, table)
+	if len(before) != 30 {
+		t.Fatalf("%d items seeded", len(before))
+	}
+	text := func(s string) Shown { return Shown{Has: true, Text: s} }
+
+	// Change e|2 only: a field changed, one added, one removed.
+	_, err := s.SaveItems(t.Context(), table, []ItemEdit{{
+		Key:     map[string]string{"id": "e", "n": "2"},
+		Old:     map[string]Shown{"city": text("Delhi"), "note": {}, "tags": text(`["new","vip"]`)},
+		Changes: map[string]FieldChange{"city": {Text: "Pune"}, "note": {Text: "only e2"}, "tags": {Remove: true}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := snapshot(t, client, table)
+	if len(after) != 30 {
+		t.Fatalf("%d items after the save; want 30", len(after))
+	}
+	for key, was := range before {
+		now := after[key]
+		if key == "e|2" {
+			if now == was || !strings.Contains(now, `city={"S":"Pune"}`) || !strings.Contains(now, `note={"S":"only e2"}`) || strings.Contains(now, "tags=") {
+				t.Errorf("e|2 wasn't saved as asked: %s", now)
+			}
+			continue
+		}
+		if now != was {
+			t.Errorf("%s changed when only e|2 was saved:\n  was %s\n  now %s", key, was, now)
+		}
+	}
+
+	// Then two in one transaction (a|1 and j|3): only those.
+	_, err = s.SaveItems(t.Context(), table, []ItemEdit{
+		{Key: map[string]string{"id": "a", "n": "1"}, Old: map[string]Shown{"paid": text("f")}, Changes: map[string]FieldChange{"paid": {Text: "true"}}},
+		{Key: map[string]string{"id": "j", "n": "3"}, Old: map[string]Shown{"amount": text("153")}, Changes: map[string]FieldChange{"amount": {Text: "999"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, after = after, snapshot(t, client, table)
+	for key, was := range before {
+		now := after[key]
+		switch key {
+		case "a|1":
+			if !strings.Contains(now, `paid={"BOOL":true}`) {
+				t.Errorf("a|1 not saved: %s", now)
+			}
+		case "j|3":
+			if !strings.Contains(now, `amount={"N":"999"}`) {
+				t.Errorf("j|3 not saved: %s", now)
+			}
+		default:
+			if now != was {
+				t.Errorf("%s changed when only a|1 and j|3 were saved:\n  was %s\n  now %s", key, was, now)
+			}
+		}
+	}
+
+	// Delete e|1 only: e|2 and e|3 (same partition key) stay, as does the rest.
+	old := map[string]Shown{"city": text("Delhi"), "amount": text("151")}
+	if n, err := s.DeleteItems(t.Context(), table, []ItemDelete{{Key: map[string]string{"id": "e", "n": "1"}, Old: old}}); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	before, after = after, snapshot(t, client, table)
+	if len(after) != 29 || after["e|1"] != "" {
+		t.Fatalf("%d items after deleting e|1; e|1 there: %v", len(after), after["e|1"] != "")
+	}
+	for key, was := range before {
+		if key != "e|1" && after[key] != was {
+			t.Errorf("%s changed when only e|1 was deleted:\n  was %s\n  now %s", key, was, after[key])
+		}
+	}
+
+	// Delete two in one transaction (b|2 and h|3): only those.
+	if n, err := s.DeleteItems(t.Context(), table, []ItemDelete{
+		{Key: map[string]string{"id": "b", "n": "2"}, Old: map[string]Shown{"amount": text("152")}},
+		{Key: map[string]string{"id": "h", "n": "3"}, Old: map[string]Shown{"amount": text("153")}},
+	}); err != nil || n != 2 {
+		t.Fatal(n, err)
+	}
+	before, after = after, snapshot(t, client, table)
+	if len(after) != 27 || after["b|2"] != "" || after["h|3"] != "" {
+		t.Fatalf("%d items after deleting b|2 and h|3", len(after))
+	}
+	for key, was := range before {
+		if key != "b|2" && key != "h|3" && after[key] != was {
+			t.Errorf("%s changed when only b|2 and h|3 were deleted", key)
+		}
 	}
 }

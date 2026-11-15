@@ -5,6 +5,7 @@ import DataGrid, { type GridColumn, type GridForeignKey, type Sort } from './Dat
 import ExportMenu, { type ExportChoice } from './ExportMenu'
 import ImportDialog from './ImportDialog'
 import SqlEditor from './SqlEditor'
+import FieldPicker from './FieldPicker'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon, XIcon } from './icons'
 
 const PAGE_SIZE = 100
@@ -266,10 +267,9 @@ function TableView({ table, preset, onFollow, onFiltersChange, onImported, toggl
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
           {i === 0 ? toggle : <span className="filter-indent" aria-hidden="true" />}
-          <select className="select select-column" aria-label="Filter column" value={f.column || columns[0]?.name || ''}
-                  onChange={(e) => updateDraft(f.key, { column: e.target.value })}>
-            {columns.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-          </select>
+          <FieldPicker className="select-column" label="Filter column" placeholder="Search columns" value={f.column || columns[0]?.name || ''}
+                       options={columns.map((c) => ({ name: c.name, note: c.type, key: c.primaryKey }))}
+                       onChange={(column) => updateDraft(f.key, { column })} />
           <select className="select select-operator" aria-label="Filter operator" value={f.operator}
                   onChange={(e) => updateDraft(f.key, { operator: e.target.value })}>
             {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

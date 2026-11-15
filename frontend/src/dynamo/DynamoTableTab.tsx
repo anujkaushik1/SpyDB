@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Service as Dynamo, type Filter, type FindPlan, type TableDetails } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
-import DataGrid from '../DataGrid'
+import DataGrid, { type Sort } from '../DataGrid'
+import FieldPicker, { type FieldOption } from '../FieldPicker'
 import { CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
-import { useDismiss } from '../useDismiss'
-import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, NEW_FIELD_TYPES, type Item, type NewField, type NewFieldType, type SeenFields } from './itemGrid'
+import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, sortItems, type Item, type NewField, type SeenFields } from './itemGrid'
 import { itemKey } from './itemStore'
 import PartiqlEditor from './PartiqlEditor'
 import { useItemStore } from './useItemStore'
@@ -51,7 +51,8 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
   const [resultsDirty, setResultsDirty] = useState(false)
   useEffect(() => onDirtyChange?.(itemsDirty || resultsDirty), [itemsDirty || resultsDirty])
   const [extra, setExtra] = useState<NewField[]>([]) // fields added that no item has yet
-  const [adding, setAdding] = useState(false) // the Add field form is open
+  // A header click sorts the items loaded so far (DynamoDB itself can't sort a scan).
+  const [sort, setSort] = useState<Sort>(null)
   const grid = useRef<HTMLDivElement>(null)
   const [details, setDetails] = useState<TableDetails | null>(null)
   const [detailsError, setDetailsError] = useState<string | null>(null)
@@ -114,9 +115,14 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
     onStale: reload,
   })
   const columns = useMemo(() => itemColumns(details, items, extra), [details, items, extra])
-  const rows = useMemo(() => itemRows(columns, items), [columns, items])
+  // The loaded items in the sorted order (each row still carries its own item's key).
+  const shownItems = useMemo(() => sortItems(items, sort), [items, sort])
+  const rows = useMemo(() => itemRows(columns, shownItems), [columns, shownItems])
   const keyNames = store?.keyNames ?? []
-  const rowKeys = useMemo(() => items.map((item) => itemKey({ keyNames, types: {} }, item)), [items, keyNames.join('\n')])
+  const rowKeys = useMemo(() => shownItems.map((item) => itemKey({ keyNames, types: {} }, item)), [shownItems, keyNames.join('\n')])
+  const toggleSort = (column: string) => {
+    setSort((s) => (s?.column !== column ? { column, desc: false } : !s.desc ? { column, desc: true } : null))
+  }
   // A field just added: scroll right to its column.
   useEffect(() => {
     if (extra.length > 0) grid.current?.scrollTo({ left: grid.current.scrollWidth, behavior: 'smooth' })
@@ -128,6 +134,10 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
     </button>
   )
   const fields = useMemo(() => fieldOptions(details, seen), [details, seen])
+  const fieldChoices = useMemo<FieldOption[]>(() => [
+    ...fields.keys.map((k) => ({ name: k.field, note: k.note, key: true, group: 'Keys: fast with “equals”' })),
+    ...fields.others.map((name) => ({ name, group: 'Other fields' })),
+  ], [fields])
   const firstField = fields.keys[0]?.field ?? fields.others[0] ?? ''
 
   // The rows filled in, as Go takes them. Rows with no value are left out
@@ -171,17 +181,8 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
           {i === 0 && toggle(false)}
-          <select className="select select-column dynamo-field" aria-label="Filter field" value={f.field || firstField}
-                  onChange={(e) => updateDraft(f.key, { field: e.target.value })}>
-            {fields.keys.length > 0 && (
-              <optgroup label="Keys: fast with “equals”">
-                {fields.keys.map((k) => <option key={k.field} value={k.field}>{`🔑 ${k.field} · ${k.note}`}</option>)}
-              </optgroup>
-            )}
-            <optgroup label="Other fields">
-              {fields.others.map((name) => <option key={name} value={name}>{name}</option>)}
-            </optgroup>
-          </select>
+          <FieldPicker className="select-column dynamo-field" label="Filter field" value={f.field || firstField}
+                       options={fieldChoices} onChange={(field) => updateDraft(f.key, { field })} />
           <select className="select select-operator" aria-label="Filter condition" value={f.operator}
                   onChange={(e) => updateDraft(f.key, { operator: e.target.value })}>
             {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -271,6 +272,8 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
           rowKeys={store ? rowKeys : []}
           readOnlyReason={readOnly}
           canDelete
+          sort={sort}
+          onSort={toggleSort}
           onDirtyChange={setItemsDirty}
           wrapClass={loading && loaded ? 'grid-wrap loading' : 'grid-wrap'}
           wrapRef={grid}
@@ -291,21 +294,12 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
                 ? `${items.length.toLocaleString()} found · ${checked.toLocaleString()} checked${next ? '' : ' · all of them'}`
                 : `${items.length.toLocaleString()} item${items.length === 1 ? '' : 's'} loaded${next ? '' : ' · all of them'}`),
               loaded && filtered && readBy && planText(readBy).replace('checks', 'checked'),
+              sort && `sorted by ${sort.column} ${sort.desc ? '↓' : '↑'} (the items loaded)`,
               durationMs != null && `${durationMs} ms`,
               details && (store ? 'double-click a cell to edit' : `read-only: ${readOnly}`),
             ].filter(Boolean).join(' · ')}
           </span>
           <div className="grid-pager">
-            <div className="add-field-wrap">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding((a) => !a)} disabled={!store}
-                      title={store ? 'Add a field: a new column to type values into, saved with the items you fill in' : `Can’t add fields: ${readOnly}`}>
-                <PlusIcon /> Field
-              </button>
-              {adding && (
-                <AddField taken={columns.map((c) => c.name)} onClose={() => setAdding(false)}
-                          onAdd={(field) => { setExtra((current) => [...current, field]); setAdding(false) }} />
-              )}
-            </div>
             <button type="button" className="sidebar-icon-btn" onClick={reload} disabled={loading}
                     aria-label="Reload items" title="Reload from the first page">
               {loading ? <Spinner /> : <RefreshIcon />}
@@ -321,33 +315,5 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
     </div>
       )}
     </PartiqlEditor>
-  )
-}
-
-// The Add field form: a name and what its values are. The field is a column
-// until an item has it; values typed into it save with their items.
-function AddField({ taken, onAdd, onClose }: { taken: string[]; onAdd: (field: NewField) => void; onClose: () => void }) {
-  const root = useRef<HTMLFormElement>(null)
-  const [name, setName] = useState('')
-  const [type, setType] = useState<NewFieldType>('S')
-  useDismiss(true, root, onClose)
-  const trimmed = name.trim()
-  const clash = taken.includes(trimmed)
-  return (
-    <form className="add-field" ref={root} onSubmit={(e) => { e.preventDefault(); if (trimmed && !clash) onAdd({ name: trimmed, type }) }}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}>
-      <p className="add-field-title">Add a field</p>
-      <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Field name" aria-label="Field name"
-             autoFocus spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-      <select className="select" value={type} onChange={(e) => setType(e.target.value as NewFieldType)} aria-label="Field type">
-        {NEW_FIELD_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
-      </select>
-      {clash && <p className="add-field-note">“{trimmed}” is already a column.</p>}
-      <p className="add-field-note">It appears as a column; fill it in for the items you want, then save.</p>
-      <div className="save-query-actions">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>Cancel</button>
-        <button type="submit" className="btn btn-primary btn-sm" disabled={!trimmed || clash}>Add</button>
-      </div>
-    </form>
   )
 }

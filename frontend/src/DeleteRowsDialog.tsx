@@ -15,7 +15,7 @@ type Props = {
 
 const SHOWN = 5 // rows listed by name; the rest are counted
 
-// What deleting from a DynamoDB table or MongoDB collection takes with it: nothing else.
+// What deleting from a DynamoDB table takes with it: nothing else.
 const NO_EFFECTS: DeleteEffects = { database: '', server: '', role: '', cascades: [], setsNull: [], triggers: [], rules: [], blocked: '' }
 
 // Asks before deleting rows, saying first what else goes with them: rows of
@@ -68,7 +68,7 @@ export default function DeleteRowsDialog({ target, where, noun: [one, many] = ['
             onSubmit={(e) => { e.preventDefault(); confirm() }}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); close() } }}>
         <p className="delete-rows-title">
-          Delete {label} from <strong>{target ? `${target.schema}.${target.table}` : where}</strong>
+          Delete {count === 1 ? `the whole ${one}` : `${count.toLocaleString()} whole ${many}`} from <strong>{target ? `${target.schema}.${target.table}` : where}</strong>
           {effects?.database && <> on <strong>{effects.database}</strong></>}?
         </p>
         {effects?.server && <p className="delete-rows-where">{effects.server} · as role {effects.role}</p>}
@@ -77,7 +77,7 @@ export default function DeleteRowsDialog({ target, where, noun: [one, many] = ['
           {count > SHOWN && <li className="delete-rows-more">and {(count - SHOWN).toLocaleString()} more</li>}
         </ul>
         <p className="delete-rows-note">
-          This can’t be undone. All of them are deleted, or none: if one changed since you loaded it, nothing is deleted.
+          {count === 1 ? 'This can’t be undone.' : `This can’t be undone. The ${count.toLocaleString()} are deleted together: if one changed since you loaded it, none is.`}
         </p>
         {!effects && !error && <p className="delete-rows-note"><Spinner /> Checking what else this deletes…</p>}
         {cascades && (

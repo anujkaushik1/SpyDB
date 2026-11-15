@@ -89,7 +89,7 @@ export default function RowMenu({ x, y, rowCount, noun = ['row', 'rows'], onCopy
         <>
           <div className="row-menu-sep" role="separator" />
           <button type="button" role="menuitem" className="row-menu-item danger" onClick={onDelete} disabled={!onDelete}>
-            Delete {rowCount === 1 ? one : `${rowCount.toLocaleString()} ${many}`}…
+            Delete {rowCount === 1 ? `whole ${one}` : `${rowCount.toLocaleString()} whole ${many}`}…
           </button>
           {deleteBlocked && <p className="row-menu-note">{deleteBlocked}</p>}
         </>

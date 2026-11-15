@@ -3,7 +3,7 @@
 // Postgres and back with both staying connected. DynamoDB Local's made-up
 // tables (dynamo-local.mjs) and the test Postgres; run by run.mjs.
 import { check, MOD, sleep } from './cdp.mjs'
-import { ddb, getItem } from './dynamo-local.mjs'
+import { changedKeys, ddb, getItem, snapshot } from './dynamo-local.mjs'
 
 export default async function dynamo(p, { shots, pg }) {
 const { evaluate, click, dblclick, rightClick, key, type, waitFor, shot } = p
@@ -30,7 +30,8 @@ const save = async () => { await key('s', MOD); await sleep(600) }
 
 await evaluate(helpers)
 // Sign in to DynamoDB (the fake aws CLI's "demo" profile; the data is DynamoDB Local's).
-await click(`[...document.querySelectorAll('.engine-option')].find((b) => b.innerText.startsWith('DynamoDB'))`)
+await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.trim() === 'Dy')`)
+check('the sidebar lists the AWS profile under DynamoDB', await waitFor(`[...document.querySelectorAll('.conn-group')].some((g) => g.getAttribute('aria-label') === 'DynamoDB connections' && g.querySelector('.conn-item')?.innerText.includes('demo'))`), null)
 await waitFor(`document.querySelector('.aws-card .card-footer .btn-primary')`)
 await click(`document.querySelector('.aws-card .card-footer .btn-primary')`)
 check('signed in: the tables are listed', await waitFor(`document.querySelectorAll('.dynamo-sidebar .tree-item').length === 2`, 15000), null)
@@ -41,13 +42,23 @@ K = await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].map((tr)
 const noted = K.filter((k) => Number(k.slice(1)) % 5 === 0 && k !== K[13]) // items with a note (seed.mjs)
 await shot(`${shots}/d1-orders.png`)
 
+const KEYS = ['userId', 'createdAt']
+const keyOf = (k) => `${k}|${1731400000 + Number(k.slice(1))}`
+const sameExcept = async (before, keys, what) => {
+  const diff = changedKeys(before, await snapshot('orders', KEYS))
+  check(`${what}: of 120 items, only ${keys.join(', ')} changed`, JSON.stringify(diff) === JSON.stringify(keys.map(keyOf).sort()), diff)
+}
+
 // 1. A text cell: type, Enter, ⌘S; saved as text, shown in place.
+let before = await snapshot('orders', KEYS)
+check('the table holds 120 items before any edit', Object.keys(before).length === 120, Object.keys(before).length)
 await editCell(K[1], 'city', 'Pune')
 check('typed edit waits in the changes bar', (await evaluate(`__t.bar()`)).includes('1 unsaved change in 1 item'), await evaluate(`__t.bar()`))
 check('the tab shows the unsaved dot', await evaluate(`!!document.querySelector('.tab.active .tab-dirty')`), null)
 await save()
 check('saved: “Saved 1 item to orders”', await waitFor(`__t.bar().includes('Saved 1 item to orders')`), await evaluate(`__t.bar()`))
 check('DynamoDB has city = Pune, as text', JSON.stringify((await o(K[1])).city) === '{"S":"Pune"}', (await o(K[1])).city)
+await sameExcept(before, [K[1]], 'one cell saved')
 check('still 50 items (nothing reloaded to page 1)', (await evaluate(`__t.rows('items')`)) === 50, await evaluate(`__t.rows('items')`))
 
 // 2. A number cell stays a number; text there is refused, nothing saved.
@@ -74,20 +85,27 @@ await click(`[...document.querySelectorAll('.cell-editor .cell-null-btn')].find(
 await save()
 check('✕ removed the field', !('note' in (await o(noted[0]))), Object.keys(await o(noted[0])))
 
-// 5. Add field: a new column; values typed into it save with their items.
-await click(`[...__t.pane().querySelectorAll('.grid-pager .btn')].find((b) => b.innerText.includes('Field'))`)
-await waitFor(`document.querySelector('.add-field input')`)
-await type('tier')
-await evaluate(`(() => { const s = document.querySelector('.add-field select'); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, 'N'); s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
-await click(`[...document.querySelectorAll('.add-field .btn')].find((b) => b.innerText === 'Add')`)
-check('the new column is there, typed number', await waitFor(`__t.col('items', 'tier') > 0`), null)
-await shot(`${shots}/d2-new-field.png`)
-await editCell(K[7], 'tier', '3')
-await editCell(K[8], 'tier', '4')
+// 5. Two items edited, saved together; the footer has no "+ Field" (the JSON view adds fields).
+check('no "+ Field" button', !(await evaluate(`[...__t.pane().querySelectorAll('.grid-pager .btn')].some((b) => b.innerText.includes('Field'))`)), null)
+await shot(`${shots}/d2-table.png`)
+before = await snapshot('orders', KEYS)
+await editCell(K[21], 'amount', '3')
+await editCell(K[22], 'amount', '4')
 await save()
-check('new field saved on 2 items as numbers', JSON.stringify((await o(K[7])).tier) === '{"N":"3"}' && JSON.stringify((await o(K[8])).tier) === '{"N":"4"}',
-  [(await o(K[7])).tier, (await o(K[8])).tier])
+check('two number edits saved as numbers', JSON.stringify((await o(K[21])).amount) === '{"N":"3"}' && JSON.stringify((await o(K[22])).amount) === '{"N":"4"}',
+  [(await o(K[21])).amount, (await o(K[22])).amount])
 check('2 items saved together', await waitFor(`__t.bar().includes('Saved 2 items to orders')`), await evaluate(`__t.bar()`))
+await sameExcept(before, [K[21], K[22]], 'two items saved together')
+
+// 5b. Load more, then edit an item from the second page: only it changes.
+await click(`[...__t.pane().querySelectorAll('.rows-pane .grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
+check('Load more: 100 items in the table', await waitFor(`__t.rows('items') === 100`), await evaluate(`__t.rows('items')`))
+const page2 = await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].slice(50).map((tr) => tr.children[1].innerText)`)
+before = await snapshot('orders', KEYS)
+await editCell(page2[7], 'city', 'Page2')
+await save()
+check('a second-page item saves', await waitFor(`__t.bar().includes('Saved 1 item to orders')`) && (await o(page2[7])).city?.S === 'Page2', (await o(page2[7])).city)
+await sameExcept(before, [page2[7]], 'second-page item saved')
 
 // 6. The JSON view: change a value, add fields (typed by the JSON), remove one; the key can't change.
 await dblclick(`__t.row('items', '${noted[1]}').children[0]`)
@@ -137,13 +155,16 @@ await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b
 // 8. Delete from the row menu, with the confirmation.
 await rightClick(`__t.row('items', '${K[13]}').children[0]`)
 const menu = await evaluate(`[...document.querySelectorAll('.row-menu button')].map((b) => b.innerText.trim())`)
-check('row menu says items, offers Delete item…', menu.includes('Delete item…') && menu.some((m) => m.startsWith('View item as JSON')), menu)
-await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete item…')`)
+check('row menu says items, offers Delete item…', menu.includes('Delete whole item…') && menu.some((m) => m.startsWith('View item as JSON')), menu)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole item…')`)
 check('delete asks first, naming the item', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('userId = ${K[13]}, createdAt = ${1731400000 + Number(K[13].slice(1))}')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
 await shot(`${shots}/d3-delete.png`)
+before = await snapshot('orders', KEYS)
 await click(`document.querySelector('.delete-rows .btn-danger')`)
 check('deleted: gone from DynamoDB and the grid', await waitFor(`!__t.row('items', '${K[13]}')`) && !(await o(K[13])), await evaluate(`__t.rows('items')`))
+await sameExcept(before, [K[13]], 'one item deleted')
+check('119 items remain', Object.keys(await snapshot('orders', KEYS)).length === 119, null)
 check('“Deleted 1 item from orders”', await waitFor(`__t.bar().includes('Deleted 1 item from orders')`), await evaluate(`__t.bar()`))
 
 // 9. Copy as JSON keeps types.
@@ -161,9 +182,12 @@ check('SELECT: 50 results, Load more', await waitFor(`__t.rows('results') === 50
 check('results say editable (orders)', (await evaluate(`__t.pane().querySelector('.results-pane .grid-status')?.innerText`))?.includes('editable (orders)'),
   await evaluate(`__t.pane().querySelector('.results-pane .grid-status')?.innerText`))
 await shot(`${shots}/d4-partiql.png`)
+before = await snapshot('orders', KEYS)
 await editCell(K[15], 'city', 'FromPartiQL', 'results')
 await save()
 check('a result edit saves to DynamoDB', (await o(K[15])).city?.S === 'FromPartiQL', (await o(K[15])).city)
+await sameExcept(before, [K[15]], 'PartiQL result edit')
+before = await snapshot('orders', KEYS)
 await click(`[...__t.pane().querySelectorAll('.results-pane .grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
 check('Load more: 100 results', await waitFor(`__t.rows('results') === 100`), await evaluate(`__t.rows('results')`))
 await click(`__t.pane().querySelector('.sql-bar .cm-content')`)
@@ -172,6 +196,7 @@ await type(`UPDATE "orders" SET "city" = 'ViaUpdate' WHERE "userId" = '${K[16]}'
 await key('Enter', MOD)
 check('UPDATE runs: ✓ UPDATE', await waitFor(`__t.pane().querySelector('.tab-notice.ok')?.innerText.includes('✓ UPDATE')`), await evaluate(`[__t.pane().querySelector('.tab-notice, .tab-notice-banner')?.innerText, __t.pane().querySelector('.sql-bar .cm-content')?.innerText]`))
 check('…and changed the item', (await o(K[16])).city?.S === 'ViaUpdate', (await o(K[16])).city)
+await sameExcept(before, [K[16]], 'PartiQL UPDATE')
 await key('a', MOD)
 await type(`SELEC oops`)
 await key('Enter', MOD)
@@ -200,8 +225,7 @@ check('Close Others leaves orders only', await waitFor(`document.querySelectorAl
 
 // 12. Engine switching keeps each one connected.
 await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.startsWith('Pg'))`)
-check('Pg: the Postgres connect screen; DynamoDB still marked connected', await waitFor(`document.querySelector('.engine-option.on')?.innerText.startsWith('PostgreSQL')`) &&
-  await evaluate(`!![...document.querySelectorAll('.engine-option')].find((b) => b.innerText.startsWith('DynamoDB'))?.querySelector('.engine-connected')`), null)
+check('Pg: the Postgres connect screen; DynamoDB still marked connected', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Pg' && !!document.querySelector('.rail-engine-dynamo .rail-engine-dot')`), null)
 const setField = async (label, value) => evaluate(`(() => { const input = [...document.querySelectorAll('input')].find((i) => i.closest('label, .field')?.innerText.trim().startsWith('${label}') || i.getAttribute('aria-label') === '${label}' || i.name === '${label.toLowerCase()}'); if (!input) return false; const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, '${value}'); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
 const filled = [await setField('Host', 'localhost'), await setField('Port', '5432'), await setField('User', pg.user), await setField('Database', pg.db)]
 if (pg.password) await setField('Password', pg.password)
@@ -213,7 +237,7 @@ await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerT
 await evaluate(helpers)
 check('Dy: DynamoDB still connected, the orders tab as it was', await waitFor(`document.querySelector('.dynamo-sidebar') && document.querySelector('.tab.active .tab-title')?.innerText === 'orders' && __t.rows('items') > 0`), null)
 await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.startsWith('Pg'))`)
-check('Pg again: still connected, no connect form', await waitFor(`!document.querySelector('.dynamo-sidebar') && document.querySelector('.rail-engine.active')?.innerText.startsWith('Pg') && !document.querySelector('.engine-switch')`), null)
+check('Pg again: still connected, no connect form', await waitFor(`!document.querySelector('.dynamo-sidebar') && document.querySelector('.rail-engine.active')?.innerText.trim() === 'Pg' && !document.querySelector('aside[aria-label="Connections"]')`), null)
 check('both engines show a connected dot', (await evaluate(`document.querySelectorAll('.rail-engine-dot').length`)) === 2, await evaluate(`document.querySelectorAll('.rail-engine-dot').length`))
 
 check('no page errors', p.errors.length === 0, p.errors)
