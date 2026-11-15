@@ -8,7 +8,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -19,7 +19,9 @@ import * as $models from "./models.js";
  * frontend calls it on load, since a page reload doesn't reset the Go side.
  */
 export function ActiveConnection(): $CancellablePromise<$models.ConnectionInfo | null> {
-    return $Call.ByID(470902409);
+    return $Call.ByID(470902409).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 /**
@@ -28,7 +30,9 @@ export function ActiveConnection(): $CancellablePromise<$models.ConnectionInfo |
  * a temporary connection with cfg and closes it afterwards.
  */
 export function ActiveConnections(cfg: $models.DBConfig): $CancellablePromise<$models.ServerConnections> {
-    return $Call.ByID(694492046, cfg);
+    return $Call.ByID(694492046, cfg).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
 /**
@@ -61,14 +65,18 @@ export function ClearRecent(): $CancellablePromise<void> {
  * current connection as it was. A successful Connect is added to Recent.
  */
 export function Connect(cfg: $models.DBConfig): $CancellablePromise<$models.ConnectionInfo> {
-    return $Call.ByID(474393615, cfg);
+    return $Call.ByID(474393615, cfg).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
  * DefaultConfig returns the values that pre-fill the connection form.
  */
 export function DefaultConfig(): $CancellablePromise<$models.DBConfig> {
-    return $Call.ByID(1488180570);
+    return $Call.ByID(1488180570).then(($result: any) => {
+        return $$createType3($result);
+    });
 }
 
 /**
@@ -85,7 +93,9 @@ export function DeleteConnection(id: string): $CancellablePromise<void> {
  * (table tabs).
  */
 export function DeleteEffects(target: $models.EditTarget): $CancellablePromise<$models.DeleteEffects> {
-    return $Call.ByID(1479786942, target);
+    return $Call.ByID(1479786942, target).then(($result: any) => {
+        return $$createType4($result);
+    });
 }
 
 /**
@@ -110,8 +120,18 @@ export function DeleteQuery(id: string): $CancellablePromise<void> {
  * for the confirmation). A table with DELETE rules is refused: they make a
  * DELETE do something else, which can't be checked.
  */
-export function DeleteRows(target: $models.EditTarget, rows: $models.RowDelete[] | null): $CancellablePromise<number> {
+export function DeleteRows(target: $models.EditTarget, rows: $models.RowDelete[]): $CancellablePromise<number> {
     return $Call.ByID(404311757, target, rows);
+}
+
+/**
+ * DescribeTable reads a table's facts, columns, indexes and foreign keys
+ * from Postgres's catalogs (three small queries on the pool).
+ */
+export function DescribeTable(schema: string, table: string): $CancellablePromise<$models.TableDescription> {
+    return $Call.ByID(1096516442, schema, table).then(($result: any) => {
+        return $$createType5($result);
+    });
 }
 
 /**
@@ -146,7 +166,9 @@ export function ExportTable(e: $models.TableExport, path: string, format: string
  * starting at offset. The rows are already in memory; nothing goes to Postgres.
  */
 export function FetchRows(tab: string, runID: number, statement: number, offset: number): $CancellablePromise<$models.ResultPage> {
-    return $Call.ByID(3985414136, tab, runID, statement, offset);
+    return $Call.ByID(3985414136, tab, runID, statement, offset).then(($result: any) => {
+        return $$createType6($result);
+    });
 }
 
 /**
@@ -154,8 +176,10 @@ export function FetchRows(tab: string, runID: number, statement: number, offset:
  * columns and link each value to the row it points at. One catalog query on
  * the pool, once per table tab (not per page).
  */
-export function ForeignKeys(schema: string, table: string): $CancellablePromise<$models.ForeignKey[] | null> {
-    return $Call.ByID(3295207225, schema, table);
+export function ForeignKeys(schema: string, table: string): $CancellablePromise<$models.ForeignKey[]> {
+    return $Call.ByID(3295207225, schema, table).then(($result: any) => {
+        return $$createType8($result);
+    });
 }
 
 /**
@@ -168,31 +192,39 @@ export function ForgetRun(tab: string): $CancellablePromise<void> {
 /**
  * ImportTargetColumns lists an existing table's columns for matching.
  */
-export function ImportTargetColumns(schema: string, table: string): $CancellablePromise<$models.ImportTargetColumn[] | null> {
-    return $Call.ByID(2834704046, schema, table);
+export function ImportTargetColumns(schema: string, table: string): $CancellablePromise<$models.ImportTargetColumn[]> {
+    return $Call.ByID(2834704046, schema, table).then(($result: any) => {
+        return $$createType10($result);
+    });
 }
 
 /**
  * ListColumns returns every table's and view's columns (the relations
  * ListTables lists), in one catalog query on the pool.
  */
-export function ListColumns(): $CancellablePromise<$models.TableColumns[] | null> {
-    return $Call.ByID(3773391470);
+export function ListColumns(): $CancellablePromise<$models.TableColumns[]> {
+    return $Call.ByID(3773391470).then(($result: any) => {
+        return $$createType12($result);
+    });
 }
 
 /**
  * ListDatabases returns the databases on the server that the user can connect to.
  */
-export function ListDatabases(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(1768427615);
+export function ListDatabases(): $CancellablePromise<string[]> {
+    return $Call.ByID(1768427615).then(($result: any) => {
+        return $$createType13($result);
+    });
 }
 
 /**
  * ListTables returns the schemas with their tables and views, public first,
  * using the open pool.
  */
-export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
-    return $Call.ByID(3190087810);
+export function ListTables(): $CancellablePromise<$models.SchemaInfo[]> {
+    return $Call.ByID(3190087810).then(($result: any) => {
+        return $$createType15($result);
+    });
 }
 
 /**
@@ -201,14 +233,18 @@ export function ListTables(): $CancellablePromise<$models.SchemaInfo[] | null> {
  * suggested names, types and a primary key.
  */
 export function PreviewImport(opts: $models.ImportOptions): $CancellablePromise<$models.ImportPreview> {
-    return $Call.ByID(516227852, opts);
+    return $Call.ByID(516227852, opts).then(($result: any) => {
+        return $$createType16($result);
+    });
 }
 
 /**
  * RenameQuery changes only a saved query's name.
  */
 export function RenameQuery(id: string, name: string): $CancellablePromise<$models.SavedQuery> {
-    return $Call.ByID(2939609191, id, name);
+    return $Call.ByID(2939609191, id, name).then(($result: any) => {
+        return $$createType17($result);
+    });
 }
 
 /**
@@ -224,7 +260,9 @@ export function RevealFile(path: string): $CancellablePromise<void> {
  * with the editor session's role and formats when it's free to ask.
  */
 export function RunImport(req: $models.ImportRequest): $CancellablePromise<$models.ImportResult> {
-    return $Call.ByID(355902641, req);
+    return $Call.ByID(355902641, req).then(($result: any) => {
+        return $$createType18($result);
+    });
 }
 
 /**
@@ -235,14 +273,18 @@ export function RunImport(req: $models.ImportRequest): $CancellablePromise<$mode
  * frontend cancels the call (the Cancel button); Disconnect cancels it too.
  */
 export function RunQuery(tab: string, sql: string): $CancellablePromise<$models.QueryResult> {
-    return $Call.ByID(320031448, tab, sql);
+    return $Call.ByID(320031448, tab, sql).then(($result: any) => {
+        return $$createType19($result);
+    });
 }
 
 /**
  * SaveConnection adds c to Saved, or updates the saved connection with c.ID.
  */
 export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<$models.SavedConnection> {
-    return $Call.ByID(106705906, c);
+    return $Call.ByID(106705906, c).then(($result: any) => {
+        return $$createType20($result);
+    });
 }
 
 /**
@@ -251,7 +293,9 @@ export function SaveConnection(c: $models.SavedConnection): $CancellablePromise<
  * you're connected to, and returns the saved query.
  */
 export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.SavedQuery> {
-    return $Call.ByID(3020983034, q);
+    return $Call.ByID(3020983034, q).then(($result: any) => {
+        return $$createType17($result);
+    });
 }
 
 /**
@@ -263,22 +307,28 @@ export function SaveQuery(q: $models.SavedQuery): $CancellablePromise<$models.Sa
  * the SQL editor's connection, so an open transaction in the editor doesn't
  * swallow or delay the save. It returns each row as saved.
  */
-export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[] | null): $CancellablePromise<$models.SavedRow[] | null> {
-    return $Call.ByID(2977464731, target, edits);
+export function SaveRows(target: $models.EditTarget, edits: $models.RowEdit[]): $CancellablePromise<$models.SavedRow[]> {
+    return $Call.ByID(2977464731, target, edits).then(($result: any) => {
+        return $$createType22($result);
+    });
 }
 
 /**
  * SavedConnections returns the saved and recent connections.
  */
 export function SavedConnections(): $CancellablePromise<$models.ConnectionLists> {
-    return $Call.ByID(3515133619);
+    return $Call.ByID(3515133619).then(($result: any) => {
+        return $$createType23($result);
+    });
 }
 
 /**
  * SavedQueries returns every saved query, most recently saved first.
  */
-export function SavedQueries(): $CancellablePromise<$models.SavedQuery[] | null> {
-    return $Call.ByID(4116626858);
+export function SavedQueries(): $CancellablePromise<$models.SavedQuery[]> {
+    return $Call.ByID(4116626858).then(($result: any) => {
+        return $$createType24($result);
+    });
 }
 
 /**
@@ -286,7 +336,9 @@ export function SavedQueries(): $CancellablePromise<$models.SavedQuery[] | null>
  * same login. If it fails, the current connection stays open.
  */
 export function SwitchDatabase(database: string): $CancellablePromise<$models.ConnectionInfo> {
-    return $Call.ByID(3400387614, database);
+    return $Call.ByID(3400387614, database).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
@@ -294,7 +346,9 @@ export function SwitchDatabase(database: string): $CancellablePromise<$models.Co
  * the open pool. Wails cancels ctx when the frontend cancels the call.
  */
 export function TableData(q: $models.TableQuery): $CancellablePromise<$models.TablePage> {
-    return $Call.ByID(4100510109, q);
+    return $Call.ByID(4100510109, q).then(($result: any) => {
+        return $$createType25($result);
+    });
 }
 
 /**
@@ -304,3 +358,31 @@ export function TableData(q: $models.TableQuery): $CancellablePromise<$models.Ta
 export function TestConnection(cfg: $models.DBConfig): $CancellablePromise<string> {
     return $Call.ByID(3082525927, cfg);
 }
+
+// Private type creation functions
+const $$createType0 = $models.ConnectionInfo.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = $models.ServerConnections.createFrom;
+const $$createType3 = $models.DBConfig.createFrom;
+const $$createType4 = $models.DeleteEffects.createFrom;
+const $$createType5 = $models.TableDescription.createFrom;
+const $$createType6 = $models.ResultPage.createFrom;
+const $$createType7 = $models.ForeignKey.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = $models.ImportTargetColumn.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = $models.TableColumns.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = $Create.Array($Create.Any);
+const $$createType14 = $models.SchemaInfo.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = $models.ImportPreview.createFrom;
+const $$createType17 = $models.SavedQuery.createFrom;
+const $$createType18 = $models.ImportResult.createFrom;
+const $$createType19 = $models.QueryResult.createFrom;
+const $$createType20 = $models.SavedConnection.createFrom;
+const $$createType21 = $models.SavedRow.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = $models.ConnectionLists.createFrom;
+const $$createType24 = $Create.Array($$createType17);
+const $$createType25 = $models.TablePage.createFrom;

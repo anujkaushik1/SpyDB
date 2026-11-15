@@ -6,6 +6,6 @@ export {
     Service
 };
 
-export type {
+export {
     Status
 } from "./models.js";

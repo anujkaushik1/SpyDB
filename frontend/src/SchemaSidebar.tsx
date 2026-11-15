@@ -3,6 +3,8 @@ import type { ConnectionInfo, SchemaInfo, TableInfo } from '../bindings/github.c
 import { ActivityIcon, ChevronIcon, PowerIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
 import { compactCount, Highlight, KindIcon, kindClass, tableTooltip } from './tableMeta'
+import ContextMenu from './ContextMenu'
+import { copyText } from './clipboard'
 import { isMac } from './platform'
 
 type Props = {
@@ -15,6 +17,7 @@ type Props = {
   onImportFile: () => void // import a CSV / Excel file as a new table
   activeTable: string | null // qualifiedName of the table in the active tab
   onOpenTable: (table: TableInfo) => void
+  onTableDetails?: (table: TableInfo) => void // right-click → Table details…
   onOpenPalette: () => void
   connection: ConnectionInfo
   onShowConnections: () => void
@@ -24,7 +27,8 @@ type Props = {
 
 // Schemas with their tables and views, plus the connection strip at the bottom.
 export default function SchemaSidebar(props: Props) {
-  const { schemas, loading, error, onRefresh, activeTable, onOpenTable, onOpenPalette, connection } = props
+  const [menu, setMenu] = useState<{ x: number; y: number; table: TableInfo } | null>(null)
+  const { schemas, loading, error, onRefresh, activeTable, onOpenTable, onOpenPalette, connection, onTableDetails } = props
   const [filter, setFilter] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [highlighted, setHighlighted] = useState<string | null>(null) // qualifiedName picked with ↑/↓ or a click
@@ -169,6 +173,7 @@ export default function SchemaSidebar(props: Props) {
                           if (!tree.current?.contains(document.activeElement)) tree.current?.focus({ preventScroll: true })
                         }}
                         onFocus={() => setHighlighted(t.qualifiedName)}
+                        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t }) }}
                         title={tableTooltip(t)}
                       >
                         <span className={`tree-icon ${kindClass(t.kind)}`}><KindIcon kind={t.kind} /></span>
@@ -201,6 +206,14 @@ export default function SchemaSidebar(props: Props) {
           {props.disconnecting ? <Spinner /> : <PowerIcon />}
         </button>
       </div>
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
+          { label: 'Open', onClick: () => { setMenu(null); open(menu.table) } },
+          { label: 'Table details…', onClick: () => { setMenu(null); onTableDetails?.(menu.table) }, disabled: !onTableDetails },
+          'separator',
+          { label: 'Copy name', onClick: () => { setMenu(null); copyText(menu.table.qualifiedName).catch(() => {}) } },
+        ]} />
+      )}
       <SidebarResizer width={width} onResize={setWidth} />
     </aside>
   )

@@ -2696,3 +2696,46 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 .field-picker-item.chosen .field-picker-name { color: var(--text); }
 .field-picker-item .field-picker-note { margin-left: auto; padding-left: 12px; }
 .field-picker-empty { padding: 10px; font-size: 12.5px; color: var(--text-subtle); }
+
+/* ----- DynamoDB: sign in with access keys ------------------------------------- */
+.aws-keys { margin-top: 20px; }
+.aws-keys-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text); }
+.aws-keys-form .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.aws-keys-form .field { margin-bottom: 12px; }
+.aws-keys-row { display: flex; align-items: center; gap: 10px; }
+.aws-keys-row .btn { margin-left: auto; }
+.aws-keys-row .btn + .btn, .aws-keys-row .btn + .link-btn { margin-left: 0; }
+.aws-keys-row .hint { flex: 1; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.checkbox-label input { margin: 0; }
+
+/* ----- Table details (right-click a table in a sidebar) ------------------------ */
+.details-dialog {
+    width: min(860px, calc(100vw - 48px));
+    max-height: calc(100vh - 80px);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 80px var(--shadow);
+    outline: none;
+}
+.details-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.details-head > div { flex: 1; min-width: 0; }
+.details-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+.details-subtitle { margin: 2px 0 0; font-size: 12.5px; color: var(--text-subtle); }
+.details-body { overflow: auto; padding: 14px 18px 18px; }
+.details-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 20px; margin: 0 0 18px; }
+.details-fact dt { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); }
+.details-fact dd { margin: 3px 0 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.details-fact code, .details-table code { font-family: var(--font-mono); font-size: 12.5px; color: var(--v-number); }
+.details-wrap { overflow-wrap: anywhere; }
+.details-section { margin-top: 16px; }
+.details-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text); }
+.details-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.details-table th { padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-subtle); background: var(--grid-head); border-bottom: 1px solid var(--border); }
+.details-table td { padding: 6px 10px; color: var(--text-muted); border-bottom: 1px solid var(--grid-line); vertical-align: top; }
+.details-table tr:last-child td { border-bottom: none; }
+.details-note { margin: 0; font-size: 12.5px; color: var(--text-subtle); }
+.details-error { margin: 0 0 12px; font-size: 13px; color: var(--error); }

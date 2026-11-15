@@ -44,7 +44,9 @@ func TestListColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(tables, func(tc TableColumns) bool { return tc.Schema == schema && tc.Table == "listed" && slices.Equal(tc.Columns, []string{"id", "Name"}) }) {
+	if !slices.ContainsFunc(tables, func(tc TableColumns) bool {
+		return tc.Schema == schema && tc.Table == "listed" && slices.Equal(tc.Columns, []string{"id", "Name"})
+	}) {
 		t.Fatalf("%s.listed (id, Name) isn't listed: %v", schema, tables)
 	}
 	for _, tc := range tables {

@@ -30,6 +30,7 @@ type Service struct {
 	signInSeq    int                     // counts sign-ins, so one ending clears only its own cancel
 	client       *dynamodb.Client        // the connected profile's DynamoDB (Connect); nil when not connected
 	tables       map[string]TableDetails // DescribeTable's answers, by table; emptied by Connect and Disconnect
+	keys         *AccessKeys             // access keys signed in with (KeySignIn), for Connect; nil with a profile
 
 	endpoint string // tests: a fake DynamoDB to talk to instead of AWS's
 }

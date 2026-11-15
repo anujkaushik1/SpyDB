@@ -6,8 +6,9 @@ export {
     DBService
 };
 
-export type {
+export {
     Column,
+    ColumnDescription,
     ConnectionInfo,
     ConnectionLists,
     DBConfig,
@@ -21,6 +22,7 @@ export type {
     ImportRequest,
     ImportResult,
     ImportTargetColumn,
+    IndexDescription,
     QueryResult,
     ResultPage,
     RowDelete,
@@ -34,6 +36,7 @@ export type {
     StatementResult,
     TableColumn,
     TableColumns,
+    TableDescription,
     TableExport,
     TableFilter,
     TableInfo,

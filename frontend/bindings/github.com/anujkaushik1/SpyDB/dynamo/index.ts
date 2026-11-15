@@ -6,10 +6,11 @@ export {
     Service
 };
 
-export type {
+export {
     AWSCLISetup,
     AWSIdentity,
     AWSProfile,
+    AccessKeys,
     Connection,
     FieldChange,
     Filter,
@@ -19,7 +20,9 @@ export type {
     ItemEdit,
     ItemsPage,
     PartiQLResult,
+    SavedKeys,
     Shown,
     TableDetails,
+    TableSummary,
     Value
 } from "./models.js";

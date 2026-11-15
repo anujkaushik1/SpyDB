@@ -57,11 +57,15 @@ SpyDB checks for a newer release each time it opens and offers to install it. To
 
 ### DynamoDB
 
-- **Sign in** with an AWS profile from `~/.aws` (keys, SSO or browser sign-in); SpyDB stores no keys.
+- **Sign in** with an AWS profile from `~/.aws` (keys, SSO or browser sign-in), or type an access key and secret key, which you can save on your computer for next time.
 - **Tables:** 50 items at a time with Load more, sort the loaded items by any column, and filters that use a table or index key when they can (it says which) instead of reading every item.
 - **Edit in place:** type in a cell, or edit an item as JSON, where adding a key adds the field (a new column) and deleting one removes it; ✕ in a cell removes a field. Fields keep their DynamoDB type (a number stays a number; sets stay sets). Saves are checked like Postgres's: every item must still hold what you saw, and several items save in one transaction, all or none.
 - **Delete** items from the right-click menu, after a confirmation.
 - **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time and its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
+
+### Your data stays on your computer
+
+SpyDB has no server and no account. It talks only to the databases you connect to. Saved connections (passwords included), saved queries and saved AWS access keys live in one folder on your computer, readable only by your user: `~/Library/Application Support/SpyDB` on a Mac, `~/.config/SpyDB` on Ubuntu, `%AppData%\SpyDB` on Windows. Nothing is sent anywhere else, and SpyDB never writes to `~/.aws`.
 
 ### The two together
 

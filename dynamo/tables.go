@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,6 +30,9 @@ const defaultRegion = "us-east-1"
 // with the keys or the sign-in the CLI left there, so SpyDB copies and
 // stores nothing. Nothing goes to AWS yet; ListTables is the first call.
 func (s *Service) Connect(ctx context.Context, profile string) (Connection, error) {
+	if strings.HasPrefix(profile, keysPrefix) {
+		return s.connectWithKeys(profile)
+	}
 	profiles, err := awsProfiles()
 	if err != nil {
 		return Connection{}, err
@@ -56,10 +61,35 @@ func (s *Service) Connect(ctx context.Context, profile string) (Connection, erro
 	return Connection{Profile: profile, Region: region}, nil
 }
 
+// connectWithKeys is Connect for keys typed in (KeySignIn): the library
+// gets just those keys, nothing from ~/.aws.
+func (s *Service) connectWithKeys(profile string) (Connection, error) {
+	s.mu.Lock()
+	k := s.keys
+	s.mu.Unlock()
+	if k == nil || keysPrefix+k.Name != profile {
+		return Connection{}, errors.New("Sign in with the keys first.")
+	}
+	cfg, err := s.keysConfig(context.Background(), *k)
+	if err != nil {
+		return Connection{}, err
+	}
+	client := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		if s.endpoint != "" {
+			o.BaseEndpoint = aws.String(s.endpoint)
+		}
+	})
+	s.mu.Lock()
+	s.client, s.tables = client, nil
+	s.mu.Unlock()
+	return Connection{Profile: profile, Region: k.Region}, nil
+}
+
 // Disconnect stops showing DynamoDB; you're back on the sign-in screen.
+// Keys signed in with are forgotten (saved ones stay in their file).
 func (s *Service) Disconnect() {
 	s.mu.Lock()
-	s.client, s.tables = nil, nil
+	s.client, s.tables, s.keys = nil, nil, nil
 	s.mu.Unlock()
 }
 
@@ -83,6 +113,44 @@ func (s *Service) ListTables(ctx context.Context) ([]string, error) {
 		names = append(names, page.TableNames...)
 	}
 	return names, nil
+}
+
+// TableSummary is a table as the sidebar lists it: its name and about how
+// many items it holds (AWS's count, updated about every 6 hours).
+type TableSummary struct {
+	Name      string `json:"name"`
+	ItemCount *int64 `json:"itemCount"` // nil when AWS wouldn't describe the table (a profile allowed to list but not describe)
+	SizeBytes *int64 `json:"sizeBytes"`
+}
+
+// ListTableSummaries is ListTables with each table's item count: one
+// DescribeTable per table, eight at a time (DescribeTable is free and
+// reads no items). A table that can't be described is listed without a count.
+func (s *Service) ListTableSummaries(ctx context.Context) ([]TableSummary, error) {
+	names, err := s.ListTables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TableSummary, len(names))
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, 8)
+	for i, name := range names {
+		out[i].Name = name
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			if d, err := s.DescribeTable(ctx, name); err == nil {
+				count, size := d.ItemCount, d.SizeBytes
+				out[i].ItemCount, out[i].SizeBytes = &count, &size
+			}
+		}(i, name)
+	}
+	wg.Wait()
+	return out, nil
 }
 
 // awsError is AWS's own message for a refused call, without the library's

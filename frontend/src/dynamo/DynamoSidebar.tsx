@@ -1,14 +1,17 @@
 import { useState } from 'react'
-import type { AWSIdentity, Connection } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import type { AWSIdentity, Connection, TableSummary } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { PowerIcon, RefreshIcon, SearchIcon, Spinner, TableIcon } from '../icons'
 import { isMac } from '../platform'
 import { SidebarResizer, useSidebarWidth } from '../resize'
-import { Highlight } from '../tableMeta'
+import { compactCount, Highlight } from '../tableMeta'
+import ContextMenu from '../ContextMenu'
+import { copyText } from '../clipboard'
 
 type Props = {
   connection: Connection
   identity: AWSIdentity // who signed in, for the footer
-  tables: string[] | null // null until the first load
+  tables: TableSummary[] | null // null until the first load
+  onTableDetails?: (table: string) => void // right-click → Table details…
   loading: boolean
   error: string | null
   onRefresh: () => void
@@ -30,7 +33,9 @@ export default function DynamoSidebar(props: Props) {
   const [width, setWidth] = useSidebarWidth()
 
   const query = filter.trim().toLowerCase()
-  const shown = (tables ?? []).filter((name) => !query || name.toLowerCase().includes(query))
+  const shown = (tables ?? []).map((t) => t.name).filter((name) => !query || name.toLowerCase().includes(query))
+  const countOf = (name: string) => tables?.find((t) => t.name === name)?.itemCount ?? null
+  const [menu, setMenu] = useState<{ x: number; y: number; table: string } | null>(null)
   // "arn:aws:iam::624447008677:user/velocis-zfundspro" → "velocis-zfundspro"
   const who = identity.arn.split('/').pop() || identity.arn
 
@@ -84,9 +89,11 @@ export default function DynamoSidebar(props: Props) {
             {shown.map((name) => (
               <li key={name}>
                 <button type="button" className={name === activeTable ? 'tree-item active' : 'tree-item'}
-                        onClick={() => onOpenTable(name)} title={name}>
+                        onClick={() => onOpenTable(name)} title={countOf(name) != null ? `${name} · about ${countOf(name)!.toLocaleString()} items` : name}
+                        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: name }) }}>
                   <span className="tree-icon kind-table"><TableIcon /></span>
                   <span className="tree-label"><Highlight text={name} query={query} /></span>
+                  {countOf(name) != null && <span className="tree-rows">~{compactCount(countOf(name)!)}</span>}
                 </button>
               </li>
             ))}
@@ -106,6 +113,14 @@ export default function DynamoSidebar(props: Props) {
           {disconnecting ? <Spinner /> : <PowerIcon />}
         </button>
       </div>
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
+          { label: 'Open', onClick: () => { setMenu(null); onOpenTable(menu.table) } },
+          { label: 'Table details…', onClick: () => { setMenu(null); props.onTableDetails?.(menu.table) }, disabled: !props.onTableDetails },
+          'separator',
+          { label: 'Copy name', onClick: () => { setMenu(null); copyText(menu.table).catch(() => {}) } },
+        ]} />
+      )}
       <SidebarResizer width={width} onResize={setWidth} />
     </aside>
   )

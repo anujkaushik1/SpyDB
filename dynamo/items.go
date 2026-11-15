@@ -25,6 +25,10 @@ type TableDetails struct {
 	KeyTypes     map[string]string `json:"keyTypes"`     // every key field's type, table's and indexes': "S" text, "N" number, "B" binary
 	ItemCount    int64             `json:"itemCount"`    // AWS's count, updated about every 6 hours
 	SizeBytes    int64             `json:"sizeBytes"`    // likewise
+	Status       string            `json:"status"`       // ACTIVE, UPDATING, CREATING…
+	Billing      string            `json:"billing"`      // "on-demand" or "provisioned"
+	CreatedAt    string            `json:"createdAt"`    // RFC 3339; "" if AWS doesn't say
+	Arn          string            `json:"arn"`
 }
 
 // IndexDetails is one of a table's secondary indexes: a copy of its items
@@ -34,6 +38,8 @@ type IndexDetails struct {
 	PartitionKey string `json:"partitionKey"` // e.g. "sip_type"
 	SortKey      string `json:"sortKey"`      // e.g. "sip_status"; "" if none
 	AllFields    bool   `json:"allFields"`    // it keeps every field of an item (projection ALL), not just some
+	ItemCount    int64  `json:"itemCount"`    // AWS's count of the items in it (updated about every 6 hours)
+	SizeBytes    int64  `json:"sizeBytes"`
 }
 
 // Value is one field of an item: its DynamoDB type and the value as text.
@@ -75,13 +81,26 @@ func (s *Service) DescribeTable(ctx context.Context, table string) (TableDetails
 		KeyTypes:  make(map[string]string, len(t.AttributeDefinitions)),
 		ItemCount: aws.ToInt64(t.ItemCount),
 		SizeBytes: aws.ToInt64(t.TableSizeBytes),
+		Status:    string(t.TableStatus),
+		Billing:   "provisioned",
+		Arn:       aws.ToString(t.TableArn),
+	}
+	if t.BillingModeSummary != nil && t.BillingModeSummary.BillingMode == types.BillingModePayPerRequest {
+		details.Billing = "on-demand"
+	}
+	if t.CreationDateTime != nil {
+		details.CreatedAt = t.CreationDateTime.UTC().Format(time.RFC3339)
 	}
 	details.PartitionKey, details.SortKey = keyNames(t.KeySchema)
 	for _, ix := range t.GlobalSecondaryIndexes {
-		details.Indexes = append(details.Indexes, indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection))
+		d := indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection)
+		d.ItemCount, d.SizeBytes = aws.ToInt64(ix.ItemCount), aws.ToInt64(ix.IndexSizeBytes)
+		details.Indexes = append(details.Indexes, d)
 	}
 	for _, ix := range t.LocalSecondaryIndexes {
-		details.Indexes = append(details.Indexes, indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection))
+		d := indexDetails(aws.ToString(ix.IndexName), ix.KeySchema, ix.Projection)
+		d.ItemCount, d.SizeBytes = aws.ToInt64(ix.ItemCount), aws.ToInt64(ix.IndexSizeBytes)
+		details.Indexes = append(details.Indexes, d)
 	}
 	// AWS lists the type of every field used in a key, and only those.
 	for _, a := range t.AttributeDefinitions {

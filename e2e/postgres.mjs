@@ -23,6 +23,13 @@ if (pg.password) await setField('Password', pg.password)
 await click(`[...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Connect')`)
 check('connected', await waitFor(`[...document.querySelectorAll('.tree-item')].some((b) => b.innerText.includes('spydb_ui_test'))`, 15000), null)
 await click(`[...document.querySelectorAll('.tree-item')].find((b) => b.innerText.includes('spydb_ui_test'))`)
+// Right-click the table in the sidebar: Table details, with its columns and keys.
+await rightClick(`[...document.querySelectorAll('.tree-item')].find((b) => b.innerText.includes('spydb_ui_test'))`)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Table details…')`)
+check('Table details: the facts and the columns with types and the primary key', await waitFor(`(() => { const d = document.querySelector('.details-dialog'); if (!d) return false; const t = d.innerText.toLowerCase(); return t.includes('public.spydb_ui_test') && t.includes('rows (estimate)') && t.includes('size on disk') && t.includes('columns') && t.includes('integer') && t.includes('✓') && t.includes('jsonb') && t.includes('indexes') && t.includes('spydb_ui_test_pkey') })()`),
+  await evaluate(`document.querySelector('.details-dialog')?.innerText`))
+await key('Escape')
+check('Esc closes it', await waitFor(`!document.querySelector('.details-dialog')`), null)
 await evaluate(helpers)
 check('table opens: 20 rows', await waitFor(`__t.grid()?.querySelectorAll('tbody tr').length === 20`), null)
 // Every row as JSON by id, to see exactly which rows a save or delete changed.

@@ -712,11 +712,11 @@ func TestAdvNamesAndAliases(t *testing.T) {
 		}
 	}
 	for sql, want := range map[string]string{
-		`SELECT string_agg("Id" || "Val", ',' ORDER BY "Id") FROM spydb_adv."MixedCase"`:  "1A,2B",
-		`SELECT string_agg(status || n, ',' ORDER BY status) FROM spydb_adv.status`:         "S111,S222",
+		`SELECT string_agg("Id" || "Val", ',' ORDER BY "Id") FROM spydb_adv."MixedCase"`:      "1A,2B",
+		`SELECT string_agg(status || n, ',' ORDER BY status) FROM spydb_adv.status`:           "S111,S222",
 		`SELECT string_agg("a b" || "c.d", ',' ORDER BY "a b") FROM spydb_adv."we.ird ""t"""`: "x10,Y2",
-		`SELECT string_agg(spydb_row || n, ',' ORDER BY n) FROM spydb_adv.spydb_row`:        "R11,r220",
-		`SELECT string_agg(status || v, ',' ORDER BY status) FROM spydb_adv.statpk`:         "1A,2B",
+		`SELECT string_agg(spydb_row || n, ',' ORDER BY n) FROM spydb_adv.spydb_row`:          "R11,r220",
+		`SELECT string_agg(status || v, ',' ORDER BY status) FROM spydb_adv.statpk`:           "1A,2B",
 	} {
 		if got := advStr(t, s, sql); got != want {
 			t.Errorf("%s = %s, want %s", sql, got, want)

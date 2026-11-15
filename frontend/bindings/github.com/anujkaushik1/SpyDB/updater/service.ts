@@ -9,7 +9,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -20,7 +20,9 @@ import * as $models from "./models.js";
  * a dev build, it finds nothing available.
  */
 export function Check(): $CancellablePromise<$models.Status> {
-    return $Call.ByID(3347533315);
+    return $Call.ByID(3347533315).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
@@ -38,3 +40,6 @@ export function Install(): $CancellablePromise<void> {
 export function Quit(): $CancellablePromise<void> {
     return $Call.ByID(3756011906);
 }
+
+// Private type creation functions
+const $$createType0 = $models.Status.createFrom;

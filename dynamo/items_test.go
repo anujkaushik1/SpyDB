@@ -236,7 +236,7 @@ func TestDescribeTable(t *testing.T) {
 	url, ops, bodies := fakeTable(t, 0, "")
 	got, err := connected(t, url).DescribeTable(t.Context(), "orders")
 	want := TableDetails{
-		Name: "orders", PartitionKey: "userId", SortKey: "createdAt", ItemCount: 12345, SizeBytes: 3200000,
+		Name: "orders", PartitionKey: "userId", SortKey: "createdAt", Billing: "provisioned", ItemCount: 12345, SizeBytes: 3200000,
 		Indexes: []IndexDetails{
 			{Name: "sip_type_status", PartitionKey: "sip_type", SortKey: "sip_status", AllFields: true},
 			{Name: "emailIndex", PartitionKey: "email", AllFields: false},

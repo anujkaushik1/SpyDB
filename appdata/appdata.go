@@ -50,3 +50,15 @@ func WritePrivateJSON(path string, v any) error {
 	}
 	return os.Rename(tmp.Name(), path)
 }
+
+// ReadJSON reads path into v; a file that isn't there yet leaves v as it is.
+func ReadJSON(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return json.Unmarshal(data, v)
+}

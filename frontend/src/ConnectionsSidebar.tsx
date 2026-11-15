@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import type { AWSProfile } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import type { AWSProfile, SavedKeys } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import type { ConnectionLists, SavedConnection } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { DynamoLogo, PlusIcon, PostgresLogo, SearchIcon, TrashIcon } from './icons'
 import { SidebarResizer, useSidebarWidth } from './resize'
@@ -20,18 +20,20 @@ type Props = {
   // PostgreSQL's saved connections (connections.json), and the one open in the form.
   postgres: { lists: ConnectionLists | null; error: string | null; selectedId: string | null }
   // DynamoDB signs in with an AWS profile from ~/.aws: those are its "saved connections".
-  dynamo: { profiles: AWSProfile[] | null; error: string | null; selected: string }
+  dynamo: { profiles: AWSProfile[] | null; keys: SavedKeys[]; error: string | null; selected: string; selectedKeys: string | null }
   onNew: () => void
   // A click fills that engine's form (showing it); a double-click or Enter connects.
   onPickPostgres: (connection: SavedConnection, connect: boolean) => void
   onPickDynamo: (profile: string, connect: boolean) => void
+  onPickDynamoKeys: (id: string, connect: boolean) => void // saved access keys
+  onDeleteDynamoKeys: (id: string) => void
   onDeletePostgres: (id: string) => void
 }
 
 // The connect screen's sidebar: every saved connection, under its database's
 // heading (PostgreSQL, DynamoDB). Click one to see it in its form,
 // double-click to connect. New connection makes one for the database shown.
-export default function ConnectionsSidebar({ engine, postgres, dynamo, onNew, onPickPostgres, onPickDynamo, onDeletePostgres }: Props) {
+export default function ConnectionsSidebar({ engine, postgres, dynamo, onNew, onPickPostgres, onPickDynamo, onPickDynamoKeys, onDeleteDynamoKeys, onDeletePostgres }: Props) {
   const [filter, setFilter] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null) // asking "delete?" for this id
   const [width, setWidth] = useSidebarWidth()
@@ -40,9 +42,10 @@ export default function ConnectionsSidebar({ engine, postgres, dynamo, onNew, on
 
   const pg = (postgres.lists?.saved ?? []).filter((c) => matches(`${c.name} ${c.config.host} ${c.config.database} ${c.config.user}`))
   const profiles = (dynamo.profiles ?? []).filter((p) => matches(`${p.name} ${p.region} ${p.kind}`))
+  const keys = dynamo.keys.filter((k) => matches(`${k.name} ${k.accessKeyId} ${k.region}`))
   const loaded = { postgres: postgres.lists !== null, dynamo: dynamo.profiles !== null }
-  const counts = { postgres: postgres.lists?.saved?.length ?? 0, dynamo: dynamo.profiles?.length ?? 0 }
-  const shown = { postgres: pg.length, dynamo: profiles.length }
+  const counts = { postgres: postgres.lists?.saved?.length ?? 0, dynamo: (dynamo.profiles?.length ?? 0) + dynamo.keys.length }
+  const shown = { postgres: pg.length, dynamo: profiles.length + keys.length }
   const errors = { postgres: postgres.error, dynamo: dynamo.error }
   const current = ENGINES.find((e) => e.id === engine)!
 
@@ -110,10 +113,15 @@ export default function ConnectionsSidebar({ engine, postgres, dynamo, onNew, on
           item(`pg:${c.id}`, c.id === postgres.selectedId && engine === 'postgres', 'postgres', c.name, target(c),
             `${target(c)} · ${c.config.user} · last used ${timeAgo(c.lastUsed)}`, (connect) => onPickPostgres(c, connect), () => onDeletePostgres(c.id))),
           'None yet. Fill in the PostgreSQL form and click Save to keep a connection here.')}
-        {section(ENGINES[1], profiles.map((p) =>
-          item(`aws:${p.name}`, p.name === dynamo.selected && engine === 'dynamo', 'dynamo', p.name,
-            `${p.region || 'no region set'} · ${PROFILE_KINDS[p.kind] ?? p.kind}`, `AWS profile ${p.name}`, (connect) => onPickDynamo(p.name, connect))),
-          'No AWS profiles yet: sign in with your browser from the DynamoDB screen, or run aws configure.')}
+        {section(ENGINES[1], [
+          ...keys.map((k) =>
+            item(`keys:${k.id}`, k.id === dynamo.selectedKeys && engine === 'dynamo', 'dynamo', k.name,
+              `${k.region} · saved keys ${k.accessKeyId}`, `Access keys ${k.accessKeyId} · last used ${timeAgo(Date.parse(k.lastUsed))}`,
+              (connect) => onPickDynamoKeys(k.id, connect), () => onDeleteDynamoKeys(k.id))),
+          ...profiles.map((p) =>
+            item(`aws:${p.name}`, p.name === dynamo.selected && engine === 'dynamo' && !dynamo.selectedKeys, 'dynamo', p.name,
+              `${p.region || 'no region set'} · ${PROFILE_KINDS[p.kind] ?? p.kind}`, `AWS profile ${p.name}`, (connect) => onPickDynamo(p.name, connect))),
+        ], 'None yet: type access keys on the DynamoDB screen and save them, sign in with your browser, or run aws configure.')}
       </div>
       <SidebarResizer width={width} onResize={setWidth} />
     </aside>

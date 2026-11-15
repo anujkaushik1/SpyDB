@@ -1,7 +1,7 @@
 import { Events } from '@wailsio/runtime'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableFilter, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
-import { Service as Dynamo, type AWSIdentity, type AWSProfile, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
+import { Service as Dynamo, type AWSIdentity, type AWSProfile, type Connection as DynamoConnection, type SavedKeys, type TableSummary } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { errorMessage } from './Banner'
 import ConfirmDialog from './ConfirmDialog'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
@@ -19,6 +19,7 @@ import ServerConnectionsPanel from './ServerConnectionsPanel'
 import TabBar, { type Tab } from './TabBar'
 import TablePalette from './TablePalette'
 import TableTab, { type FollowTarget } from './TableTab'
+import TableDetails, { type DetailsTarget } from './TableDetails'
 import { targetKey } from './connectionSearch'
 import { CodeIcon, MoonIcon, SunIcon, TableIcon } from './icons'
 import { isWindows } from './platform'
@@ -58,6 +59,8 @@ function App() {
   const [dynamoProfilesError, setDynamoProfilesError] = useState<string | null>(null)
   const [dynamoProfile, setDynamoProfile] = useState('')
   const [dynamoPick, setDynamoPick] = useState<ProfilePick | null>(null)
+  const [dynamoKeys, setDynamoKeys] = useState<SavedKeys[]>([]) // access keys saved on this computer
+  const [dynamoSelectedKeys, setDynamoSelectedKeys] = useState<string | null>(null)
   // Signed in to AWS and showing its DynamoDB tables, or null.
   const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
   // The shown engine's connection; null while it shows its connect screen.
@@ -65,7 +68,9 @@ function App() {
   const shownDynamo = engine === 'dynamo' ? dynamo : null
   const connectedTo: Record<Engine, boolean> = { postgres: !!connection, dynamo: !!dynamo }
   // Its tables, shared by its sidebar and the Ctrl+P / ⌘P switcher.
-  const [dynamoTables, setDynamoTables] = useState<string[] | null>(null)
+  const [dynamoTables, setDynamoTables] = useState<TableSummary[] | null>(null)
+  // The Table details dialog (right-click a table in a sidebar), or null.
+  const [details, setDetails] = useState<DetailsTarget | null>(null)
   const [dynamoTablesLoading, setDynamoTablesLoading] = useState(false)
   const [dynamoTablesError, setDynamoTablesError] = useState<string | null>(null)
   // The Import a file as a new table dialog.
@@ -150,7 +155,7 @@ function App() {
   const loadDynamoTables = useCallback(async () => {
     setDynamoTablesLoading(true)
     try {
-      setDynamoTables((await Dynamo.ListTables()) ?? [])
+      setDynamoTables((await Dynamo.ListTableSummaries()) ?? [])
       setDynamoTablesError(null)
     } catch (err) {
       setDynamoTablesError(errorMessage(err))
@@ -246,7 +251,17 @@ function App() {
   // A connection picked in the connect screen's sidebar: its database's form shows it.
   const pickFromSidebar = {
     postgres: (c: SavedConnection, connect: boolean) => { showEngine('postgres'); pickConnection(c, true, connect) },
-    dynamo: (name: string, connect: boolean) => { showEngine('dynamo'); setDynamoProfile(name); setDynamoPick((p) => ({ name, connect, seq: (p?.seq ?? 0) + 1 })) },
+    dynamo: (name: string, connect: boolean) => { showEngine('dynamo'); setDynamoProfile(name); setDynamoSelectedKeys(null); setDynamoPick((p) => ({ name, connect, seq: (p?.seq ?? 0) + 1 })) },
+    dynamoKeys: (id: string, connect: boolean) => { showEngine('dynamo'); setDynamoSelectedKeys(id); setDynamoPick((p) => ({ keys: id, connect, seq: (p?.seq ?? 0) + 1 })) },
+  }
+  const deleteDynamoKeys = async (id: string) => {
+    try {
+      await Dynamo.DeleteSavedKeys(id)
+      setDynamoKeys((list) => list.filter((k) => k.id !== id))
+      if (id === dynamoSelectedKeys) setDynamoSelectedKeys(null)
+    } catch (err) {
+      setDynamoProfilesError(errorMessage(err))
+    }
   }
   const newForEngine = () => (engine === 'postgres' ? newConnection() : showEngine('dynamo'))
 
@@ -512,10 +527,12 @@ function App() {
           <ConnectionsSidebar
             engine={engine}
             postgres={{ lists, error: listsError, selectedId: selectedSaved }}
-            dynamo={{ profiles: dynamoProfiles, error: dynamoProfilesError, selected: dynamoProfile }}
+            dynamo={{ profiles: dynamoProfiles, keys: dynamoKeys, error: dynamoProfilesError, selected: dynamoProfile, selectedKeys: dynamoSelectedKeys }}
             onNew={newForEngine}
             onPickPostgres={pickFromSidebar.postgres}
             onPickDynamo={pickFromSidebar.dynamo}
+            onPickDynamoKeys={pickFromSidebar.dynamoKeys}
+            onDeleteDynamoKeys={deleteDynamoKeys}
             onDeletePostgres={deleteSaved}
           />
         )}
@@ -541,6 +558,7 @@ function App() {
             onImportFile={() => setImportOpen(true)}
             activeTable={activeTable}
             onOpenTable={openTable}
+            onTableDetails={(table) => setDetails({ engine: 'postgres', table })}
             onOpenPalette={() => setPaletteOpen(true)}
             connection={shownPostgres}
             onShowConnections={openConnections}
@@ -552,7 +570,7 @@ function App() {
           <DynamoSidebar connection={shownDynamo.connection} identity={shownDynamo.identity}
                          tables={dynamoTables} loading={dynamoTablesLoading} error={dynamoTablesError}
                          onRefresh={loadDynamoTables} onOpenPalette={() => setPaletteOpen(true)}
-                         activeTable={activeDynamoTable} onOpenTable={openDynamoTable}
+                         activeTable={activeDynamoTable} onOpenTable={openDynamoTable} onTableDetails={(table) => setDetails({ engine: 'dynamo', table })}
                          onDisconnect={disconnectDynamo} disconnecting={disconnecting} />
         )}
         <SqlSchemaContext.Provider value={completion}>
@@ -569,9 +587,9 @@ function App() {
               sidebar's DynamoDB list has its profiles and a pick there lands in it. */}
           {!dynamo && (
             <div hidden={engine !== 'dynamo'}>
-              <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} pick={dynamoPick}
+              <DynamoSignIn onConnect={(connection, identity) => { setDynamo({ connection, identity }); setDynamoPick(null) }} pick={dynamoPick}
                             onProfiles={(list, error) => { setDynamoProfiles(list); setDynamoProfilesError(error) }}
-                            onProfileChange={setDynamoProfile} />
+                            onSavedKeys={setDynamoKeys} onProfileChange={setDynamoProfile} />
             </div>
           )}
           {shownDynamo && workspaceTabs.length === 0 && (
@@ -664,6 +682,7 @@ function App() {
           }}
         />
       )}
+      {details && <TableDetails target={details} onClose={() => setDetails(null)} />}
       {shownPostgres && paletteOpen && (
         <TablePalette
           schemas={schemas ?? []}
@@ -674,7 +693,7 @@ function App() {
       {shownDynamo && paletteOpen && (
         <TablePalette
           // DynamoDB has no schemas: one nameless group, shown without a "schema." prefix.
-          schemas={[{ name: '', tables: (dynamoTables ?? []).map((name) => ({ schema: '', name, kind: 'table', qualifiedName: name, estimatedRows: null })) }]}
+          schemas={[{ name: '', tables: (dynamoTables ?? []).map((t) => ({ schema: '', name: t.name, kind: 'table', qualifiedName: t.name, estimatedRows: t.itemCount ?? null })) }]}
           onOpen={(table) => { openDynamoTable(table.name); setPaletteOpen(false) }}
           onClose={() => setPaletteOpen(false)}
         />
