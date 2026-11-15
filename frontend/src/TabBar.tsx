@@ -41,11 +41,14 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
     if (menu && !tabs.some((t) => t.id === menu.tab.id)) setMenu(null)
   }, [tabs])
 
+  // A table tab's table name: Postgres's without its schema, DynamoDB's as it is.
+  const tableName = (tab: Tab) => (tab.kind === 'table' ? tab.table.name : tab.kind === 'dynamo-table' ? tab.table : null)
   const copyName = async (tab: Tab) => {
-    if (tab.kind !== 'table') return
+    const name = tableName(tab)
+    if (name === null) return
     try {
-      await copyText(tab.table.name)
-      setCopied({ text: `Copied ${tab.table.name}` })
+      await copyText(name)
+      setCopied({ text: `Copied ${name}` })
     } catch (err) {
       setCopied({ text: `Couldn’t copy: ${errorMessage(err)}`, error: true })
     }
@@ -116,7 +119,7 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
             { label: 'Close All', onClick: run(() => onClose(id, 'all')) },
             'separator',
             ...(menu.tab.kind === 'connections' ? [] : [{ label: 'Duplicate', onClick: run(() => onDuplicate(id)) }]),
-            ...(menu.tab.kind === 'table' ? [{ label: 'Copy Name', onClick: run(() => copyName(menu.tab)) }] : []),
+            ...(tableName(menu.tab) !== null ? [{ label: 'Copy Name', onClick: run(() => copyName(menu.tab)) }] : []),
           ]} />
         )
       })()}
