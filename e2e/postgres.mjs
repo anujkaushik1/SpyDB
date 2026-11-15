@@ -18,7 +18,10 @@ const cell = (id, name) => `__t.cell('${id}', '${name}')`
 
 await evaluate(helpers)
 const setField = async (label, value) => evaluate(`(() => { const input = [...document.querySelectorAll('input')].find((i) => i.closest('label, .field')?.innerText.trim().startsWith('${label}')); if (!input) return false; const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, '${value}'); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
-await setField('Host', 'localhost'); await setField('Port', '5432'); await setField('User', pg.user); await setField('Database', pg.db)
+// The form must be on screen before it's filled (a slow computer draws it after the page loads).
+check('the connect form is there', await waitFor(`[...document.querySelectorAll('input')].some((i) => i.closest('label, .field')?.innerText.trim().startsWith('Database'))`, 20000), null)
+const filled = [await setField('Host', 'localhost'), await setField('Port', '5432'), await setField('User', pg.user), await setField('Database', pg.db)]
+check('host, port, user and database filled in', filled.every(Boolean), filled)
 if (pg.password) await setField('Password', pg.password)
 await click(`[...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Connect')`)
 check('connected', await waitFor(`[...document.querySelectorAll('.tree-item')].some((b) => b.innerText.includes('spydb_ui_test'))`, 15000), null)

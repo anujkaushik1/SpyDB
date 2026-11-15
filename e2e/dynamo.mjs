@@ -349,6 +349,7 @@ check('Close Others leaves orders only', await waitFor(`document.querySelectorAl
 await click(`[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.startsWith('Pg'))`)
 check('Pg: the Postgres connect screen; DynamoDB still marked connected', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Pg' && !!document.querySelector('.rail-engine-dynamo .rail-engine-dot')`), null)
 const setField = async (label, value) => evaluate(`(() => { const input = [...document.querySelectorAll('input')].find((i) => i.closest('label, .field')?.innerText.trim().startsWith('${label}') || i.getAttribute('aria-label') === '${label}' || i.name === '${label.toLowerCase()}'); if (!input) return false; const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, '${value}'); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+await waitFor(`[...document.querySelectorAll('input')].some((i) => i.closest('label, .field')?.innerText.trim().startsWith('Database'))`, 20000)
 const filled = [await setField('Host', 'localhost'), await setField('Port', '5432'), await setField('User', pg.user), await setField('Database', pg.db)]
 if (pg.password) await setField('Password', pg.password)
 check('filled the Postgres form', filled.every(Boolean), filled)
