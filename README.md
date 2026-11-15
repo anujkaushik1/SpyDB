@@ -200,9 +200,13 @@ How many times the app sent something to Postgres and waited for the answer. Low
 wails3 dev                                # run with hot reload
 cd frontend && npm test                   # window unit tests
 SPYDB_TEST_DATABASE=mydb go test ./...    # Go tests against a local Postgres (they create and drop their own schemas)
+SPYDB_DYNAMO_LOCAL=http://127.0.0.1:8000 go test ./dynamo/   # DynamoDB writes, against DynamoDB Local (docker run -p 8000:8000 amazon/dynamodb-local)
+go build -tags server -o bin/spydb-server . && E2E_PG_USER=me E2E_PG_DB=mydb node e2e/run.mjs   # the app in headless Chrome
 wails3 build                              # binary in bin/
 wails3 task package                       # macOS app bundle in bin/spydb.app
 ```
+
+The end-to-end tests (`e2e/`) click through the real app in headless Chrome against a test Postgres and DynamoDB Local, with made-up data; GitHub runs them on Ubuntu 22.04 and 24.04, Windows and macOS on every push (`.github/workflows/e2e.yml`).
 
 To pre-fill the connect form while developing, copy `db.config.example.json` to `db.config.json` (gitignored, since it can hold a password).
 
