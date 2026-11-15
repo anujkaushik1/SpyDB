@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -604,6 +605,20 @@ func TestIndexKeyTypeOnDynamoDBLocal(t *testing.T) {
 		}}},
 	}); err != nil {
 		t.Fatal(err)
+	}
+	// DynamoDB Local builds the index in the background; a write meanwhile can fail (a 500).
+	for i := 0; ; i++ {
+		out, err := client.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{TableName: aws.String(table)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Table.TableStatus == types.TableStatusActive && len(out.Table.GlobalSecondaryIndexes) == 1 && out.Table.GlobalSecondaryIndexes[0].IndexStatus == types.IndexStatusActive {
+			break
+		}
+		if i > 300 {
+			t.Fatalf("the index never became active: table %s", out.Table.TableStatus)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	put(t, client, table, sampleItem("a"))
 	put(t, client, table, sampleItem("b"))
