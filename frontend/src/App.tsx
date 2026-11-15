@@ -42,11 +42,16 @@ function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({}) // workspace → tab id
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Which database the connect screen is for.
-  const [engine, setEngine] = useState<'postgres' | 'dynamo'>('postgres')
-  // Signed in to AWS and showing its DynamoDB tables, or null. Either this or
-  // connection is open, never both: each replaces the connect screen.
+  // Which database the window shows: its connect screen, or its tables once
+  // connected. Each keeps its own connection while another is shown, so
+  // switching back finds it (and its tabs) as it was.
+  const [engine, setEngine] = useState<Engine>('postgres')
+  // Signed in to AWS and showing its DynamoDB tables, or null.
   const [dynamo, setDynamo] = useState<{ connection: DynamoConnection; identity: AWSIdentity } | null>(null)
+  // The shown engine's connection; null while it shows its connect screen.
+  const shownPostgres = engine === 'postgres' ? connection : null
+  const shownDynamo = engine === 'dynamo' ? dynamo : null
+  const connectedTo: Record<Engine, boolean> = { postgres: !!connection, dynamo: !!dynamo }
   // Its tables, shared by its sidebar and the Ctrl+P / ⌘P switcher.
   const [dynamoTables, setDynamoTables] = useState<string[] | null>(null)
   const [dynamoTablesLoading, setDynamoTablesLoading] = useState(false)
@@ -145,13 +150,13 @@ function App() {
     if (dynamo) loadDynamoTables()
   }, [dynamo, loadDynamoTables])
 
-  // While connected: ⌘P / Ctrl+P opens the table switcher (Postgres or
-  // DynamoDB), ⌘T / Ctrl+T a new query tab (Postgres only, for now),
+  // While the shown engine is connected: ⌘P / Ctrl+P opens its table
+  // switcher, ⌘T / Ctrl+T a new query tab (Postgres only, for now),
   // ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows instead
   // of the whole window; so does F5 on Windows, where that's the key for it
   // (the window itself never reloads: Wails turns WebView2's off).
   useEffect(() => {
-    if (!connection && !dynamo) return
+    if (!shownPostgres && !shownDynamo) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (isWindows && e.key === 'F5') {
         e.preventDefault()
@@ -166,21 +171,27 @@ function App() {
       } else if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
-      } else if (key === 't' && connection) {
+      } else if (key === 't' && shownPostgres) {
         e.preventDefault()
         newQueryTab()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [connection, dynamo])
+  }, [shownPostgres, shownDynamo])
 
-  // DynamoDB's tabs belong to the profile and region they were opened in.
-  const workspace = connection ? targetKey(connection) : dynamo ? `dynamo|${dynamo.connection.profile}|${dynamo.connection.region}` : null
+  // The shown engine's tabs. DynamoDB's belong to the profile and region they were opened in.
+  const workspace = shownPostgres ? targetKey(shownPostgres) : shownDynamo ? `dynamo|${shownDynamo.connection.profile}|${shownDynamo.connection.region}` : null
   const workspaceTabs = tabs.filter((t) => t.workspace === workspace)
   const activeTab = (workspace && activeTabs[workspace]) || ''
   const setActiveTab = (id: string) => {
     if (workspace) setActiveTabs((current) => ({ ...current, [workspace]: id }))
+  }
+
+  // Shows another engine; the one shown so far stays connected.
+  const showEngine = (next: Engine) => {
+    setEngine(next)
+    setPaletteOpen(false)
   }
 
   // Disconnecting keeps every workspace's tabs; reconnecting to the same
@@ -432,22 +443,47 @@ function App() {
       {/* Sits under the macOS traffic lights; drags the window. */}
       <header className="titlebar">
         <span className="titlebar-title">SpyDB</span>
-        {connection && (
+        {shownPostgres && (
           <span className="titlebar-status">
             <span className="status-dot" aria-hidden="true" />
-            {connection.database}
+            {shownPostgres.database}
           </span>
         )}
-        {dynamo && (
+        {shownDynamo && (
           <span className="titlebar-status">
             <span className="status-dot" aria-hidden="true" />
-            {dynamo.connection.profile} · {dynamo.connection.region}
+            {shownDynamo.connection.profile} · {shownDynamo.connection.region}
           </span>
         )}
       </header>
 
       <div className="workspace">
-        {!connection && !dynamo && (
+        {(connection || dynamo) && (
+          <nav className="rail" aria-label="Sidebar">
+            {ENGINES.map(([value, label, short]) => (
+              <button key={value} type="button" className={engine === value ? 'rail-btn rail-engine active' : 'rail-btn rail-engine'}
+                      onClick={() => showEngine(value)} aria-pressed={engine === value}
+                      title={`${label}${connectedTo[value] ? ' · connected' : ''}`}>
+                {short}
+                {connectedTo[value] && <span className="rail-engine-dot" aria-label="connected" />}
+              </button>
+            ))}
+            {shownPostgres && <span className="rail-sep" aria-hidden="true" />}
+            {shownPostgres && (
+              <>
+                <button type="button" className={sidebarView === 'tables' ? 'rail-btn active' : 'rail-btn'}
+                        onClick={() => setSidebarView('tables')} aria-pressed={sidebarView === 'tables'} title="Tables & views">
+                  <TableIcon />
+                </button>
+                <button type="button" className={sidebarView === 'queries' ? 'rail-btn active' : 'rail-btn'}
+                        onClick={() => setSidebarView('queries')} aria-pressed={sidebarView === 'queries'} title="Saved queries">
+                  <CodeIcon />
+                </button>
+              </>
+            )}
+          </nav>
+        )}
+        {engine === 'postgres' && !connection && (
           <ConnectionsSidebar
             lists={lists}
             error={listsError}
@@ -459,33 +495,21 @@ function App() {
             onClearRecent={clearRecent}
           />
         )}
-        {connection && (
-          <nav className="rail" aria-label="Sidebar">
-            <button type="button" className={sidebarView === 'tables' ? 'rail-btn active' : 'rail-btn'}
-                    onClick={() => setSidebarView('tables')} aria-pressed={sidebarView === 'tables'} title="Tables & views">
-              <TableIcon />
-            </button>
-            <button type="button" className={sidebarView === 'queries' ? 'rail-btn active' : 'rail-btn'}
-                    onClick={() => setSidebarView('queries')} aria-pressed={sidebarView === 'queries'} title="Saved queries">
-              <CodeIcon />
-            </button>
-          </nav>
-        )}
-        {connection && (
+        {shownPostgres && (
           <SchemaSidebar
             content={sidebarView === 'queries' ? (
               <SavedQueriesPanel
                 queries={savedQueries}
                 error={queriesError}
                 loading={queriesLoading}
-                currentDatabase={connection.database}
+                currentDatabase={shownPostgres.database}
                 onRefresh={loadSavedQueries}
                 onOpen={openSavedQuery}
                 onRename={renameSavedQuery}
                 onDelete={deleteSavedQuery}
               />
             ) : undefined}
-            databasePicker={<DatabasePicker connection={connection} onSwitchDatabase={switchDatabase} onSwitchConnection={switchConnection} />}
+            databasePicker={<DatabasePicker connection={shownPostgres} onSwitchDatabase={switchDatabase} onSwitchConnection={switchConnection} />}
             schemas={schemas}
             loading={schemasLoading}
             error={schemasError}
@@ -494,27 +518,29 @@ function App() {
             activeTable={activeTable}
             onOpenTable={openTable}
             onOpenPalette={() => setPaletteOpen(true)}
-            connection={connection}
+            connection={shownPostgres}
             onShowConnections={openConnections}
             onDisconnect={disconnect}
             disconnecting={disconnecting}
           />
         )}
-        {dynamo && (
-          <DynamoSidebar connection={dynamo.connection} identity={dynamo.identity}
+        {shownDynamo && (
+          <DynamoSidebar connection={shownDynamo.connection} identity={shownDynamo.identity}
                          tables={dynamoTables} loading={dynamoTablesLoading} error={dynamoTablesError}
                          onRefresh={loadDynamoTables} onOpenPalette={() => setPaletteOpen(true)}
                          activeTable={activeDynamoTable} onOpenTable={openDynamoTable}
                          onDisconnect={disconnectDynamo} disconnecting={disconnecting} />
         )}
         <SqlSchemaContext.Provider value={completion}>
-        <main className={connection || dynamo ? 'main-area' : 'content'}>
-          {!connection && !dynamo && (
+        <main className={shownPostgres || shownDynamo ? 'main-area' : 'content'}>
+          {!shownPostgres && !shownDynamo && (
             <div className="engine-switch" role="tablist" aria-label="Database">
-              {([['postgres', 'PostgreSQL'], ['dynamo', 'DynamoDB']] as const).map(([value, label]) => (
+              {ENGINES.map(([value, label]) => (
                 <button key={value} type="button" role="tab" aria-selected={engine === value}
-                        className={engine === value ? 'engine-option on' : 'engine-option'} onClick={() => setEngine(value)}>
+                        className={engine === value ? 'engine-option on' : 'engine-option'} onClick={() => showEngine(value)}
+                        title={connectedTo[value] ? `${label} is connected: switch back to it` : undefined}>
                   {label}
+                  {connectedTo[value] && <span className="engine-connected" aria-label="connected" />}
                 </button>
               ))}
             </div>
@@ -527,20 +553,20 @@ function App() {
             onSaved={(c) => { setSelectedSaved(c.id); loadLists() }}
             hidden={engine !== 'postgres'}
           />
-          {!connection && !dynamo && engine === 'dynamo' && (
+          {engine === 'dynamo' && !dynamo && (
             <DynamoSignIn onConnect={(connection, identity) => setDynamo({ connection, identity })} />
           )}
-          {dynamo && workspaceTabs.length === 0 && (
+          {shownDynamo && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>
-              <p className="workspace-empty-title">DynamoDB · {dynamo.connection.region}</p>
+              <p className="workspace-empty-title">DynamoDB · {shownDynamo.connection.region}</p>
               <p className="workspace-empty-text">
-                Signed in as {dynamo.identity.arn.split('/').pop()} (account {dynamo.identity.account}) with the profile “{dynamo.connection.profile}”.
+                Signed in as {shownDynamo.identity.arn.split('/').pop()} (account {shownDynamo.identity.account}) with the profile “{shownDynamo.connection.profile}”.
                 Pick a table on the left to see its items, or <button type="button" className="link-btn" onClick={() => setPaletteOpen(true)}>search tables</button> with <span className="keys"><kbd>Ctrl</kbd> <kbd>P</kbd></span>.
               </p>
             </div>
           )}
-          {connection && workspaceTabs.length === 0 && (
+          {shownPostgres && workspaceTabs.length === 0 && (
             <div className="workspace-empty">
               <span className="workspace-empty-icon"><TableIcon /></span>
               <p className="workspace-empty-title">Open a table</p>
@@ -612,14 +638,14 @@ function App() {
           }}
         />
       )}
-      {connection && paletteOpen && (
+      {shownPostgres && paletteOpen && (
         <TablePalette
           schemas={schemas ?? []}
           onOpen={(table) => { openTable(table); setPaletteOpen(false) }}
           onClose={() => setPaletteOpen(false)}
         />
       )}
-      {dynamo && paletteOpen && (
+      {shownDynamo && paletteOpen && (
         <TablePalette
           // DynamoDB has no schemas: one nameless group, shown without a "schema." prefix.
           schemas={[{ name: '', tables: (dynamoTables ?? []).map((name) => ({ schema: '', name, kind: 'table', qualifiedName: name, estimatedRows: null })) }]}
@@ -630,5 +656,10 @@ function App() {
     </div>
   )
 }
+
+type Engine = 'postgres' | 'dynamo'
+
+// The engines, as the switch and the rail name them.
+const ENGINES: [Engine, string, string][] = [['postgres', 'PostgreSQL', 'Pg'], ['dynamo', 'DynamoDB', 'Dy']]
 
 export default App
