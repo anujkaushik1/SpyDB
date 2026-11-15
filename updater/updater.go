@@ -1,8 +1,9 @@
 // Package updater checks GitHub for a newer SpyDB release when the app
-// opens, and installs it: the Mac app in place, or the Ubuntu package with
-// apt (the system asks for the password). Which versions must update is in
-// updates.json on main, per platform, so a Mac-only fix can be required on
-// Macs without being required on Ubuntu.
+// opens, and installs it: the Mac app in place, the Ubuntu package with apt
+// (the system asks for the password), or on Windows the installer, once
+// SpyDB has quit. Which versions must update is in updates.json on main,
+// per platform, so a Mac-only fix can be required on Macs without being
+// required on Ubuntu or Windows.
 package updater
 
 import (
@@ -33,7 +34,7 @@ const checkTimeout = 8 * time.Second
 
 // Status is what Check found.
 type Status struct {
-	Platform   string `json:"platform"`   // "mac" or "ubuntu"; "" where SpyDB doesn't update itself
+	Platform   string `json:"platform"`   // "mac", "ubuntu" or "windows"; "" where SpyDB doesn't update itself
 	Current    string `json:"current"`    // this copy's version; "" if it isn't installed from a release (a dev build)
 	Latest     string `json:"latest"`     // the newest release; "" if GitHub couldn't be asked
 	Available  bool   `json:"available"`  // Latest is newer than Current

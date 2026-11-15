@@ -1,8 +1,10 @@
-# Builds SpyDB for Ubuntu (a .deb) and for Apple-silicon Macs (SpyDB-mac.zip),
-# each on GitHub's own computer of that kind.
-#   - Push a tag like v0.1.5: builds both and puts them on the Releases page.
+# Builds SpyDB for Ubuntu (a .deb), Apple-silicon Macs (SpyDB-mac.zip) and
+# Windows (SpyDB-windows-setup.exe), each on GitHub's own computer of that kind.
+#   - Push a tag like v0.1.5: builds them and puts them on the Releases page.
 #   - Actions tab → "Release" → Run workflow: builds them only, as a test
 #     (download them from that run's page, under Artifacts).
+# The Windows build is also installed, opened, updated and uninstalled on
+# its computer, as a user would.
 name: Release
 
 on:
@@ -96,10 +98,123 @@ jobs:
           name: spydb-mac
           path: dist/SpyDB-mac.zip
 
+  windows:
+    # GitHub's Windows computer; SpyDB runs on 64-bit Windows 10 and 11.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash # Git Bash: build/windows/package.sh runs as on a Mac
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install the Wails tool (the version in go.mod) and NSIS
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+          echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+
+      - name: Build the screens
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build SpyDB.exe and its installer (the tag's version)
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION=0.0.0; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          build/windows/package.sh "$VERSION"
+
+      - name: Check them (64-bit Intel/AMD, version, installer)
+        shell: pwsh
+        run: |
+          $exe = Get-Item bin/SpyDB.exe; $setup = Get-Item bin/SpyDB-windows-setup.exe
+          $bytes = [IO.File]::ReadAllBytes($exe.FullName); $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ([BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x8664) { throw 'SpyDB.exe is not a 64-bit Intel/AMD program' }
+          if ($exe.VersionInfo.ProductVersion -ne $env:VERSION -or $exe.VersionInfo.CompanyName -ne 'Anuj Kaushik') { throw "SpyDB.exe: $($exe.VersionInfo | Out-String)" }
+          if ($setup.VersionInfo.FileDescription -ne 'SpyDB Installer' -or $setup.VersionInfo.ProductVersion -ne $env:VERSION) { throw "installer: $($setup.VersionInfo | Out-String)" }
+
+      - name: Run the Go tests, the updater's on Windows (it installs this build)
+        env:
+          SPYDB_INSTALL_TEST: "1"
+          SPYDB_SETUP: ../bin/SpyDB-windows-setup.exe # from updater/, where its tests run
+        run: SPYDB_SETUP_VERSION="$VERSION" go test ./... -count=1
+
+      - name: Install it, open it, update it while open, uninstall it (as a user would)
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SpyDB'
+          $dir = Join-Path $env:RUNNER_TEMP 'SpyDB test (user)' # spaces, as in many user names
+          $exe = Join-Path $dir 'SpyDB.exe'
+          $run = Start-Process bin\SpyDB-windows-setup.exe -ArgumentList "/S /D=$dir" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "installer exited with $($run.ExitCode)" }
+          $app = Get-ItemProperty $key
+          if ($app.DisplayVersion -ne $env:VERSION -or $app.InstallLocation -ne $dir -or $app.Publisher -ne 'Anuj Kaushik') { throw "Settings > Apps: $($app | Out-String)" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\SpyDB.lnk")) { throw 'no Start menu shortcut' }
+          if (Test-Path "$([Environment]::GetFolderPath('Desktop'))\SpyDB.lnk") { throw 'a silent install made a desktop shortcut' }
+
+          # Opens and stays open: WebView2 starts and the window loads.
+          $spydb = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($spydb.HasExited) { throw "SpyDB quit by itself (exit code $($spydb.ExitCode))" }
+
+          # Installing over a SpyDB that stays open waits 10 seconds, then stops: nothing changed.
+          $run = Start-Process bin\SpyDB-windows-setup.exe -ArgumentList "/S /D=$dir" -Wait -PassThru
+          if ($run.ExitCode -ne 2 -or $spydb.HasExited) { throw "installing over an open SpyDB: exit $($run.ExitCode), SpyDB still open: $(-not $spydb.HasExited)" }
+
+          # Closing its window quits it (install-windows.ps1 and the installer count on that).
+          [void]$spydb.CloseMainWindow()
+          if (-not $spydb.WaitForExit(20000)) { throw "SpyDB didn't quit when its window was closed" }
+
+          # install-windows.ps1, through iex as users run it, from a local copy of this build:
+          # SpyDB open again, so it must close it first, then install over it and open it.
+          $spydb = Start-Process $exe -PassThru; Start-Sleep -Seconds 10
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\serve" | Out-Null
+          Copy-Item bin\SpyDB-windows-setup.exe "$env:RUNNER_TEMP\serve\"
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', "$env:RUNNER_TEMP\serve" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $script = "$env:RUNNER_TEMP\install-windows-local.ps1"
+          (Get-Content -Raw install-windows.ps1).Replace('https://github.com/anujkaushik1/SpyDB/releases/latest/download/', 'http://127.0.0.1:8765/') | Set-Content -LiteralPath $script
+          # Windows PowerShell 5.1, what most users have; iex, as irm | iex runs it.
+          $out = powershell -NoProfile -Command "Invoke-Expression (Get-Content -Raw -LiteralPath '$script'); 'session still here'" 2>&1 | Out-String
+          Write-Host $out
+          Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          if ($out -notmatch "SpyDB $([regex]::Escape($env:VERSION)) installed" -or $out -notmatch 'session still here') { throw 'install-windows.ps1 did not install it (or ended the session)' }
+          if (-not $spydb.HasExited) { throw 'install-windows.ps1 left the old SpyDB open' }
+          Start-Sleep -Seconds 5
+          $reopened = @(Get-Process -Name SpyDB -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+          if ($reopened.Count -ne 1) { throw "install-windows.ps1 didn't open SpyDB again ($($reopened.Count) open)" }
+          $reopened | ForEach-Object { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(20000) }
+
+          # Uninstall (in place, so it can be waited for): SpyDB's files and entry go, saved data stays.
+          New-Item -ItemType Directory -Force "$env:APPDATA\SpyDB" | Out-Null
+          Set-Content "$env:APPDATA\SpyDB\keep.txt" 'saved connections live here'
+          Start-Process "$dir\uninstall.exe" -ArgumentList "/S _?=$dir" -Wait
+          if (Test-Path $exe) { throw 'uninstall left SpyDB.exe' }
+          if (Test-Path $key) { throw 'uninstall left the Settings > Apps entry' }
+          if (-not (Test-Path "$env:APPDATA\SpyDB\keep.txt")) { throw 'uninstall removed the saved data' }
+          Write-Host 'Installed, opened, refused to install over an open SpyDB, closed, updated by install-windows.ps1, uninstalled.'
+
+      - name: Keep it on this run's page
+        uses: actions/upload-artifact@v7
+        with:
+          name: spydb-windows
+          path: bin/SpyDB-windows-setup.exe
+
   release:
-    # Tags only: both files on one Releases page, once both built.
-    if: github.ref_type == 'tag'
-    needs: [deb, mac]
+    # Tags only: the files on one Releases page. Mac and Ubuntu must have
+    # built; Windows, new and checked only on GitHub's computer so far, is
+    # added when its job passed, so a Windows problem doesn't hold back the
+    # other two (its users keep the version they have meanwhile).
+    if: github.ref_type == 'tag' && !cancelled() && needs.deb.result == 'success' && needs.mac.result == 'success'
+    needs: [deb, mac, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -126,5 +241,17 @@ jobs:
           ```
           (It installs or updates from the latest release, and asks for your password.)
           EOF
-          gh release create "$GITHUB_REF_NAME" out/*.deb out/SpyDB-mac.zip --repo "$GITHUB_REPOSITORY" \
+          files=(out/*.deb out/SpyDB-mac.zip)
+          if [ -f out/SpyDB-windows-setup.exe ]; then
+            files+=(out/SpyDB-windows-setup.exe)
+            cat >> notes.md <<'EOF'
+
+          **Windows** (10 or 11, 64-bit Intel/AMD). Paste in PowerShell:
+          ```powershell
+          irm https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-windows.ps1 | iex
+          ```
+          (It installs or updates from the latest release, for your user only: no administrator needed. Downloaded with a browser instead, the first open shows "Windows protected your PC": click More info → Run anyway.)
+          EOF
+          fi
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" \
             --title "SpyDB $GITHUB_REF_NAME" --notes-file notes.md

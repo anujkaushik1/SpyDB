@@ -6,7 +6,7 @@
  */
 export interface Status {
     /**
-     * "mac" or "ubuntu"; "" where SpyDB doesn't update itself
+     * "mac", "ubuntu" or "windows"; "" where SpyDB doesn't update itself
      */
     "platform": string;
 

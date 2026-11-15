@@ -9,7 +9,8 @@ import (
 )
 
 // Path is a file in SpyDB's settings folder: ~/Library/Application
-// Support/SpyDB on macOS, ~/.config/SpyDB on Linux.
+// Support/SpyDB on macOS, ~/.config/SpyDB on Linux, %AppData%\SpyDB on
+// Windows.
 func Path(name string) (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -20,7 +21,9 @@ func Path(name string) (string, error) {
 
 // WritePrivateJSON replaces path with v as indented JSON in one step (write a
 // temporary file, then rename), so a crash mid-write can't leave it half
-// written. The folder and file are readable only by the current user.
+// written. The folder and file are readable only by the current user (on
+// Windows, file modes don't apply: the folder is in the user's profile,
+// which Windows already keeps to that user).
 func WritePrivateJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

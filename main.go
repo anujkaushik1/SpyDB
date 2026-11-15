@@ -48,7 +48,8 @@ func main() {
 	// On macOS the title bar is hidden so the frontend's own header (.titlebar)
 	// sits under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
 	// Linux and Windows keep the system title bar, and the frontend hides its
-	// header there (see main.tsx / style.css).
+	// header there (see main.tsx / style.css). Windows draws it dark, as macOS
+	// draws its own, to match the window.
 	zoom.window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "SpyDB",
 		Width:     1120,
@@ -59,6 +60,9 @@ func main() {
 			Appearance:              application.NSAppearanceNameDarkAqua,
 			TitleBar:                application.MacTitleBarHiddenInset,
 			InvisibleTitleBarHeight: 40,
+		},
+		Windows: application.WindowsWindow{
+			Theme: application.Dark,
 		},
 		BackgroundColour: application.NewRGB(14, 14, 16),
 		URL:              "/",

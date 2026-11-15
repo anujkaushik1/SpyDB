@@ -40,9 +40,10 @@
 
     /* macOS fonts first, then Windows and Linux ones. DejaVu Sans Mono shares
        Menlo's design (both come from Bitstream Vera), so values take the same
-       space on Ubuntu as on a Mac. */
+       space on Ubuntu as on a Mac. Cascadia Mono comes with Windows 11,
+       Consolas with every Windows. */
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
 
     font-family: var(--font-ui);
     font-size: 14px;

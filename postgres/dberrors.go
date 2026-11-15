@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"syscall"
 	"unicode"
 	"unicode/utf8"
 
@@ -49,14 +48,24 @@ func describeConnectError(err error, cfg DBConfig) string {
 	switch {
 	case errors.As(err, &dnsErr):
 		return fmt.Sprintf("Can't find host %q. Check the spelling.", cfg.Host)
-	case errors.Is(err, syscall.ECONNREFUSED):
+	case isAny(err, connRefused):
 		return fmt.Sprintf("Nothing is accepting connections on %s. Is Postgres running on that port?", addr)
-	case errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.ENETUNREACH):
+	case isAny(err, hostUnreachable):
 		return fmt.Sprintf("Can't reach %s from this machine.", cfg.Host)
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
 		return fmt.Sprintf("Timed out connecting to %s. Check the host, port and any firewall.", addr)
 	}
 	return fmt.Sprintf("Couldn't connect to %s.", addr)
+}
+
+// isAny says whether err is one of targets (errors.Is).
+func isAny(err error, targets []error) bool {
+	for _, target := range targets {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // sentence capitalises s and ends it with a full stop.

@@ -1,10 +1,10 @@
 # SpyDB
 
-A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
+A fast, lightweight Postgres desktop client for macOS, Ubuntu and Windows, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
 
 ## Install or update
 
-The same commands install SpyDB the first time and update it later; saved connections and queries are kept. Each [release](https://github.com/anujkaushik1/SpyDB/releases/latest) has both files.
+The same commands install SpyDB the first time and update it later; saved connections and queries are kept. Each [release](https://github.com/anujkaushik1/SpyDB/releases/latest) has the files for all three.
 
 **Mac** (Apple silicon, macOS 12 or newer). Paste in Terminal:
 
@@ -22,13 +22,21 @@ wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubun
 
 [`install-ubuntu.sh`](install-ubuntu.sh) finds the latest release, downloads its `.deb` and installs it with apt (it asks for your password). Or download the `.deb` from the release page and double-click it.
 
-Both commands stay the same for every release.
+**Windows** (10 or 11, 64-bit Intel/AMD). Paste in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-windows.ps1 | iex
+```
+
+[`install-windows.ps1`](install-windows.ps1) downloads the latest release's installer, checks it, closes SpyDB if it's open, installs it for your user only (in `%LOCALAPPDATA%\Programs\SpyDB`, no administrator needed) and opens it. Downloaded this way, Windows doesn't show its SmartScreen warning. (Downloaded with a browser instead, the first open shows "Windows protected your PC": click More info → Run anyway.) Saved connections and queries live in `%AppData%\SpyDB`; uninstalling from Settings → Apps keeps them.
+
+The commands stay the same for every release.
 
 ### Updates
 
-From 0.1.8, SpyDB checks for a newer release each time it opens and offers to install it: **Install and restart** downloads it, checks it and swaps it in (on Ubuntu the system asks for your password), or **Later**. Where it can't install by itself (a Mac user who can't change `/Applications`, an Ubuntu without `pkexec`), it shows the command above instead.
+From 0.1.8, SpyDB checks for a newer release each time it opens and offers to install it: **Install and restart** downloads it, checks it and swaps it in (on Ubuntu the system asks for your password; on Windows SpyDB closes, the installer runs silently and SpyDB opens again), or **Later**. Where it can't install by itself (a Mac user who can't change `/Applications`, an Ubuntu without `pkexec`), it shows the command above instead.
 
-To require an update, raise the platform's minimum in [`updates.json`](updates.json) on `main`: SpyDB older than that offers the update without **Later** (only **Quit**). Raise `mac` and `ubuntu` separately, so a Mac-only fix doesn't push Ubuntu users to update. A minimum only takes effect once a release that meets it is out.
+To require an update, raise the platform's minimum in [`updates.json`](updates.json) on `main`: SpyDB older than that offers the update without **Later** (only **Quit**). Raise `mac`, `ubuntu` and `windows` separately, so a Mac-only fix doesn't push the others to update. A minimum only takes effect once a release that meets it is out.
 
 ## Features
 
@@ -214,6 +222,16 @@ go build -tags production,gtk3 -trimpath -buildvcs=false -ldflags="-w -s" -o bin
 
 If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is blocking WebKit's sandbox; use the GTK3 build.
 
+## Windows
+
+SpyDB runs on 64-bit Windows 10 and 11 (it uses the WebView2 runtime that comes with them; the installer adds it where it's missing). Windows needs no cgo, so it builds from a Mac or Linux too. With the frontend built, `wails3`, and NSIS's `makensis` (`brew install makensis`):
+
+```sh
+build/windows/package.sh 0.1.9   # bin/SpyDB.exe and its installer, bin/SpyDB-windows-setup.exe
+```
+
+The release workflow does the same on GitHub's Windows computer, then installs the installer there, opens SpyDB, checks that installing over an open SpyDB stops without changing anything, updates it with `install-windows.ps1` and uninstalls it. Run it by hand from the Actions tab (Release → Run workflow) to try a change without releasing it.
+
 ## Project layout
 
 | Go (backend) | |
@@ -228,7 +246,7 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
 | `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
 | `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
-| `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`) |
+| `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`, `install_windows.go`) |
 
 | React (window), in `frontend/src/` | |
 |---|---|

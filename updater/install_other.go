@@ -1,4 +1,4 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package updater
 
@@ -7,7 +7,7 @@ import (
 	"errors"
 )
 
-// No releases here yet (Windows): SpyDB never offers an update.
+// No releases for other systems: SpyDB never offers an update.
 const platform = ""
 
 const manualCommand = ""

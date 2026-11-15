@@ -4,3 +4,7 @@ bin
 frontend/dist
 frontend/node_modules
 db.config.json
+# Made by the Windows build (release.yml): WebView2 bootstrapper, exe resources
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+*.syso
+build/windows/stamped.*
