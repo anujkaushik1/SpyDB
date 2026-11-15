@@ -1297,6 +1297,33 @@ kbd {
 .grid tbody tr:nth-child(even) td.grid-rownum { background: var(--grid-rownum); }
 .grid tbody tr:hover td.grid-rownum { color: var(--text-muted); }
 .grid th.grid-rownum { z-index: 3; background: var(--grid-head); }
+/* Pinned columns: stuck after the row numbers (left set in code) while the rest scroll. */
+.grid th.pinned { position: sticky; z-index: 3; }
+.grid td.pinned { position: sticky; z-index: 1; }
+.grid .pinned-last { box-shadow: inset -1px 0 0 var(--border), 2px 0 6px -2px var(--shadow); }
+.grid-pin {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    color: var(--text-subtle);
+    background: var(--grid-head);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    opacity: 0;
+}
+.grid-pin svg { width: 13px; height: 13px; }
+.grid th:hover .grid-pin, .grid-pin:focus-visible, .grid-pin.on { opacity: 1; }
+.grid-pin:hover { color: var(--text); background: var(--hover-strong); }
+.grid-pin.on { color: var(--focus); }
+.grid-pin.on svg { fill: currentColor; }
+.grid th:hover .grid-sort { margin-right: 22px; }
 
 .grid td.cell-number { color: var(--v-number); text-align: right; font-variant-numeric: tabular-nums; }
 .grid td.cell-time { color: var(--v-time); }
@@ -2625,3 +2652,47 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 }
 .update-progress { margin: 10px 0 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
 .update-progress svg { flex: 0 0 auto; width: 13px; height: 13px; }
+/* ----- Field picker: a searchable stand-in for the filter bars' <select> ---------- */
+.field-picker { position: relative; min-width: 0; }
+.field-picker-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding-right: 8px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: none;
+}
+.field-picker-btn > svg:last-child { flex: 0 0 auto; width: 14px; height: 14px; margin-left: auto; color: var(--text-subtle); }
+.field-picker-icon { flex: 0 0 14px; display: grid; place-items: center; color: var(--fk); }
+.field-picker-icon svg { width: 13px; height: 13px; }
+.field-picker-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12.5px; }
+.field-picker-name mark { color: var(--focus); background: transparent; font-weight: 700; }
+.field-picker-note { flex: 0 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--text-subtle); }
+.field-picker-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    width: max-content;
+    max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border-hover);
+    border-radius: 10px;
+    box-shadow: 0 16px 44px var(--shadow);
+    overflow: hidden;
+}
+.field-picker-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-subtle); }
+.field-picker-search svg { flex: 0 0 auto; width: 14px; height: 14px; }
+.field-picker-search input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: transparent; border: none; outline: none; }
+.field-picker-list { margin: 0; padding: 4px; list-style: none; max-height: 280px; overflow: auto; }
+.field-picker-group { padding: 8px 10px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-subtle); }
+.field-picker-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; color: var(--text-muted); cursor: pointer; }
+.field-picker-item.active { color: var(--text); background: var(--accent-bg); }
+.field-picker-item.chosen .field-picker-name { color: var(--text); }
+.field-picker-item .field-picker-note { margin-left: auto; padding-left: 12px; }
+.field-picker-empty { padding: 10px; font-size: 12.5px; color: var(--text-subtle); }

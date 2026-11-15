@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
-import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner } from './icons'
+import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner, PinIcon } from './icons'
 import { copyText } from './clipboard'
 import { formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
@@ -147,10 +147,35 @@ export default function DataGrid(props: Props) {
   const [sizing, setSizing] = useState<{ key: string; widths: number[] } | null>(null)
   const [resizing, setResizing] = useState<number | null>(null) // column being dragged
   const widths = sizing?.key === columnKey ? sizing.widths : null
+  // Pinned columns (by name, in the order pinned) stay in view, first after
+  // the row numbers, while the rest scroll sideways. They belong to these
+  // column names too.
+  const [pins, setPins] = useState<{ key: string; names: string[] } | null>(null)
+  const pinnedNames = pins?.key === columnKey ? pins.names : []
+  const pinnedIdx = pinnedNames.map((name) => columns.findIndex((c) => c.name === name)).filter((j) => j >= 0)
+  // The columns in the order drawn: pinned first, then the rest as they are.
+  const order = pinnedIdx.length > 0 ? [...pinnedIdx, ...columns.map((_, j) => j).filter((j) => !pinnedIdx.includes(j))] : columns.map((_, j) => j)
+  const togglePin = (col: number) => {
+    const name = columns[col].name
+    // Pinned columns need known widths, for where each one sticks.
+    if (!widths) setSizing({ key: columnKey, widths: currentWidths().map(Math.round) })
+    setPins({ key: columnKey, names: pinnedNames.includes(name) ? pinnedNames.filter((n) => n !== name) : [...pinnedNames, name] })
+  }
+  // Where a pinned column sticks: after the row numbers and the pinned ones before it.
+  const pinLeft = (col: number): number | undefined => {
+    const at = pinnedIdx.indexOf(col)
+    if (at < 0 || !widths) return undefined
+    return widths[0] + pinnedIdx.slice(0, at).reduce((sum, j) => sum + widths[j + 1], 0)
+  }
+  const pinClass = (col: number) => {
+    const at = pinnedIdx.indexOf(col)
+    return at < 0 ? '' : at === pinnedIdx.length - 1 ? ' pinned pinned-last' : ' pinned'
+  }
 
   // The widths as drawn now, so the first drag doesn't make anything jump.
   const currentWidths = () => widths
-    ?? [...(table.current?.tHead?.rows[0]?.cells ?? [])].slice(0, columns.length + 1).map((c) => c.getBoundingClientRect().width)
+    ?? [table.current?.tHead?.rows[0]?.cells[0], ...columns.map((_, j) => table.current?.tHead?.querySelector(`th[data-col="${j}"]`))]
+      .map((c) => c?.getBoundingClientRect().width ?? MIN_COLUMN)
 
   const setWidth = (base: number[], col: number, width: number) => {
     const next = base.slice()
@@ -168,7 +193,7 @@ export default function DataGrid(props: Props) {
   const fitColumn = (col: number) => {
     let fit = MIN_COLUMN
     for (const row of table.current?.rows ?? []) {
-      const cell = row.cells[col + 1]
+      const cell = row.querySelector<HTMLTableCellElement>(`[data-col="${col}"]`)
       if (cell) fit = Math.max(fit, contentWidth(cell))
     }
     setWidth(currentWidths(), col, Math.min(fit, MAX_FIT))
@@ -641,7 +666,8 @@ export default function DataGrid(props: Props) {
                  style={widths ? { width: widths.reduce((sum, w) => sum + w, 0) } : undefined}>
             {widths && (
               <colgroup>
-                {widths.map((w, k) => <col key={k} style={{ width: w }} />)}
+                <col style={{ width: widths[0] }} />
+                {order.map((j) => <col key={j} style={{ width: widths[j + 1] }} />)}
                 {/* the filler column takes any space left over */}
                 <col />
               </colgroup>
@@ -650,7 +676,8 @@ export default function DataGrid(props: Props) {
               <tr>
                 <th className="grid-rownum" aria-label="Select all rows" title={allSelected ? 'Clear selection' : `Select all rows (${shortcut('A')})`}
                     onClick={() => (allSelected ? setRowSelection(new Set()) : selectAll())} />
-                {columns.map((c, i) => {
+                {order.map((i) => {
+                  const c = columns[i]
                   const sorted = sort?.column === c.name ? (sort.desc ? 'desc' : 'asc') : null
                   const keys = columnKeys[i]
                   const points = keys.map((k) => `${k.refTable}.${k.refColumns.join(', ')}`).join(', ')
@@ -662,8 +689,10 @@ export default function DataGrid(props: Props) {
                       {c.type && <span className="grid-col-type">{c.type}</span>}
                     </>
                   )
+                  const pinned = pinnedIdx.includes(i)
                   return (
-                    <th key={i} aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}>
+                    <th key={i} data-col={i} className={pinClass(i) || undefined} style={{ left: pinLeft(i) }}
+                        aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined}>
                       {onSort ? (
                         <button type="button" className="grid-head" onClick={() => onSort(c.name)}
                                 title={`${c.name} · ${c.type}${c.primaryKey ? ' · primary key' : ''}${keys.length ? ` · foreign key → ${points}` : ''} — click to sort`}>
@@ -675,6 +704,12 @@ export default function DataGrid(props: Props) {
                       ) : (
                         <div className="grid-head static" title={keys.length ? `Foreign key → ${points}` : undefined}>{label}</div>
                       )}
+                      <button type="button" className={pinned ? 'grid-pin on' : 'grid-pin'} aria-pressed={pinned}
+                              aria-label={pinned ? `Unpin ${c.name}` : `Pin ${c.name}`}
+                              title={pinned ? 'Unpin: scrolls with the others again' : 'Pin: keep this column in view while scrolling sideways'}
+                              onClick={(e) => { e.stopPropagation(); togglePin(i) }}>
+                        <PinIcon />
+                      </button>
                       <span className={resizing === i ? 'col-resizer dragging' : 'col-resizer'} aria-hidden="true"
                             title="Drag to resize · double-click to fit"
                             onPointerDown={(e) => startResize(e, i)} onDoubleClick={() => fitColumn(i)} />
@@ -698,7 +733,7 @@ export default function DataGrid(props: Props) {
                       title="Click to select · double-click to view the row as JSON">
                     {firstRowNumber + i}
                   </td>
-                  {row.map((_, j) => {
+                  {order.map((j) => {
                     const value = shownValue(i, j)
                     const category = columns[j].category
                     const tip = value === undefined ? `no ${columns[j].name}` : value ?? 'NULL'
@@ -711,12 +746,15 @@ export default function DataGrid(props: Props) {
                       isSelected && 'cell-selected',
                       isEditing && 'cell-editing',
                       columnKeys[j].length > 0 && 'cell-fk',
+                      pinClass(j).trim(),
                     ].filter(Boolean).join(' ')
                     return (
                       <td
                         key={j}
                         data-cell={`${i}-${j}`}
+                        data-col={j}
                         className={classes}
+                        style={{ left: pinLeft(j) }}
                         title={isJson(j) || arrayOf(j) ? `${tip} — double-click to open the JSON editor`
                           : isEditable(j) ? `${tip} — double-click to edit` : tip}
                         onClick={(e) => {

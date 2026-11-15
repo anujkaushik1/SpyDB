@@ -233,6 +233,13 @@ export const PencilIcon = () => (
   </Icon>
 )
 
+export const PinIcon = () => (
+  <Icon>
+    <path d="M12 17v5"/>
+    <path d="M9 3h6l-1 7 3 3H7l3-3-1-7Z"/>
+  </Icon>
+)
+
 export const SunIcon = () => (
   <Icon>
     <circle cx="12" cy="12" r="4"/>

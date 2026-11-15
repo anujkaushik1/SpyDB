@@ -97,6 +97,26 @@ check('two number edits saved as numbers', JSON.stringify((await o(K[21])).amoun
 check('2 items saved together', await waitFor(`__t.bar().includes('Saved 2 items to orders')`), await evaluate(`__t.bar()`))
 await sameExcept(before, [K[21], K[22]], 'two items saved together')
 
+// 5a. Pin a column: it moves next to the row numbers and stays put while the grid scrolls sideways.
+await evaluate(`__t.grid('items').scrollLeft = 0`)
+const pinCol = 'city'
+const headerOf = (name) => `[...__t.grid('items').querySelectorAll('thead th')].find((th) => th.querySelector('.grid-col-name')?.innerText === '${name}')`
+await evaluate(`${headerOf(pinCol)}.querySelector('.grid-pin').click()`)
+check('the pin lights up and the column is first after the row numbers', await waitFor(`__t.grid('items').querySelector('th.pinned .grid-col-name')?.innerText === '${pinCol}' && __t.grid('items').querySelector('thead th:nth-child(2) .grid-col-name')?.innerText === '${pinCol}' && ${headerOf(pinCol)}.querySelector('.grid-pin').classList.contains('on')`),
+  await evaluate(`[...__t.grid('items').querySelectorAll('thead th .grid-col-name')].slice(0, 3).map((e) => e.innerText)`))
+const pinnedLeft = await evaluate(`__t.grid('items').querySelector('tbody tr td.pinned').getBoundingClientRect().left`)
+const otherLeft = await evaluate(`__t.grid('items').querySelector('tbody tr td:not(.pinned):not(.grid-rownum)').getBoundingClientRect().left`)
+await evaluate(`__t.grid('items').scrollLeft = 400`)
+await sleep(300)
+check('scrolled sideways: the pinned column stays, the others move', await evaluate(`Math.abs(__t.grid('items').querySelector('tbody tr td.pinned').getBoundingClientRect().left - ${pinnedLeft}) < 1 && __t.grid('items').querySelector('tbody tr td:not(.pinned):not(.grid-rownum)').getBoundingClientRect().left < ${otherLeft} - 300`),
+  await evaluate(`[__t.grid('items').querySelector('tbody tr td.pinned').getBoundingClientRect().left, ${pinnedLeft}, __t.grid('items').querySelector('tbody tr td:not(.pinned):not(.grid-rownum)').getBoundingClientRect().left, ${otherLeft}, __t.grid('items').scrollLeft]`))
+const firstKey = await evaluate(`__t.grid('items').querySelector('tbody tr td[data-col="0"]').innerText`)
+check('the pinned cell shows that row’s own value', (await evaluate(`__t.grid('items').querySelector('tbody tr td.pinned').innerText`)) === (await o(firstKey)).city?.S, [firstKey, (await o(firstKey)).city])
+await shot(`${shots}/d2b-pinned.png`)
+await evaluate(`__t.grid('items').querySelector('th.pinned .grid-pin').click()`)
+check('unpinned: back in its place', await waitFor(`!__t.grid('items').querySelector('th.pinned') && __t.grid('items').querySelector('thead th:nth-child(2) .grid-col-name')?.innerText !== '${pinCol}'`), null)
+await evaluate(`__t.grid('items').scrollLeft = 0`)
+
 // 5b. Load more, then edit an item from the second page: only it changes.
 await click(`[...__t.pane().querySelectorAll('.rows-pane .grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
 check('Load more: 100 items in the table', await waitFor(`__t.rows('items') === 100`), await evaluate(`__t.rows('items')`))
