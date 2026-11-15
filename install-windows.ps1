@@ -44,6 +44,10 @@
       Write-Host "The download isn't SpyDB's installer. Nothing was changed."; return
     }
     $version = $info.ProductVersion
+    # A download can carry Windows' "from the internet" mark, which makes
+    # SmartScreen stop an unsigned installer with "Windows protected your PC".
+    # It was checked above, so the mark goes; the files the installer writes never have it.
+    Unblock-File -LiteralPath $setup -ErrorAction SilentlyContinue
 
     # 4. Where SpyDB is (or goes): the folder the installer recorded, or its default.
     $dir = Join-Path $env:LOCALAPPDATA 'Programs\SpyDB'
