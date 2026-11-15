@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anujkaushik1/SpyDB/dynamo"
+	"github.com/anujkaushik1/SpyDB/mongodb"
 	"github.com/anujkaushik1/SpyDB/postgres"
 	"github.com/anujkaushik1/SpyDB/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -35,6 +36,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(&postgres.DBService{}),
 			application.NewService(&dynamo.Service{}),
+			application.NewService(&mongodb.Service{}),
 			application.NewService(zoom),
 			application.NewService(&updater.Service{}),
 		},
