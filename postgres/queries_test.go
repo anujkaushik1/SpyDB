@@ -3,19 +3,25 @@ package postgres
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
-// isolate points SpyDB's settings folder at a temporary HOME, so tests never
+// isolate points SpyDB's settings folder at a temporary one, so tests never
 // touch the real queries.json (macOS uses $HOME/Library/Application Support,
-// Linux $XDG_CONFIG_HOME or $HOME/.config).
+// Linux $XDG_CONFIG_HOME or $HOME/.config, Windows %AppData%).
 func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AppData", t.TempDir())
 }
+
+// unixModes says whether files have Unix permissions to check: Windows has
+// none (the user's profile keeps the settings folder theirs).
+var unixModes = runtime.GOOS != "windows"
 
 func TestSavedQueriesLifecycle(t *testing.T) {
 	isolate(t)
@@ -113,11 +119,11 @@ func TestSavedQueriesNewestFirstAndPrivate(t *testing.T) {
 
 	path, _ := queriesFile()
 	file, err := os.Stat(path)
-	if err != nil || file.Mode().Perm() != 0o600 {
+	if err != nil || unixModes && file.Mode().Perm() != 0o600 {
 		t.Fatalf("file mode: %v, %v", file.Mode().Perm(), err)
 	}
 	dir, _ := os.Stat(filepath.Dir(path))
-	if dir.Mode().Perm() != 0o700 {
+	if unixModes && dir.Mode().Perm() != 0o700 {
 		t.Fatalf("folder mode: %v", dir.Mode().Perm())
 	}
 	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.tmp")); len(leftovers) != 0 {
@@ -151,7 +157,7 @@ func TestConnectionsStillWriteThroughTheSharedHelper(t *testing.T) {
 		t.Fatalf("lists: %+v, %v", lists, err)
 	}
 	path, _ := connectionsFile()
-	if file, _ := os.Stat(path); file.Mode().Perm() != 0o600 {
+	if file, _ := os.Stat(path); unixModes && file.Mode().Perm() != 0o600 {
 		t.Fatalf("connections.json mode: %v", file.Mode().Perm())
 	}
 }
