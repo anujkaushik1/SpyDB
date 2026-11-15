@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,34 @@ func TestEnsureAWSCLI(t *testing.T) {
 // The real thing: yours (if any) is too old for the browser login, so SpyDB
 // downloads from AWS and installs its own into a temporary home. Only with
 // SPYDB_NET_TESTS=1, on a Mac.
+// Not a Mac (no download steps): nothing is downloaded or reported, and the
+// error says what to install, and which version when yours is too old.
+func TestEnsureAWSCLIWithoutInstaller(t *testing.T) {
+	for _, c := range []struct {
+		found AWSCLI
+		want  []string
+	}{
+		{AWSCLI{}, []string{"there's none on this computer", cliInstallHelp}},
+		{AWSCLI{Older: "2.27.6"}, []string{"2.27.6 is too old", "needs 2.32.0 or newer", cliInstallHelp}},
+	} {
+		var reports []AWSCLISetup
+		steps := cliSteps{find: func(context.Context, string) AWSCLI { return c.found }}
+		_, err := ensureAWSCLI(t.Context(), steps, browserLoginCLI, func(s AWSCLISetup) { reports = append(reports, s) })
+		if err == nil || len(reports) != 0 {
+			t.Fatalf("%+v: got %v, reports %+v", c.found, err, reports)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%q doesn't mention %q", err, w)
+			}
+		}
+	}
+	// SpyDB downloads and installs its own only on a Mac.
+	if mac := runtime.GOOS == "darwin"; (realCLISteps.download != nil) != mac || (realCLISteps.install != nil) != mac {
+		t.Errorf("on %s: download step %v, install step %v", runtime.GOOS, realCLISteps.download != nil, realCLISteps.install != nil)
+	}
+}
+
 func TestEnsureAWSCLIFromAWS(t *testing.T) {
 	if os.Getenv("SPYDB_NET_TESTS") == "" || runtime.GOOS != "darwin" {
 		t.Skip("set SPYDB_NET_TESTS=1 on a Mac (downloads about 60 MB from AWS and installs it in a temporary folder)")

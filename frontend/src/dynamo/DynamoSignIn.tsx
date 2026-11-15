@@ -4,11 +4,11 @@ import { DynamoAwsCliSetup } from '../../bindings/events'
 import { Service as Dynamo, type AWSCLISetup, type AWSIdentity, type AWSProfile, type Connection } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
 import { CloudIcon, Spinner } from '../icons'
-import { setupFraction, setupText } from './setupText'
+import { awsFolder, awsTerminal, setupFraction, setupText } from './setupText'
 
 // What signing in does for each kind of profile (AWSProfile.kind).
 const KINDS: Record<string, { label: string; hint: string }> = {
-  keys: { label: 'access keys', hint: 'Uses the access keys saved for this profile in ~/.aws.' },
+  keys: { label: 'access keys', hint: `Uses the access keys saved for this profile in ${awsFolder()}.` },
   sso: { label: 'AWS SSO', hint: 'Signs in through your browser, if needed.' },
   login: { label: 'browser sign-in', hint: 'Signs in through your browser, if it’s been over 12 hours.' },
   role: { label: 'role', hint: 'Switches into the role this profile names.' },
@@ -109,7 +109,7 @@ export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Co
             ))}
           </select>
           <p className="aws-note">
-            Region: {profile?.region || 'none set in this profile'}. Profiles come from ~/.aws; SpyDB never reads out or stores your keys.
+            Region: {profile?.region || 'none set in this profile'}. Profiles come from {awsFolder()}; SpyDB never reads out or stores your keys.
           </p>
         </div>
       )}
@@ -146,7 +146,7 @@ export default function DynamoSignIn({ onConnect }: { onConnect: (connection: Co
         <section className="aws-browser" aria-label="Sign in with your browser">
           {noProfiles
             ? <Banner tone="info" title="No AWS profiles yet"
-                      message="Sign in with your AWS account in your browser, or set up a profile in Terminal (aws configure)." />
+                      message={`Sign in with your AWS account in your browser, or set up a profile in ${awsTerminal()} (aws configure).`} />
             : <p className="aws-or"><span>or</span></p>}
           <div className="aws-browser-row">
             <label className="label" htmlFor="aws-region">Region</label>

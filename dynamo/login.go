@@ -121,7 +121,7 @@ func (s *Service) signIn(ctx context.Context, profile string) (AWSIdentity, erro
 	}
 	i := slices.IndexFunc(profiles, func(p AWSProfile) bool { return p.Name == profile })
 	if i < 0 {
-		return AWSIdentity{}, fmt.Errorf("There's no AWS profile named %q in ~/.aws.", profile)
+		return AWSIdentity{}, fmt.Errorf("There's no AWS profile named %q in %s.", profile, awsFolder)
 	}
 	kind := profiles[i].Kind
 	min := anyCLI
@@ -220,10 +220,12 @@ func awsLogin(ctx context.Context, cli, profile, region string) error {
 
 // awsCommand runs the AWS CLI so that cancelling ctx stops it promptly: it's
 // killed, and anything it started that still holds its output is given
-// up on after a moment, instead of waited for.
+// up on after a moment, instead of waited for. On Windows it opens no
+// console window (hideConsole).
 func awsCommand(ctx context.Context, cli string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.WaitDelay = 2 * time.Second
+	hideConsole(cmd)
 	return cmd
 }
 
@@ -350,7 +352,8 @@ func readINI(path string, each func(section, key, value string)) error {
 	section := ""
 	lines := bufio.NewScanner(f)
 	for lines.Scan() {
-		line := strings.TrimSpace(lines.Text())
+		// A file saved by Windows' Notepad may start with a byte-order mark.
+		line := strings.TrimSpace(strings.TrimPrefix(lines.Text(), "\ufeff"))
 		switch {
 		case line == "" || line[0] == '#' || line[0] == ';':
 		case line[0] == '[' && strings.HasSuffix(line, "]"):

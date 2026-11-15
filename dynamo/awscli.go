@@ -34,16 +34,6 @@ const (
 	browserLoginCLI = "2.32.0" // aws login: your AWS console sign-in, in the browser
 )
 
-// Where an AWS CLI is usually installed. An app opened from the Dock or
-// Finder doesn't get your terminal's PATH (no /opt/homebrew/bin), so these
-// are checked by name as well as through PATH.
-var awsCLIPlaces = []string{
-	"/opt/homebrew/bin/aws", // Homebrew on Apple silicon Macs
-	"/usr/local/bin/aws",    // AWS's own Mac installer, Homebrew on Intel Macs, AWS's Linux installer
-	"/usr/bin/aws",          // Ubuntu's apt package
-	"/snap/bin/aws",         // Ubuntu's snap package
-}
-
 // ownAWSCLIPath is where SpyDB keeps its own copy:
 // ~/Library/Application Support/SpyDB/aws-cli/aws on macOS (AWS's
 // installer always makes an aws-cli folder in the folder it's given).
@@ -60,10 +50,7 @@ func findAWSCLI(ctx context.Context, min string) AWSCLI {
 	if p, err := exec.LookPath("aws"); err == nil {
 		yours = append(yours, p)
 	}
-	yours = append(yours, awsCLIPlaces...)
-	if home, err := os.UserHomeDir(); err == nil {
-		yours = append(yours, filepath.Join(home, ".local", "bin", "aws")) // AWS's Linux installer, per user
-	}
+	yours = append(yours, awsCLIPlaces()...) // per system: awscli_unix.go, awscli_windows.go
 	own, _ := ownAWSCLIPath()
 	return pickAWSCLI(ctx, yours, own, min)
 }
@@ -135,7 +122,9 @@ func awsCLIVersionWithin(ctx context.Context, path string, limit time.Duration) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	hideConsole(cmd)
+	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("it didn't answer within %s", limit)
 	}
