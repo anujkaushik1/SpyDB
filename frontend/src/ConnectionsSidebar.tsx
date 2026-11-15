@@ -101,7 +101,7 @@ export default function ConnectionsSidebar({ engine, postgres, dynamo, mongo, on
     <aside className="sidebar" aria-label="Connections" style={{ flexBasis: width }}>
       <div className="sidebar-new">
         <button type="button" className="btn btn-secondary new-connection-btn" onClick={onNew} title={`A new ${current.label} connection`}>
-          <PlusIcon /> New {current.label} connection
+          <PlusIcon /> New connection <span className={`new-connection-logo conn-icon-${engine}`}>{current.logo()}</span>
         </button>
       </div>
 

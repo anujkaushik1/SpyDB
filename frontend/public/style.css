@@ -1749,7 +1749,9 @@ kbd {
 
 /* ----- Saved / recent connections (disconnected screen) ---------------------- */
 .sidebar-new { padding: 12px 12px 8px; }
-.new-connection-btn { width: 100%; }
+.new-connection-btn { width: 100%; white-space: nowrap; }
+.new-connection-logo { display: grid; place-items: center; margin-left: 2px; }
+.new-connection-logo svg { width: 15px; height: 15px; }
 .conn-section-title {
     display: flex;
     align-items: center;

@@ -61,7 +61,7 @@ check('clicking it shows DynamoDB’s sign-in with that profile', await waitFor(
   await evaluate(`[document.querySelector('.rail-engine.active')?.innerText, document.getElementById('aws-profile')?.value]`))
 check('no Recent section', !(await evaluate(`document.querySelector('aside[aria-label="Connections"]').innerText.includes('RECENT')`)), null)
 await click(railButton('Mg'))
-check('Mg lit on the rail; MongoDB’s form; New MongoDB connection', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Mg' && __t.mongoForm() && document.querySelector('.new-connection-btn')?.innerText.includes('MongoDB')`), null)
+check('Mg lit on the rail; MongoDB’s form; New MongoDB connection', await waitFor(`document.querySelector('.rail-engine.active')?.innerText.trim() === 'Mg' && __t.mongoForm() && document.querySelector('.new-connection-btn')?.title.includes('MongoDB')`), null)
 await click(`document.querySelector('.rail-theme')`)
 check('a theme switch on the rail: light mode applies and is remembered', await waitFor(`document.documentElement.dataset.theme === 'light' && localStorage.getItem('spydb-theme') === 'light' && getComputedStyle(document.body).backgroundColor === 'rgb(246, 246, 248)'`), await evaluate(`[document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor]`))
 await sleep(400)
