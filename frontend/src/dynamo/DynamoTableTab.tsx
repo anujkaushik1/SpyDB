@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Service as Dynamo, type Filter, type FindPlan, type TableDetails } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
 import DataGrid, { type Sort } from '../DataGrid'
+import FieldPicker, { type FieldOption } from '../FieldPicker'
 import { CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
 import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, sortItems, type Item, type NewField, type SeenFields } from './itemGrid'
 import { itemKey } from './itemStore'
@@ -133,6 +134,10 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
     </button>
   )
   const fields = useMemo(() => fieldOptions(details, seen), [details, seen])
+  const fieldChoices = useMemo<FieldOption[]>(() => [
+    ...fields.keys.map((k) => ({ name: k.field, note: k.note, key: true, group: 'Keys: fast with “equals”' })),
+    ...fields.others.map((name) => ({ name, group: 'Other fields' })),
+  ], [fields])
   const firstField = fields.keys[0]?.field ?? fields.others[0] ?? ''
 
   // The rows filled in, as Go takes them. Rows with no value are left out
@@ -176,17 +181,8 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
           {i === 0 && toggle(false)}
-          <select className="select select-column dynamo-field" aria-label="Filter field" value={f.field || firstField}
-                  onChange={(e) => updateDraft(f.key, { field: e.target.value })}>
-            {fields.keys.length > 0 && (
-              <optgroup label="Keys: fast with “equals”">
-                {fields.keys.map((k) => <option key={k.field} value={k.field}>{`🔑 ${k.field} · ${k.note}`}</option>)}
-              </optgroup>
-            )}
-            <optgroup label="Other fields">
-              {fields.others.map((name) => <option key={name} value={name}>{name}</option>)}
-            </optgroup>
-          </select>
+          <FieldPicker className="select-column dynamo-field" label="Filter field" value={f.field || firstField}
+                       options={fieldChoices} onChange={(field) => updateDraft(f.key, { field })} />
           <select className="select select-operator" aria-label="Filter condition" value={f.operator}
                   onChange={(e) => updateDraft(f.key, { operator: e.target.value })}>
             {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

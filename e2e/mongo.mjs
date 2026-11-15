@@ -35,6 +35,8 @@ const run = async () => { await key('Enter', MOD); await sleep(300) }
 const setInput = (id, value) => evaluate(`(() => { const input = document.getElementById(${JSON.stringify(id)}); if (!input) return false; const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
 const setLabelled = (label, value) => evaluate(`(() => { const input = [...document.querySelectorAll('input')].find((i) => i.closest('label, .field')?.innerText.trim().startsWith(${JSON.stringify(label)})); if (!input) return false; const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
 const choose = (selector, value) => evaluate(`(() => { const s = ${selector}; s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+// The filter bar's field picker: open it, search, Enter.
+const pickField = async (name) => { await click(`__t.pane().querySelector('.filter-bar .field-picker-btn')`); await type(name); await key('Enter'); await waitFor(`__t.pane().querySelector('.filter-bar .field-picker-btn').dataset.value === '${name}'`) }
 const formButton = (label) => `[...__t.mongoForm().querySelectorAll('.btn')].find((b) => b.innerText === '${label}')`
 const railButton = (short) => `[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.trim() === '${short}')`
 // Every document of a collection (mongoseed dump: _id → the document as
@@ -107,12 +109,13 @@ await save()
 check('an edit while sorted ↓ saves', await waitFor(`__t.bar().includes('Saved 1 document to orders')`), await evaluate(`[__t.bar(), __t.error()]`))
 sameExcept(before, [116], 'edit while sorted')
 await click(sortBy)
-await choose(`__t.pane().querySelector('.filter-bar select[aria-label="Filter field"]')`, 'status')
+await pickField('status')
+check('the field picker searches (fuzzy: "sts" lists status first)', await evaluate(`(async () => { const b = __t.pane().querySelector('.filter-bar .field-picker-btn'); b.click(); await new Promise((r) => setTimeout(r, 50)); const i = __t.pane().querySelector('.field-picker-search input'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'sts'); i.dispatchEvent(new Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 50)); const first = __t.pane().querySelector('.field-picker-item')?.dataset.name; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return first })()`) === 'status', null)
 await click(`__t.pane().querySelector('.filter-bar .filter-value')`)
 await type('PAID')
 await key('Enter')
 check('filter status = PAID: 40', await waitFor(`__t.rows('docs') === 40`), await evaluate(`__t.rows('docs')`))
-await choose(`__t.pane().querySelector('.filter-bar select[aria-label="Filter field"]')`, 'total')
+await pickField('total')
 await choose(`__t.pane().querySelector('.filter-bar select[aria-label="Filter condition"]')`, 'gte')
 await evaluate(`(() => { const input = __t.pane().querySelector('.filter-bar .filter-value'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '11000'); input.dispatchEvent(new Event('input', { bubbles: true })) })()`)
 await click(`__t.pane().querySelector('.filter-bar .filter-value')`)
@@ -249,7 +252,7 @@ await key('r', MOD)
 check('⌘R reloads it', await waitFor(`${cell('3', 'status')}?.innerText === 'VIA-OTHER-TAB'`), await text('3', 'status'))
 
 // 11. The tab menu: Duplicate keeps the filters; Close Others; Copy Name.
-await choose(`__t.pane().querySelector('.filter-bar select[aria-label="Filter field"]')`, 'status')
+await pickField('status')
 await click(`__t.pane().querySelector('.filter-bar .filter-value')`)
 await type('SHIPPED')
 await key('Enter')

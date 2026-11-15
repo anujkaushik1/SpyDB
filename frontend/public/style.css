@@ -2636,3 +2636,48 @@ body.resizing-rows * { cursor: row-resize !important; user-select: none !importa
 /* The TLS box under the fields. */
 .mongo-tls { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
 .mongo-tls input { margin: 0; }
+
+/* ----- Field picker: a searchable stand-in for the filter bars' <select> ---------- */
+.field-picker { position: relative; min-width: 0; }
+.field-picker-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding-right: 8px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: none;
+}
+.field-picker-btn > svg:last-child { flex: 0 0 auto; width: 14px; height: 14px; margin-left: auto; color: var(--text-subtle); }
+.field-picker-icon { flex: 0 0 14px; display: grid; place-items: center; color: var(--fk); }
+.field-picker-icon svg { width: 13px; height: 13px; }
+.field-picker-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12.5px; }
+.field-picker-name mark { color: var(--focus); background: transparent; font-weight: 700; }
+.field-picker-note { flex: 0 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--text-subtle); }
+.field-picker-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    width: max-content;
+    max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border-hover);
+    border-radius: 10px;
+    box-shadow: 0 16px 44px var(--shadow);
+    overflow: hidden;
+}
+.field-picker-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-subtle); }
+.field-picker-search svg { flex: 0 0 auto; width: 14px; height: 14px; }
+.field-picker-search input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--text); background: transparent; border: none; outline: none; }
+.field-picker-list { margin: 0; padding: 4px; list-style: none; max-height: 280px; overflow: auto; }
+.field-picker-group { padding: 8px 10px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-subtle); }
+.field-picker-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; color: var(--text-muted); cursor: pointer; }
+.field-picker-item.active { color: var(--text); background: var(--accent-bg); }
+.field-picker-item.chosen .field-picker-name { color: var(--text); }
+.field-picker-item .field-picker-note { margin-left: auto; padding-left: 12px; }
+.field-picker-empty { padding: 10px; font-size: 12.5px; color: var(--text-subtle); }

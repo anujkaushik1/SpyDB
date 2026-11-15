@@ -141,7 +141,10 @@ try {
 
   // 3. Filter by the key: one item straight from its key (a Query, not a scan).
   const setFilter = async (field, value) => {
-    await evaluate(`__t.setValue(__t.pane().querySelector('.filter-bar select[aria-label="Filter field"]'), '${field}')`)
+    await click(`__t.pane().querySelector('.filter-bar .field-picker-btn')`)
+    await type(field)
+    await key('Enter')
+    await waitFor(`__t.pane().querySelector('.filter-bar .field-picker-btn').dataset.value === '${field}'`)
     await evaluate(`__t.setValue(__t.pane().querySelector('.filter-bar .filter-value'), '${value}')`)
     await click(`__t.pane().querySelector('.filter-bar .filter-value')`)
   }

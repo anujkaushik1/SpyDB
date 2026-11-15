@@ -3,6 +3,7 @@ import { Service as Mongo, type DocumentPage, type Filter } from '../../bindings
 import Banner, { errorMessage } from '../Banner'
 import DataGrid, { type Sort } from '../DataGrid'
 import ExportMenu, { type ExportChoice } from '../ExportMenu'
+import FieldPicker from '../FieldPicker'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
 import { addSeen, docColumns, docKeys, docRows, fieldType, toDoc, type Doc, type NewField, type SeenFields } from './docGrid'
 import MongoQueryEditor from './MongoQueryEditor'
@@ -245,10 +246,9 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
       {draft.map((f, i) => (
         <div className="filter-row" key={f.key}>
           {i === 0 ? toggle : <span className="filter-indent" aria-hidden="true" />}
-          <select className="select select-column" aria-label="Filter field" value={f.field || firstField}
-                  onChange={(e) => updateDraft(f.key, { field: e.target.value })}>
-            {(fieldNames.length ? fieldNames : ['_id']).map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
+          <FieldPicker className="select-column" label="Filter field" value={f.field || firstField}
+                       options={(fieldNames.length ? fieldNames : ['_id']).map((name) => ({ name, key: name === '_id' }))}
+                       onChange={(field) => updateDraft(f.key, { field })} />
           <select className="select select-operator" aria-label="Filter condition" value={f.operator}
                   onChange={(e) => updateDraft(f.key, { operator: e.target.value })}>
             {OPERATORS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

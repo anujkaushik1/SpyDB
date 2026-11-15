@@ -12,7 +12,7 @@ The same commands install SpyDB the first time and update it later; saved connec
 curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac.sh | sh
 ```
 
-[`install-mac.sh`](install-mac.sh) checks the Mac, downloads the latest release, checks the download, quits SpyDB if it's open, replaces the app and opens it; if anything fails, the installed app is left as it was. Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
+(Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
 
 **Ubuntu** (22.04 or newer). Paste in Terminal:
 
@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac
 wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubuntu.sh | sh
 ```
 
-[`install-ubuntu.sh`](install-ubuntu.sh) finds the latest release, downloads its `.deb` and installs it with apt (it asks for your password). Or download the `.deb` from the release page and double-click it.
+Or download the `.deb` from the release page and double-click it.
 
 **Windows** (10 or 11, 64-bit Intel/AMD). Paste in PowerShell:
 
@@ -28,15 +28,9 @@ wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubun
 irm https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-windows.ps1 | iex
 ```
 
-[`install-windows.ps1`](install-windows.ps1) downloads the latest release's installer, checks it, closes SpyDB if it's open, installs it for your user only (in `%LOCALAPPDATA%\Programs\SpyDB`, no administrator needed) and opens it. Downloaded this way, Windows doesn't show its SmartScreen warning. (Downloaded with a browser instead, the first open shows "Windows protected your PC": click More info → Run anyway.) Saved connections and queries live in `%AppData%\SpyDB`; uninstalling from Settings → Apps keeps them.
+It installs for your user only, no administrator needed. (Downloaded with a browser instead, the first open shows "Windows protected your PC": click More info → Run anyway.)
 
-The commands stay the same for every release.
-
-### Updates
-
-From 0.1.8, SpyDB checks for a newer release each time it opens and offers to install it: **Install and restart** downloads it, checks it and swaps it in (on Ubuntu the system asks for your password; on Windows SpyDB closes, the installer runs silently and SpyDB opens again), or **Later**. Where it can't install by itself (a Mac user who can't change `/Applications`, an Ubuntu without `pkexec`), it shows the command above instead.
-
-To require an update, raise the platform's minimum in [`updates.json`](updates.json) on `main`: SpyDB older than that offers the update without **Later** (only **Quit**). Raise `mac`, `ubuntu` and `windows` separately, so a Mac-only fix doesn't push the others to update. A minimum only takes effect once a release that meets it is out.
+SpyDB checks for a newer release each time it opens and offers to install it. To require an update, raise the platform's minimum in [`updates.json`](updates.json).
 
 ## Features
 
@@ -86,32 +80,9 @@ To require an update, raise the platform's minimum in [`updates.json`](updates.j
 - **Switch without disconnecting:** each database stays connected, with its tabs as you left them, while you use another. Postgres, DynamoDB and MongoDB are separate parts of the app that share only the grid, tabs and dialogs: nothing one does reaches another.
 - **Dark or light:** the sun / moon button at the bottom of the rail; SpyDB remembers your choice.
 
-## How it works
-
-```
-Window (React, in the OS web view)  ⇄  Go (DBService)  ⇄  Postgres (pgx)
-```
-
-- **Your SQL runs on one held "editor" connection**, a real Postgres session. Everything else (sidebar, table tabs, saves, exports) borrows from a pool. So browsing works while a query runs, and a save never lands inside a transaction you left open.
-- **Big results stay cheap.** Go keeps up to 100,000 rows per statement and sends the window 1,000 at a time. Next pages come from memory, with no new query. Table tabs fetch one page at a time.
-- **No table scans for row counts.** The sidebar's `~20k` comes from Postgres's statistics, in one query for all tables.
-- **Editing finds rows safely.** Rows are matched by primary key, adding it as a hidden column if needed. Tables without a key use each row's address plus a fingerprint of the whole row. Every `UPDATE` must match exactly one row still holding its old values, or nothing is saved.
-
-**What's stored on disk:** only saved connections (passwords included) and saved queries. They're JSON files in `~/Library/Application Support/SpyDB/` (macOS) or `~/.config/SpyDB/` (Ubuntu), readable only by your user. Open tabs, results and unsaved edits end when the app quits.
-
 ## Benchmarks vs Beekeeper Studio
 
-Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12 (Electron 31, Node 20). Setup: Apple M4 (10 cores, 16 GB), macOS 26.5.1, local Postgres 15.15, a 1M-row table among 257 tables.
-
-**How:** each app's real database code ran the same jobs:
-- SpyDB: its `DBService` methods.
-- Beekeeper: its own bundled database process (`dist/utility.js`), run on its own Electron binary and sent the same requests its window sends.
-
-Times are medians of 7 runs after a warm-up, and include handing the data to the window (JSON for SpyDB, Electron's structured clone for Beekeeper). Drawing the grid on screen isn't measured. App figures come from launching each app 3 times in the background.
-
-### The apps
-
-Lower is better in every row.
+Measured on 9 Nov 2026 against Beekeeper Studio 5.2.12: each app's own database code ran the same jobs on an Apple M4 (16 GB), local Postgres 15, a 1M-row table among 257 tables. Medians of 7 runs. Lower is better.
 
 | | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
@@ -122,8 +93,6 @@ Lower is better in every row.
 | CPU while idle | 0.12 % | 3.47 % | SpyDB 29× less |
 
 ### Speed
-
-Time for each job. Lower is better.
 
 | Job | SpyDB | Beekeeper | Better |
 |---|---:|---:|---|
@@ -136,76 +105,11 @@ Time for each job. Lower is better.
 | Query returning 100,000 rows | 45.7 ms | 146 ms | SpyDB 3.2× faster |
 | Query returning 1,000,000 rows | 0.40 s | 1.95 s | SpyDB 4.9× faster |
 
-### CPU time per job
-
-Processor time the app spent on the job. Lower is better: less battery, more room for everything else.
-
-| Job | SpyDB | Beekeeper | Better |
-|---|---:|---:|---|
-| Connect + sidebar | 3.6 ms | 19.5 ms | SpyDB, 5.5× less |
-| Open a 1M-row table | 0.5 ms | 5.2 ms | SpyDB, 11× less |
-| Jump to page 5,000 | 0.8 ms | 3.4 ms | SpyDB, 4.2× less |
-| Save one cell | 0.5 ms | 1.3 ms | SpyDB, 2.5× less |
-| Query, 1,000 rows | 2.1 ms | 3.5 ms | SpyDB, 1.6× less |
-| Query, 10,000 rows | 11 ms | 20 ms | SpyDB, 1.8× less |
-| Query, 100,000 rows | 50 ms | 188 ms | SpyDB, 3.8× less |
-| Query, 1,000,000 rows | 0.20 s | 3.18 s | SpyDB, 16× less |
-
-### Peak memory per job
-
-Most memory the app's process used during the job. Lower is better. Before any work, that's about 20 MB for SpyDB's Go process and 254 MB for Beekeeper's database process.
-
-| Job | SpyDB | Beekeeper | Better |
-|---|---:|---:|---|
-| Connect + sidebar | 28 MB | 258 MB | SpyDB, 9.1× less |
-| Open a 1M-row table | 26 MB | 258 MB | SpyDB, 10× less |
-| Jump to page 5,000 | 26 MB | 257 MB | SpyDB, 9.8× less |
-| Save one cell | 26 MB | 257 MB | SpyDB, 9.9× less |
-| Query, 1,000 rows | 28 MB | 260 MB | SpyDB, 9.4× less |
-| Query, 10,000 rows | 35 MB | 299 MB | SpyDB, 8.5× less |
-| Query, 100,000 rows | 94 MB | 719 MB | SpyDB, 7.7× less |
-| Query, 1,000,000 rows | 95 MB | 2,210 MB | SpyDB, 23× less |
-
-### Data sent to the window per job
-
-How much data the app copied from its database part to its window. Lower is better: less to copy and draw.
-
-| Job | SpyDB | Beekeeper | Better |
-|---|---:|---:|---|
-| Connect + sidebar | 52 KB | 35 KB | Beekeeper, 1.5× less (SpyDB also sends every column, for autocomplete) |
-| Open a 1M-row table | 13 KB | 17 KB | SpyDB, 1.3× less |
-| Jump to page 5,000 | 14 KB | 16 KB | about even |
-| Save one cell | 53 B | 171 B | SpyDB, 3.2× less |
-| Query, 1,000 rows | 129 KB | 136 KB | about even |
-| Query, 10,000 rows | 129 KB | 1.3 MB | SpyDB, 11× less |
-| Query, 100,000 rows | 129 KB | 13 MB | SpyDB, 106× less |
-| Query, 1,000,000 rows | 129 KB | 135 MB | SpyDB, 1,068× less |
-
-### Round trips to Postgres per job
-
-How many times the app sent something to Postgres and waited for the answer. Lower is better, and it matters most on a remote database, where each round trip is a network delay (often 20–80 ms). Counted by a relay between each app and Postgres, in a separate pass.
-
-| Job | SpyDB | Beekeeper | Better |
-|---|---:|---:|---|
-| Connect + sidebar | 9 | 10 | SpyDB, 1 fewer |
-| Open a 1M-row table | 3 | 4 | SpyDB, 1 fewer |
-| Jump to page 5,000 | 3 | 1 | Beekeeper, 2 fewer |
-| Save one cell | 6 | 6 | even |
-| Query, 1,000 rows | 5 | 2 | Beekeeper, 3 fewer |
-| Query, 10,000 rows | 5 | 2 | Beekeeper, 3 fewer |
-| Query, 100,000 rows | 5 | 2 | Beekeeper, 3 fewer |
-| Query, 1,000,000 rows | 6 | 2 | Beekeeper, 4 fewer |
-
-### Why
-
-- **Big results:** SpyDB sends the window at most 1,000 rows and keeps at most 100,000. Beekeeper sends every row to its window, then keeps 50,000. That's the gap in time, memory and data at 100k and 1M rows.
-- **Small queries and saves:** after each query SpyDB makes three small lookups so results can be edited (5 round trips against 2). Its saves also run safety checks. That costs 1–2 ms locally, and more on a remote database, where every round trip is a network delay.
-- **Paging** in a table tab takes 3 round trips against Beekeeper's 1, because SpyDB re-reads the table's columns and key for each page.
-- **The app itself:** SpyDB uses the system web view. Beekeeper bundles its own Chromium and Node and runs 5 processes.
+SpyDB sends the window at most 1,000 rows at a time and uses the system web view; Beekeeper sends every row to its window and bundles its own Chromium and Node. Small queries and saves are a millisecond or two slower in SpyDB because it does extra lookups and checks so results can be edited safely.
 
 ## Benchmark: DynamoDB
 
-The real app (its server build) in headless Chrome against DynamoDB Local with a table of 2,000 items, timed from the click or key press to the frame in which the screen shows the result, so it's the wait a person sees, grid and all. After every step the result is checked against DynamoDB Local itself: the rows shown are the items there, a filter found exactly the items a direct scan finds, a save or delete changed exactly that item. Run it yourself with `node e2e/bench.mjs` (see below); it writes only the table `spydb_bench` in DynamoDB Local.
+The real app in headless Chrome against DynamoDB Local (2,000 items), timed from the click to the frame that shows the result, so it's the wait a person sees. Every step is checked against DynamoDB Local itself. Run it with `node e2e/bench.mjs`.
 
 | What a person does | Screen (ms) | DynamoDB Local (ms) | Runs | Checked against DynamoDB Local |
 |---|---:|---:|---:|---|
@@ -220,7 +124,7 @@ The real app (its server build) in headless Chrome against DynamoDB Local with a
 | PartiQL: SELECT one item by its key | 39 | — | 5 | ✓ the one item comes back |
 | Open an item as JSON | 20 | — | 5 | ✓ the JSON matches the item, numbers as numbers |
 
-Measured on 15 Nov 2026: macOS 26.5.1 · Apple M4 · 16 GB, DynamoDB Local in Docker, a table of 2,000 items. Medians of the runs shown. "DynamoDB Local (ms)" is what the database itself reported for the request, as the footer shows it; the rest of the screen time is SpyDB and the grid. Signing in runs the AWS CLI once, which is most of its time.
+Measured on 15 Nov 2026, Apple M4 (16 GB), DynamoDB Local in Docker. "DynamoDB Local (ms)" is what the database itself reported; the rest is SpyDB and the grid. Signing in runs the AWS CLI once.
 
 ## Requirements
 
@@ -242,73 +146,12 @@ wails3 build                              # binary in bin/
 wails3 task package                       # macOS app bundle in bin/spydb.app
 ```
 
-The end-to-end tests (`e2e/`) click through the real app in headless Chrome against a test Postgres, DynamoDB Local and MongoDB (`E2E_MONGO_URL`, only `spydb_test_*` databases), with made-up data; GitHub runs them on Ubuntu 22.04 and 24.04, Windows and macOS on every push (`.github/workflows/e2e.yml`).
-
-To pre-fill the connect form while developing, copy `db.config.example.json` to `db.config.json` (gitignored, since it can hold a password).
-
-## Ubuntu
-
-SpyDB runs on Ubuntu 22.04 and newer. Build with Docker (works from a Mac too):
+The end-to-end tests click through the real app in headless Chrome against test databases with made-up data; GitHub runs them on Ubuntu 22.04 and 24.04, Windows and macOS on every push.
+## Building for Ubuntu and Windows
 
 ```sh
-build/linux/build-docker.sh             # Ubuntu 22.04+ (GTK3), amd64
-build/linux/build-docker.sh gtk4        # Ubuntu 24.04+ (GTK4)
-build/linux/build-docker.sh gtk3 arm64  # ARM machines
+build/linux/build-docker.sh             # Ubuntu 22.04+ (GTK3), amd64; "gtk4" for 24.04+, "gtk3 arm64" for ARM
+build/windows/package.sh 0.1.9          # bin/SpyDB.exe and its installer (needs makensis)
 ```
 
-Then install the runtime libraries on the Ubuntu machine and run `./spydb`:
-
-| Build | Ubuntu 22.04 | Ubuntu 24.04 |
-|---|---|---|
-| `gtk3` (default) | `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0` | `sudo apt install libgtk-3-0t64 libwebkit2gtk-4.1-0` |
-| `gtk4` | not supported | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4` |
-
-To build on Ubuntu itself, install `gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev` (or `libgtk-4-dev libwebkitgtk-6.0-dev`), then:
-
-```sh
-cd frontend && npm ci && npm run build && cd ..
-go build -tags production,gtk3 -trimpath -buildvcs=false -ldflags="-w -s" -o bin/spydb .   # drop ",gtk3" for GTK4
-```
-
-If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is blocking WebKit's sandbox; use the GTK3 build.
-
-## Windows
-
-SpyDB runs on 64-bit Windows 10 and 11 (it uses the WebView2 runtime that comes with them; the installer adds it where it's missing). Windows needs no cgo, so it builds from a Mac or Linux too. With the frontend built, `wails3`, and NSIS's `makensis` (`brew install makensis`):
-
-```sh
-build/windows/package.sh 0.1.9   # bin/SpyDB.exe and its installer, bin/SpyDB-windows-setup.exe
-```
-
-The release workflow does the same on GitHub's Windows computer, then installs the installer there, opens SpyDB, checks that installing over an open SpyDB stops without changing anything, updates it with `install-windows.ps1` and uninstalls it. Run it by hand from the Actions tab (Release → Run workflow) to try a change without releasing it.
-
-## Project layout
-
-| Go (backend) | |
-|---|---|
-| `main.go` | Starts the app and registers each database's service |
-| `appdata/` | SpyDB's settings folder, shared by every database |
-| `postgres/dbservice.go` | `DBService`: connect, disconnect, the editor connection and pool, active connections |
-| `postgres/query.go` | Runs SQL, keeps results for paging |
-| `postgres/editable.go`, `edits.go` | Decides which results are editable; saves edits safely |
-| `postgres/tabledata.go`, `schema.go`, `foreignkeys.go` | Table pages; the sidebar's schemas, tables and columns; foreign keys |
-| `postgres/export.go`, `importer.go` | CSV and Excel export; import into a table or a new one |
-| `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
-| `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
-| `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
-| `mongodb/service.go`, `config.go`, `connections.go` | MongoDB: connect, databases and collections; connection settings; saved connections |
-| `mongodb/find.go`, `values.go`, `edits.go` | Pages of documents and filters; BSON values as text and back, keeping types; saving and deleting safely |
-| `mongodb/shell.go`, `query.go`, `export.go` | The query editor's mongosh-like commands and their results; CSV and Excel export |
-| `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`, `install_windows.go`) |
-
-| React (window), in `frontend/src/` | |
-|---|---|
-| `App.tsx` | Connections, tabs per connection, shortcuts |
-| `SqlEditor.tsx`, `SqlCodeEditor.tsx`, `sqlCompletion.ts` | The SQL editor and autocomplete |
-| `DataGrid.tsx` | The grid: selection, editing, saving, copy |
-| `TableTab.tsx`, `QueryTab.tsx` | Table and query tabs |
-| `SchemaSidebar.tsx`, `DatabasePicker.tsx`, `TablePalette.tsx` | Sidebar, switcher, ⌘P |
-| `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
-| `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ImportDialog.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, import, active connections |
-| `UpdateCheck.tsx` | The update offered when SpyDB opens |
-| `mongo/` | MongoDB's connect screen, sidebar, collection and query tabs (`docGrid.ts`: documents ↔ grid ↔ what Go saves) |
+On Ubuntu, SpyDB needs `libgtk-3-0 libwebkit2gtk-4.1-0` (`libgtk-3-0t64` on 24.04). The release workflow builds and checks all three from the Actions tab.
