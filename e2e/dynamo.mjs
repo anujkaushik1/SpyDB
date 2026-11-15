@@ -3,7 +3,7 @@
 // Postgres and back with both staying connected. DynamoDB Local's made-up
 // tables (dynamo-local.mjs) and the test Postgres; run by run.mjs.
 import { check, MOD, sleep } from './cdp.mjs'
-import { ddb, getItem } from './dynamo-local.mjs'
+import { changedKeys, ddb, getItem, snapshot } from './dynamo-local.mjs'
 
 export default async function dynamo(p, { shots, pg }) {
 const { evaluate, click, dblclick, rightClick, key, type, waitFor, shot } = p
@@ -41,13 +41,23 @@ K = await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].map((tr)
 const noted = K.filter((k) => Number(k.slice(1)) % 5 === 0 && k !== K[13]) // items with a note (seed.mjs)
 await shot(`${shots}/d1-orders.png`)
 
+const KEYS = ['userId', 'createdAt']
+const keyOf = (k) => `${k}|${1731400000 + Number(k.slice(1))}`
+const sameExcept = async (before, keys, what) => {
+  const diff = changedKeys(before, await snapshot('orders', KEYS))
+  check(`${what}: of 120 items, only ${keys.join(', ')} changed`, JSON.stringify(diff) === JSON.stringify(keys.map(keyOf).sort()), diff)
+}
+
 // 1. A text cell: type, Enter, ⌘S; saved as text, shown in place.
+let before = await snapshot('orders', KEYS)
+check('the table holds 120 items before any edit', Object.keys(before).length === 120, Object.keys(before).length)
 await editCell(K[1], 'city', 'Pune')
 check('typed edit waits in the changes bar', (await evaluate(`__t.bar()`)).includes('1 unsaved change in 1 item'), await evaluate(`__t.bar()`))
 check('the tab shows the unsaved dot', await evaluate(`!!document.querySelector('.tab.active .tab-dirty')`), null)
 await save()
 check('saved: “Saved 1 item to orders”', await waitFor(`__t.bar().includes('Saved 1 item to orders')`), await evaluate(`__t.bar()`))
 check('DynamoDB has city = Pune, as text', JSON.stringify((await o(K[1])).city) === '{"S":"Pune"}', (await o(K[1])).city)
+await sameExcept(before, [K[1]], 'one cell saved')
 check('still 50 items (nothing reloaded to page 1)', (await evaluate(`__t.rows('items')`)) === 50, await evaluate(`__t.rows('items')`))
 
 // 2. A number cell stays a number; text there is refused, nothing saved.
@@ -82,12 +92,24 @@ await evaluate(`(() => { const s = document.querySelector('.add-field select'); 
 await click(`[...document.querySelectorAll('.add-field .btn')].find((b) => b.innerText === 'Add')`)
 check('the new column is there, typed number', await waitFor(`__t.col('items', 'tier') > 0`), null)
 await shot(`${shots}/d2-new-field.png`)
+before = await snapshot('orders', KEYS)
 await editCell(K[7], 'tier', '3')
 await editCell(K[8], 'tier', '4')
 await save()
 check('new field saved on 2 items as numbers', JSON.stringify((await o(K[7])).tier) === '{"N":"3"}' && JSON.stringify((await o(K[8])).tier) === '{"N":"4"}',
   [(await o(K[7])).tier, (await o(K[8])).tier])
 check('2 items saved together', await waitFor(`__t.bar().includes('Saved 2 items to orders')`), await evaluate(`__t.bar()`))
+await sameExcept(before, [K[7], K[8]], 'two items saved together')
+
+// 5b. Load more, then edit an item from the second page: only it changes.
+await click(`[...__t.pane().querySelectorAll('.rows-pane .grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
+check('Load more: 100 items in the table', await waitFor(`__t.rows('items') === 100`), await evaluate(`__t.rows('items')`))
+const page2 = await evaluate(`[...__t.grid('items').querySelectorAll('tbody tr')].slice(50).map((tr) => tr.children[1].innerText)`)
+before = await snapshot('orders', KEYS)
+await editCell(page2[7], 'city', 'Page2')
+await save()
+check('a second-page item saves', await waitFor(`__t.bar().includes('Saved 1 item to orders')`) && (await o(page2[7])).city?.S === 'Page2', (await o(page2[7])).city)
+await sameExcept(before, [page2[7]], 'second-page item saved')
 
 // 6. The JSON view: change a value, add fields (typed by the JSON), remove one; the key can't change.
 await dblclick(`__t.row('items', '${noted[1]}').children[0]`)
@@ -142,8 +164,11 @@ await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.in
 check('delete asks first, naming the item', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('userId = ${K[13]}, createdAt = ${1731400000 + Number(K[13].slice(1))}')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
 await shot(`${shots}/d3-delete.png`)
+before = await snapshot('orders', KEYS)
 await click(`document.querySelector('.delete-rows .btn-danger')`)
 check('deleted: gone from DynamoDB and the grid', await waitFor(`!__t.row('items', '${K[13]}')`) && !(await o(K[13])), await evaluate(`__t.rows('items')`))
+await sameExcept(before, [K[13]], 'one item deleted')
+check('119 items remain', Object.keys(await snapshot('orders', KEYS)).length === 119, null)
 check('“Deleted 1 item from orders”', await waitFor(`__t.bar().includes('Deleted 1 item from orders')`), await evaluate(`__t.bar()`))
 
 // 9. Copy as JSON keeps types.
@@ -161,9 +186,12 @@ check('SELECT: 50 results, Load more', await waitFor(`__t.rows('results') === 50
 check('results say editable (orders)', (await evaluate(`__t.pane().querySelector('.results-pane .grid-status')?.innerText`))?.includes('editable (orders)'),
   await evaluate(`__t.pane().querySelector('.results-pane .grid-status')?.innerText`))
 await shot(`${shots}/d4-partiql.png`)
+before = await snapshot('orders', KEYS)
 await editCell(K[15], 'city', 'FromPartiQL', 'results')
 await save()
 check('a result edit saves to DynamoDB', (await o(K[15])).city?.S === 'FromPartiQL', (await o(K[15])).city)
+await sameExcept(before, [K[15]], 'PartiQL result edit')
+before = await snapshot('orders', KEYS)
 await click(`[...__t.pane().querySelectorAll('.results-pane .grid-pager .btn')].find((b) => b.innerText.includes('Load more'))`)
 check('Load more: 100 results', await waitFor(`__t.rows('results') === 100`), await evaluate(`__t.rows('results')`))
 await click(`__t.pane().querySelector('.sql-bar .cm-content')`)
@@ -172,6 +200,7 @@ await type(`UPDATE "orders" SET "city" = 'ViaUpdate' WHERE "userId" = '${K[16]}'
 await key('Enter', MOD)
 check('UPDATE runs: ✓ UPDATE', await waitFor(`__t.pane().querySelector('.tab-notice.ok')?.innerText.includes('✓ UPDATE')`), await evaluate(`[__t.pane().querySelector('.tab-notice, .tab-notice-banner')?.innerText, __t.pane().querySelector('.sql-bar .cm-content')?.innerText]`))
 check('…and changed the item', (await o(K[16])).city?.S === 'ViaUpdate', (await o(K[16])).city)
+await sameExcept(before, [K[16]], 'PartiQL UPDATE')
 await key('a', MOD)
 await type(`SELEC oops`)
 await key('Enter', MOD)

@@ -21,6 +21,26 @@ export async function ddb(op, body) {
 
 export const getItem = async (table, key) => (await ddb('GetItem', { TableName: table, Key: key, ConsistentRead: true })).Item
 
+// Every item of a table as one string per key ("u001|1731400001" → its
+// fields' JSON, A to Z): comparing two snapshots shows exactly which items changed.
+export async function snapshot(table, keyNames) {
+  const out = {}
+  let start
+  do {
+    const page = await ddb('Scan', { TableName: table, ConsistentRead: true, ...(start && { ExclusiveStartKey: start }) })
+    for (const item of page.Items) {
+      const key = keyNames.map((k) => Object.values(item[k])[0]).join('|')
+      out[key] = Object.keys(item).sort().map((f) => `${f}=${JSON.stringify(item[f])}`).join(' ')
+    }
+    start = page.LastEvaluatedKey
+  } while (start)
+  return out
+}
+
+// Which keys differ between two snapshots (changed, added or removed), sorted.
+export const changedKeys = (before, after) =>
+  [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort()
+
 // orders: userId (text) + createdAt (number), 120 items of mixed types (a
 // note on every 5th, a NULL on every 7th); events: 3 items keyed by id.
 export async function seed() {

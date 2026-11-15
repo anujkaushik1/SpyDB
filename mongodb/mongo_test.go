@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"fmt"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -368,4 +369,166 @@ func TestApplyAllOrNothing(t *testing.T) {
 		t.Fatalf("single server: %v, order 1's total %d", err, first)
 	}
 	t.Logf("transactions: %v", s.txns)
+}
+
+// dumpAll is every document of a collection as canonical extended JSON,
+// keyed by its _id's: equal strings mean the document is exactly the same.
+func dumpAll(t *testing.T, coll *mongo.Collection) map[string]string {
+	t.Helper()
+	cursor, err := coll.Find(context.Background(), bson.D{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cursor.Close(context.Background())
+	out := map[string]string{}
+	for cursor.Next(context.Background()) {
+		id, _ := bson.MarshalExtJSON(bson.D{{Key: "_id", Value: cursor.Current.Lookup("_id")}}, true, false)
+		doc, _ := bson.MarshalExtJSON(cursor.Current, true, false)
+		out[string(id)] = string(doc)
+	}
+	return out
+}
+
+// Saving or deleting a document touches that document and no other,
+// whatever its _id is: a number, text or an ObjectId.
+func TestOnlyThatDocumentChanges(t *testing.T) {
+	s, db := testServer(t)
+	ctx := context.Background()
+	// mixed: 30 documents with _ids of the three kinds, alike otherwise.
+	coll := db.Collection("mixed")
+	var docs bson.A
+	var ids []any
+	for i := 0; i < 30; i++ {
+		var id any
+		switch i % 3 {
+		case 0:
+			id = int32(i)
+		case 1:
+			id = fmt.Sprintf("doc-%d", i)
+		default:
+			id = bson.NewObjectID()
+		}
+		ids = append(ids, id)
+		docs = append(docs, bson.D{{Key: "_id", Value: id}, {Key: "city", Value: "Delhi"}, {Key: "total", Value: int64(100)}, {Key: "tags", Value: bson.A{"a", "b"}}})
+	}
+	if _, err := coll.InsertMany(ctx, docs); err != nil {
+		t.Fatal(err)
+	}
+	// The _ids as the screen sends them (Document.ID): as FindDocuments lists them.
+	page, err := s.FindDocuments(ctx, DocumentQuery{Collection: "mixed", PageSize: 100})
+	if err != nil || len(page.Documents) != 30 {
+		t.Fatalf("%d documents, %v", len(page.Documents), err)
+	}
+	keyOf := func(id any) string {
+		b, _ := bson.MarshalExtJSON(bson.D{{Key: "_id", Value: id}}, true, false)
+		return string(b)
+	}
+	docID := func(id any) string {
+		for _, d := range page.Documents {
+			if d.Fields["_id"].Text == screenIDText(id) {
+				return d.ID
+			}
+		}
+		t.Fatalf("no document shown with _id %v", id)
+		return ""
+	}
+
+	expectOnly := func(what string, before, after map[string]string, changed ...any) {
+		t.Helper()
+		want := map[string]bool{}
+		for _, id := range changed {
+			want[keyOf(id)] = true
+		}
+		for key, was := range before {
+			if want[key] {
+				if after[key] == was {
+					t.Errorf("%s: %s should have changed", what, key)
+				}
+				continue
+			}
+			if after[key] != was {
+				t.Errorf("%s: %s changed too:\n  was %s\n  now %s", what, key, was, after[key])
+			}
+		}
+		if len(after) != len(before)-countDeleted(before, after, want) {
+			t.Errorf("%s: %d documents, was %d", what, len(after), len(before))
+		}
+	}
+
+	for i, picked := range []int{3, 4, 5} { // one of each kind of _id, one at a time
+		before := dumpAll(t, coll)
+		_, err := s.SaveDocuments(ctx, "mixed", []DocumentEdit{{
+			ID:      docID(ids[picked]),
+			Old:     map[string]Shown{"city": {Has: true, Text: "Delhi"}, "note": {}},
+			Changes: map[string]FieldChange{"city": {Text: fmt.Sprintf("Pune%d", i)}, "note": {Text: "added"}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectOnly(fmt.Sprintf("save %v", ids[picked]), before, dumpAll(t, coll), ids[picked])
+	}
+
+	// Several at once (one transaction, or one by one on a single server).
+	before := dumpAll(t, coll)
+	_, err = s.SaveDocuments(ctx, "mixed", []DocumentEdit{
+		{ID: docID(ids[9]), Old: map[string]Shown{"total": {Has: true, Text: "100"}}, Changes: map[string]FieldChange{"total": {Text: "900"}}},
+		{ID: docID(ids[10]), Old: map[string]Shown{"total": {Has: true, Text: "100"}}, Changes: map[string]FieldChange{"total": {Text: "1000"}}},
+		{ID: docID(ids[11]), Old: map[string]Shown{"tags": {Has: true, Text: `["a","b"]`}}, Changes: map[string]FieldChange{"tags": {Remove: true}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectOnly("save 9, 10, 11", before, dumpAll(t, coll), ids[9], ids[10], ids[11])
+
+	// Delete one of each kind, then two at once.
+	for _, picked := range []int{15, 16, 17} {
+		before := dumpAll(t, coll)
+		n, err := s.DeleteDocuments(ctx, "mixed", []DocumentDelete{{ID: docID(ids[picked]), Old: map[string]Shown{"city": {Has: true, Text: "Delhi"}}}})
+		if err != nil || n != 1 {
+			t.Fatal(n, err)
+		}
+		after := dumpAll(t, coll)
+		if _, there := after[keyOf(ids[picked])]; there {
+			t.Errorf("%v wasn't deleted", ids[picked])
+		}
+		expectOnly(fmt.Sprintf("delete %v", ids[picked]), before, after, ids[picked])
+	}
+	before = dumpAll(t, coll)
+	if n, err := s.DeleteDocuments(ctx, "mixed", []DocumentDelete{
+		{ID: docID(ids[20]), Old: map[string]Shown{"city": {Has: true, Text: "Delhi"}}},
+		{ID: docID(ids[22]), Old: map[string]Shown{"city": {Has: true, Text: "Delhi"}}},
+	}); err != nil || n != 2 {
+		t.Fatal(n, err)
+	}
+	after := dumpAll(t, coll)
+	expectOnly("delete 20 and 22", before, after, ids[20], ids[22])
+	if len(after) != 25 {
+		t.Errorf("%d documents left; want 25", len(after))
+	}
+}
+
+// screenIDText is an _id as Document.Fields["_id"].Text shows it.
+func screenIDText(id any) string {
+	switch v := id.(type) {
+	case int32:
+		return fmt.Sprint(v)
+	case string:
+		return v
+	case bson.ObjectID:
+		return v.Hex()
+	}
+	return fmt.Sprint(id)
+}
+
+// countDeleted is how many of the changed documents (want) are gone from after.
+func countDeleted(before, after map[string]string, want map[string]bool) int {
+	n := 0
+	for key := range want {
+		if _, was := before[key]; was {
+			if _, is := after[key]; !is {
+				n++
+			}
+		}
+	}
+	return n
 }

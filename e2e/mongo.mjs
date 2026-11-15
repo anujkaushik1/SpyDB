@@ -4,9 +4,10 @@
 // a ⌘T tab, the tab menu, ⌘R, ⌘P, switching databases, saved connections,
 // and Postgres, DynamoDB and MongoDB connected at once. Only the databases
 // spydb_test_e2e (seeded by run.mjs with mongoseed) and spydb_test_e2e_other.
+import { execFileSync } from 'node:child_process'
 import { check, MOD, sleep } from './cdp.mjs'
 
-export default async function mongo(p, { shots, pg, mongoUrl }) {
+export default async function mongo(p, { shots, pg, mongoUrl, root }) {
 const { evaluate, click, dblclick, rightClick, key, type, waitFor, shot } = p
 const DB = 'spydb_test_e2e'
 const helpers = `window.__t = {
@@ -36,6 +37,15 @@ const setLabelled = (label, value) => evaluate(`(() => { const input = [...docum
 const choose = (selector, value) => evaluate(`(() => { const s = ${selector}; s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
 const formButton = (label) => `[...__t.mongoForm().querySelectorAll('.btn')].find((b) => b.innerText === '${label}')`
 const railButton = (short) => `[...document.querySelectorAll('.rail-engine')].find((b) => b.innerText.trim() === '${short}')`
+// Every document of a collection (mongoseed dump: _id → the document as
+// canonical JSON, so types count), to see what a save or delete changed.
+const snapshot = (collection) => JSON.parse(execFileSync('go', ['run', './e2e/mongoseed', mongoUrl, 'dump', DB, collection], { cwd: root, encoding: 'utf8' }))
+const changedIds = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort()
+const idOf = (n) => `{"_id":{"$numberInt":"${n}"}}`
+const sameExcept = (before, ids, what) => {
+  const diff = changedIds(before, snapshot('orders'))
+  check(`${what}: of 120 orders, only _id ${ids.join(', ')} changed`, JSON.stringify(diff) === JSON.stringify(ids.map(idOf).sort()), diff)
+}
 
 await evaluate(helpers)
 
@@ -80,6 +90,11 @@ const sortBy = `[...__t.grid('docs').querySelectorAll('thead .grid-head')].find(
 await click(sortBy)
 await click(sortBy)
 check('sorted by total ↓, back on page 1', await waitFor(`__t.ids('docs')[0] === '120' && __t.status().includes('sorted by total ↓')`), await evaluate(`[__t.ids('docs').slice(0, 3), __t.status()]`))
+let before = snapshot('orders')
+await editCell('116', 'status', 'SORTED')
+await save()
+check('an edit while sorted ↓ saves', await waitFor(`__t.bar().includes('Saved 1 document to orders')`), await evaluate(`[__t.bar(), __t.error()]`))
+sameExcept(before, [116], 'edit while sorted')
 await click(sortBy)
 await choose(`__t.pane().querySelector('.filter-bar select[aria-label="Filter field"]')`, 'status')
 await click(`__t.pane().querySelector('.filter-bar .filter-value')`)
@@ -96,6 +111,8 @@ await click(`[...__t.pane().querySelectorAll('.filter-bar .btn')].find((b) => b.
 check('Clear: page 1 again', await waitFor(`__t.rows('docs') === 50 && __t.ids('docs')[0] === '1'`), await evaluate(`__t.rows('docs')`))
 
 // 4. Edit a cell: a long stays a long; ⌘S saves in place.
+before = snapshot('orders')
+check('120 orders before any edit', Object.keys(before).length === 120, Object.keys(before).length)
 await editCell('1', 'total', '150')
 check('the edit waits in the changes bar', (await evaluate(`__t.bar()`)).includes('1 unsaved change in 1 document'), await evaluate(`__t.bar()`))
 check('the tab shows the unsaved dot', await evaluate(`!!document.querySelector('.tab.active .tab-dirty')`), null)
@@ -103,6 +120,7 @@ await save()
 check('Saved 1 document to orders', await waitFor(`__t.bar().includes('Saved 1 document to orders')`), await evaluate(`[__t.bar(), __t.error()]`))
 check('shown in place; total is still a long', (await text('1', 'total')) === '150' && (await evaluate(`__t.colType('docs', 'total')`)) === 'long',
   [await text('1', 'total'), await evaluate(`__t.colType('docs', 'total')`)])
+sameExcept(before, [1], 'one cell saved')
 await editCell('2', 'total', 'lots')
 await save()
 check('text in a whole-number field is refused, saying why', await waitFor(`__t.error().includes('isn’t a whole number')`), await evaluate(`__t.error()`))
@@ -115,12 +133,14 @@ await type('rating')
 await choose(`__t.pane().querySelector('.add-field select')`, 'double')
 await click(`[...__t.pane().querySelectorAll('.add-field .btn')].find((b) => b.innerText === 'Add')`)
 check('the new column is there', await waitFor(`__t.col('docs', 'rating') > 0`), null)
+before = snapshot('orders')
 await editCell('3', 'rating', '4.5')
 await editCell('4', 'rating', '3')
 await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText.includes('Save'))`)
 check('Saved 2 documents', await waitFor(`__t.bar().includes('Saved 2 documents to orders')`), await evaluate(`[__t.bar(), __t.error()]`))
 check('rating is a double (3 saved as a number)', (await evaluate(`__t.colType('docs', 'rating')`)) === 'double' && (await text('4', 'rating')) === '3',
   [await evaluate(`__t.colType('docs', 'rating')`), await text('4', 'rating')])
+sameExcept(before, [3, 4], 'two documents saved together')
 
 // 6. The JSON view: change, add (typed by the JSON), remove; _id can't change.
 await dblclick(`__t.row('docs', '5').children[0]`)
@@ -165,8 +185,11 @@ check('row menu speaks of documents', menu[0] === 'View document as JSON' && men
 await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete document…')`)
 check('delete asks first, naming the document', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('Delete document from orders') && document.querySelector('.delete-rows')?.innerText.includes('_id = ')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
+before = snapshot('orders')
 await click(`document.querySelector('.delete-rows .btn-danger')`)
 check('Deleted 1 document; gone from the page', await waitFor(`__t.bar().includes('Deleted 1 document from orders') && !__t.row('docs', '7')`), await evaluate(`__t.bar()`))
+sameExcept(before, [7], 'one document deleted')
+check('119 orders remain', Object.keys(snapshot('orders')).length === 119, null)
 
 // 9. The query editor behind </>: find (editable), aggregate, writes, a typo.
 // (Of the 40 NEW orders, 7 was deleted above.)
@@ -176,10 +199,12 @@ await setCode(`__t.pane().querySelector('.sql-bar .cm-content')`, 'db.orders.fin
 await run()
 check('find: 40 results, editable', await waitFor(`__t.rows('results') === 40 && __t.pane().querySelector('.results-pane .grid-status')?.innerText.includes('editable (orders)')`),
   await evaluate(`[__t.rows('results'), __t.notice()]`))
+before = snapshot('orders')
 await editCell('120', 'status', 'PAID-X', 'results')
 await save()
 check('a result edit saves', await waitFor(`${cell('120', 'status', 'results')}?.innerText === 'PAID-X' && __t.bar('results').includes('Saved 1 document')`),
   await evaluate(`[__t.bar('results'), __t.pane().querySelector('.results-pane .changes-error')?.innerText]`))
+sameExcept(before, [120], 'query result edit')
 await setCode(`__t.pane().querySelector('.sql-bar .cm-content')`, 'db.orders.aggregate([{$group: {_id: "$status", n: {$sum: 1}}}, {$sort: {_id: 1}}])')
 await run()
 check('aggregate: groups, read-only', await waitFor(`__t.rows('results') >= 3 && __t.pane().querySelector('.results-pane .grid-status')?.innerText.includes('read-only')`), await evaluate(`[__t.rows('results'), __t.notice()]`))
@@ -244,6 +269,24 @@ check('⌘P lists the collections', await waitFor(`[...document.querySelectorAll
 await type('peo')
 await key('Enter')
 check('…and opens one', await waitFor(`document.querySelector('.tab.active')?.innerText.includes('people')`), null)
+// people's _ids are ObjectIds: an edit and a delete there touch only that document.
+await evaluate(helpers)
+check('people: 2 documents', await waitFor(`__t.rows('docs') === 2`), await evaluate(`__t.rows('docs')`))
+const people = await evaluate(`__t.ids('docs')`)
+const peopleBefore = snapshot('people')
+await editCell(people[0], 'city', 'Goa')
+await save()
+check('an ObjectId document saves', await waitFor(`__t.bar().includes('Saved 1 document to people')`), await evaluate(`[__t.bar(), __t.error()]`))
+let peopleDiff = changedIds(peopleBefore, snapshot('people'))
+check('only that ObjectId document changed', peopleDiff.length === 1 && peopleDiff[0].includes(people[0]) && snapshot('people')[peopleDiff[0]].includes('"city":"Goa"'), peopleDiff)
+await rightClick(`__t.row('docs', '${people[1]}').children[0]`)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete document…')`)
+await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
+const peopleMid = snapshot('people')
+await click(`document.querySelector('.delete-rows .btn-danger')`)
+check('an ObjectId document deletes', await waitFor(`__t.bar().includes('Deleted 1 document from people') && __t.rows('docs') === 1`), await evaluate(`__t.bar()`))
+peopleDiff = changedIds(peopleMid, snapshot('people'))
+check('only that ObjectId document went', peopleDiff.length === 1 && peopleDiff[0].includes(people[1]) && Object.keys(snapshot('people')).length === 1, peopleDiff)
 
 // 13. Another database on the server: its own (no) tabs; back again.
 await click(`document.querySelector('.mongo-sidebar .db-picker-button')`)

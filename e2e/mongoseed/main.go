@@ -3,6 +3,7 @@
 //
 //	go run ./e2e/mongoseed <url> reset spydb_test_e2e   (drop it, then add made-up documents)
 //	go run ./e2e/mongoseed <url> drop spydb_test_e2e …
+//	go run ./e2e/mongoseed <url> dump spydb_test_e2e orders   (every document, as JSON by _id, to compare)
 //
 // It only ever touches databases named spydb_test_*, so pointing it at a
 // MongoDB with real data in it can't harm that data.
@@ -10,6 +11,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -21,10 +23,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 4 || (os.Args[2] != "reset" && os.Args[2] != "drop") {
-		fail("usage: mongoseed <url> reset|drop spydb_test_<name> …")
+	if len(os.Args) < 4 || (os.Args[2] != "reset" && os.Args[2] != "drop" && os.Args[2] != "dump") {
+		fail("usage: mongoseed <url> reset|drop spydb_test_<name> … | dump spydb_test_<name> <collection>")
 	}
 	url, action, names := os.Args[1], os.Args[2], os.Args[3:]
+	if action == "dump" {
+		names = names[:1]
+	}
 	for _, name := range names {
 		if !strings.HasPrefix(name, "spydb_test_") {
 			fail("refusing " + name + ": only spydb_test_* databases")
@@ -37,6 +42,10 @@ func main() {
 		fail(err.Error())
 	}
 	defer client.Disconnect(context.Background())
+	if action == "dump" {
+		dump(ctx, client.Database(names[0]).Collection(os.Args[4]))
+		return
+	}
 	for _, name := range names {
 		if err := client.Database(name).Drop(ctx); err != nil {
 			fail(err.Error())
@@ -71,6 +80,34 @@ func main() {
 	}); err != nil {
 		fail(err.Error())
 	}
+}
+
+// dump prints every document of the collection as one JSON object: its _id
+// (canonical extended JSON) → the whole document (canonical extended JSON,
+// so types count: 150 as a long differs from 150 as a double). The tests
+// compare two dumps to see exactly which documents a save or delete changed.
+func dump(ctx context.Context, coll *mongo.Collection) {
+	cursor, err := coll.Find(ctx, bson.D{})
+	if err != nil {
+		fail(err.Error())
+	}
+	out := map[string]string{}
+	for cursor.Next(ctx) {
+		id, err := bson.MarshalExtJSON(bson.D{{Key: "_id", Value: cursor.Current.Lookup("_id")}}, true, false)
+		if err != nil {
+			fail(err.Error())
+		}
+		doc, err := bson.MarshalExtJSON(cursor.Current, true, false)
+		if err != nil {
+			fail(err.Error())
+		}
+		out[string(id)] = string(doc)
+	}
+	if err := cursor.Err(); err != nil {
+		fail(err.Error())
+	}
+	text, _ := json.Marshal(out)
+	fmt.Println(string(text))
 }
 
 func fail(message string) {
