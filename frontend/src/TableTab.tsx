@@ -42,12 +42,14 @@ type Props = {
   onSchemaChange: () => void
   onDirtyChange: (dirty: boolean) => void // unsaved cell edits in this tab
   onFollow: (target: FollowTarget) => void
+  onFiltersChange?: (filters: TableFilter[]) => void // the applied filters, for Duplicate
+  refreshSignal?: number // ⌘R / Ctrl+R: a change reloads the rows, as ↻ does
 }
 
 // One table or view: rows a page at a time with sorting and filters
 // (DBService.TableData). Clicking </> swaps the filter bar for a SQL editor;
 // the rows stay below until a query returns rows of its own.
-export default function TableTab({ table, tabId, preset, onSchemaChange, onDirtyChange, onFollow }: Props) {
+export default function TableTab({ table, tabId, preset, onSchemaChange, onDirtyChange, onFollow, onFiltersChange, refreshSignal }: Props) {
   const [sqlMode, setSqlMode] = useState(false)
   // Unsaved edits in the table's rows and in query results, shown as a dot on the tab.
   const [rowsDirty, setRowsDirty] = useState(false)
@@ -56,6 +58,7 @@ export default function TableTab({ table, tabId, preset, onSchemaChange, onDirty
   // Bumped to reload the rows: after a query ran, and when leaving the editor.
   const [reloadSignal, setReloadSignal] = useState(0)
   const reload = () => setReloadSignal((n) => n + 1)
+  useEffect(() => { if (refreshSignal) reload() }, [refreshSignal])
 
   const toggleSql = () => {
     if (sqlMode) reload()
@@ -77,6 +80,7 @@ export default function TableTab({ table, tabId, preset, onSchemaChange, onDirty
           table={table}
           preset={preset}
           onFollow={onFollow}
+          onFiltersChange={onFiltersChange}
           onImported={onSchemaChange}
           toggle={<SqlModeToggle on={false} onToggle={toggleSql} />}
           reloadSignal={reloadSignal}
@@ -95,6 +99,7 @@ type TableViewProps = {
   table: TableInfo
   preset?: FilterPreset
   onFollow: (target: FollowTarget) => void
+  onFiltersChange?: (filters: TableFilter[]) => void
   onImported: () => void // rows were imported: refresh the sidebar's counts
   toggle: ReactNode // the </> button, at the start of the filter bar
   reloadSignal: number // a change reloads the rows
@@ -105,7 +110,7 @@ type TableViewProps = {
   onDirtyChange: (dirty: boolean) => void
 }
 
-function TableView({ table, preset, onFollow, onImported, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
+function TableView({ table, preset, onFollow, onFiltersChange, onImported, toggle, reloadSignal, top, notice, results, showResults, onDirtyChange }: TableViewProps) {
   const [importOpen, setImportOpen] = useState(false)
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<Sort>(null)
@@ -114,6 +119,7 @@ function TableView({ table, preset, onFollow, onImported, toggle, reloadSignal, 
     filters.length > 0 ? filters.map((f) => ({ ...f, key: nextKey.current++ })) : [emptyFilter(nextKey.current++)]
   const [draft, setDraft] = useState<DraftFilter[]>(() => draftOf(preset?.filters ?? []))
   const [applied, setApplied] = useState<TableFilter[]>(preset?.filters ?? [])
+  useEffect(() => onFiltersChange?.(applied), [applied])
   const [foreignKeys, setForeignKeys] = useState<GridForeignKey[]>([])
   const [reloadToken, setReloadToken] = useState(0)
   const [data, setData] = useState<TablePage | null>(null)
@@ -322,6 +328,7 @@ function TableView({ table, preset, onFollow, onImported, toggle, reloadSignal, 
         rowKeys={gridKeys}
         readOnlyReason={readOnlyReason ?? undefined}
         onSaved={() => setReloadToken((t) => t + 1)}
+        canDelete
         onDirtyChange={onDirtyChange}
         sort={sort}
         onSort={toggleSort}

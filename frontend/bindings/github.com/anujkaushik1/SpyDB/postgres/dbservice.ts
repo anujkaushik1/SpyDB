@@ -79,10 +79,39 @@ export function DeleteConnection(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DeleteEffects looks up what deleting rows of target does besides, and
+ * whether DeleteRows would delete them at all, checked as the role it runs
+ * as: target's session role (SET ROLE) if it has one, else the login's
+ * (table tabs).
+ */
+export function DeleteEffects(target: $models.EditTarget): $CancellablePromise<$models.DeleteEffects> {
+    return $Call.ByID(1479786942, target);
+}
+
+/**
  * DeleteQuery removes a saved query; deleting one that's already gone is fine.
  */
 export function DeleteQuery(id: string): $CancellablePromise<void> {
     return $Call.ByID(3771278604, id);
+}
+
+/**
+ * DeleteRows deletes rows of target, all in one transaction: either every
+ * row is deleted or none is. It returns how many rows were deleted.
+ * 
+ * First it finds each row as the grid showed it, as SaveRows finds one
+ * (primary key, or ctid plus the whole row's MD5) with every value shown
+ * still the same, and locks it: a row someone else changed or deleted since
+ * refuses the whole delete. Then it deletes each by its key. Locked, no
+ * other session can change those rows any more, so a row that has changed
+ * or gone by its turn was changed by these deletes themselves: another
+ * picked row's ON DELETE CASCADE or SET NULL, or a trigger. Rows of other
+ * tables go or change as their foreign keys say (DeleteEffects lists them
+ * for the confirmation). A table with DELETE rules is refused: they make a
+ * DELETE do something else, which can't be checked.
+ */
+export function DeleteRows(target: $models.EditTarget, rows: $models.RowDelete[] | null): $CancellablePromise<number> {
+    return $Call.ByID(404311757, target, rows);
 }
 
 /**

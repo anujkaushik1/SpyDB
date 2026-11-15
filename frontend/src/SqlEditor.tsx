@@ -46,6 +46,7 @@ type Props = {
   onSchemaChange: () => void
   onRan: () => void // a run finished without error; the table's rows may have changed
   onDirtyChange?: (dirty: boolean) => void // unsaved edits in the results
+  onSqlChange?: (sql: string) => void // the text, on every change
   onSave?: (sql: string) => void // query tabs: a Save button and ⌘S / Ctrl+S in the editor
   saveState?: 'idle' | 'saving' | 'saved'
   // 'bar': a compact editor in place of the table tab's filter bar.
@@ -57,7 +58,7 @@ type Props = {
 // Runs any SQL on the connection opened by Connect (DBService.RunQuery). It
 // keeps its text and last result while the tab is open; the table tab decides
 // where the pieces go.
-export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSave, saveState = 'idle', layout = 'bar', children }: Props) {
+export default function SqlEditor({ tabId, initialSql, active, leading, onSchemaChange, onRan, onDirtyChange, onSqlChange, onSave, saveState = 'idle', layout = 'bar', children }: Props) {
   const [sql, setSql] = useState(initialSql)
   const [hasSelection, setHasSelection] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
@@ -150,7 +151,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
       initialValue={initialSql}
       placeholderText={`Write SQL…   ${shortcut('↵')} to run`}
       schema={schema}
-      onChange={setSql}
+      onChange={(text) => { setSql(text); onSqlChange?.(text) }}
       onSelectionChange={setHasSelection}
       onRun={run}
       onRunCurrent={runCurrent}
@@ -229,14 +230,16 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
     }
     case 'done': {
       const statements = outcome.result.results ?? []
-      const { runId, pageSize, durationMs } = outcome.result
+      const { runId, pageSize, durationMs, reconnected } = outcome.result
       const withRows = statements.filter((r) => (r.columns ?? []).length > 0)
+      // The old connection was cut (the Mac slept, the network changed…): this ran on a new one.
+      const meta = <span className="tab-notice-meta"> · {durationMs} ms{reconnected && ' · reconnected (the old connection was lost)'}</span>
       if (withRows.length === 0) {
         // INSERT / UPDATE / CREATE …: say what happened; the table's rows stay below.
         notice = (
           <p className="tab-notice ok">
             {statements.length === 0 ? 'Nothing to run.' : statements.map((r) => `✓ ${r.command}`).join('  ·  ')}
-            <span className="tab-notice-meta"> · {durationMs} ms</span>
+            {meta}
           </p>
         )
         break
@@ -244,7 +247,7 @@ export default function SqlEditor({ tabId, initialSql, active, leading, onSchema
       notice = (
         <p className="tab-notice">
           Query results{statements.length > 1 ? ` · ${statements.length} statements` : ''}
-          <span className="tab-notice-meta"> · {durationMs} ms</span>
+          {meta}
           <button type="button" className="link-btn tab-notice-action" onClick={showRows}>Show table rows</button>
         </p>
       )

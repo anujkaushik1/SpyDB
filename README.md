@@ -2,6 +2,34 @@
 
 A fast, lightweight Postgres desktop client for macOS and Ubuntu, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
 
+## Install or update
+
+The same commands install SpyDB the first time and update it later; saved connections and queries are kept. Each [release](https://github.com/anujkaushik1/SpyDB/releases/latest) has both files.
+
+**Mac** (Apple silicon, macOS 12 or newer). Paste in Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-mac.sh | sh
+```
+
+[`install-mac.sh`](install-mac.sh) checks the Mac, downloads the latest release, checks the download, quits SpyDB if it's open, replaces the app and opens it; if anything fails, the installed app is left as it was. Downloaded this way, macOS doesn't ask about an unidentified developer. (Downloaded with a browser instead, the first open needs System Settings → Privacy & Security → Open Anyway.)
+
+**Ubuntu** (22.04 or newer). Paste in Terminal:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/anujkaushik1/SpyDB/main/install-ubuntu.sh | sh
+```
+
+[`install-ubuntu.sh`](install-ubuntu.sh) finds the latest release, downloads its `.deb` and installs it with apt (it asks for your password). Or download the `.deb` from the release page and double-click it.
+
+Both commands stay the same for every release.
+
+### Updates
+
+From 0.1.8, SpyDB checks for a newer release each time it opens and offers to install it: **Install and restart** downloads it, checks it and swaps it in (on Ubuntu the system asks for your password), or **Later**. Where it can't install by itself (a Mac user who can't change `/Applications`, an Ubuntu without `pkexec`), it shows the command above instead.
+
+To require an update, raise the platform's minimum in [`updates.json`](updates.json) on `main`: SpyDB older than that offers the update without **Later** (only **Quit**). Raise `mac` and `ubuntu` separately, so a Mac-only fix doesn't push Ubuntu users to update. A minimum only takes effect once a release that meets it is out.
+
 ## Features
 
 - **Connect** from a form or a pasted `postgres://` URL. Test first, save connections by name, and reconnect from the 10 most recent. Errors are in plain language ("Nothing is accepting connections on localhost:5433").
@@ -200,6 +228,7 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
 | `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
 | `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
+| `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`) |
 
 | React (window), in `frontend/src/` | |
 |---|---|
@@ -210,3 +239,4 @@ If the GTK4 build fails with `bwrap: … Operation not permitted`, the system is
 | `SchemaSidebar.tsx`, `DatabasePicker.tsx`, `TablePalette.tsx` | Sidebar, switcher, ⌘P |
 | `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
 | `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ImportDialog.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, import, active connections |
+| `UpdateCheck.tsx` | The update offered when SpyDB opens |

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SpyDB
+Comment=A fast, lightweight Postgres client
+Exec=spydb
+Icon=spydb
+Categories=Development;Database;
+Terminal=false
+StartupWMClass=spydb

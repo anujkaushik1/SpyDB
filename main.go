@@ -3,10 +3,12 @@ package main
 import (
 	"embed"
 	"log"
+	"runtime"
 	"time"
 
 	"github.com/anujkaushik1/SpyDB/dynamo"
 	"github.com/anujkaushik1/SpyDB/postgres"
+	"github.com/anujkaushik1/SpyDB/updater"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -18,7 +20,13 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// refreshTabEvent asks the window to reload the open table tab's rows, as
+// its ↻ button does: View → Reload (⌘R) in the macOS menu sends it.
+const refreshTabEvent = "spydb:refresh-tab"
+
 func main() {
+	zoom := &ZoomService{} // gets the window below
+
 	// 'Services' is a list of Go struct instances. The frontend can call their
 	// exported methods through the generated bindings.
 	app := application.New(application.Options{
@@ -27,6 +35,8 @@ func main() {
 		Services: []application.Service{
 			application.NewService(&postgres.DBService{}),
 			application.NewService(&dynamo.Service{}),
+			application.NewService(zoom),
+			application.NewService(&updater.Service{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -40,11 +50,13 @@ func main() {
 		Server: application.ServerOptions{WriteTimeout: 30 * time.Minute},
 	})
 
+	setMenu(app) // macOS: ⌘R reloads the open tab's rows, not the window (menu_darwin.go)
+
 	// On macOS the title bar is hidden so the frontend's own header (.titlebar)
 	// sits under the traffic lights; InvisibleTitleBarHeight keeps it draggable.
 	// Linux and Windows keep the system title bar, and the frontend hides its
 	// header there (see main.tsx / style.css).
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	zoom.window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "SpyDB",
 		Width:     1120,
 		Height:    720,
@@ -57,6 +69,7 @@ func main() {
 		},
 		BackgroundColour: application.NewRGB(14, 14, 16),
 		URL:              "/",
+		Zoom:             startZoom(runtime.GOOS), // Linux and Windows: the zoom from last time (see zoom.go)
 	})
 
 	// Run the application. This blocks until the application has been exited.

@@ -56,6 +56,52 @@ export interface DBConfig {
 }
 
 /**
+ * DeleteEffects is what deleting rows of a table does besides, for the
+ * confirmation to show before anything is deleted.
+ */
+export interface DeleteEffects {
+    /**
+     * the database it's in, e.g. "cashier"
+     */
+    "database": string;
+
+    /**
+     * host:port of the connection
+     */
+    "server": string;
+
+    /**
+     * who the delete runs as
+     */
+    "role": string;
+
+    /**
+     * tables whose rows pointing at the deleted ones are deleted too (ON DELETE CASCADE, also through those)
+     */
+    "cascades": string[] | null;
+
+    /**
+     * tables whose rows pointing at them get NULL or their default (ON DELETE SET NULL / SET DEFAULT)
+     */
+    "setsNull": string[] | null;
+
+    /**
+     * the table's DELETE triggers that fire (enabled, not replica-only)
+     */
+    "triggers": string[] | null;
+
+    /**
+     * the table's DELETE rules
+     */
+    "rules": string[] | null;
+
+    /**
+     * why SpyDB won't delete here; "" if it will
+     */
+    "blocked": string;
+}
+
+/**
  * EditTarget is the table that edited cells are saved to, and how each row
  * is found again.
  */
@@ -84,6 +130,8 @@ export interface EditTarget {
      * Session holds settings of the session the rows were read in (role,
      * search_path, date/time and number formats); a save uses the same, so
      * it runs with the same privileges and values compare and parse alike.
+     * nil for a table tab's rows, read with the pool's own settings: a save
+     * then runs with those, plus the search_path SET in the editor, if any.
      */
     "session": { [_ in string]?: string } | null;
 
@@ -319,6 +367,11 @@ export interface QueryResult {
     "pageSize": number;
     "results": StatementResult[] | null;
     "durationMs": number;
+
+    /**
+     * The editor's connection had been lost, and this ran on a new one.
+     */
+    "reconnected": boolean;
 }
 
 /**
@@ -328,6 +381,21 @@ export interface QueryResult {
 export interface ResultPage {
     "rows": ((string | null)[] | null)[] | null;
     "keys": ((string | null)[] | null)[] | null;
+}
+
+/**
+ * RowDelete is one row to delete: its key, and the values the grid showed.
+ */
+export interface RowDelete {
+    /**
+     * EditTarget.Key name → this row's value
+     */
+    "key": { [_ in string]?: string | null } | null;
+
+    /**
+     * table column → its value when loaded; the delete fails if one changed
+     */
+    "old": { [_ in string]?: string | null } | null;
 }
 
 /**

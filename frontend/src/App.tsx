@@ -1,7 +1,9 @@
+import { Events } from '@wailsio/runtime'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
+import { DBService, type ConnectionInfo, type ConnectionLists, type SavedConnection, type SavedQuery, type SchemaInfo, type TableFilter, type TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { Service as Dynamo, type AWSIdentity, type Connection as DynamoConnection } from '../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import { errorMessage } from './Banner'
+import ConfirmDialog from './ConfirmDialog'
 import ConnectionForm, { type FormRequest } from './ConnectionForm'
 import ConnectionsSidebar from './ConnectionsSidebar'
 import DynamoSidebar from './dynamo/DynamoSidebar'
@@ -19,6 +21,7 @@ import TableTab, { type FollowTarget } from './TableTab'
 import { targetKey } from './connectionSearch'
 import { CodeIcon, TableIcon } from './icons'
 import { upsertQuery } from './savedQueries'
+import { activeAfterClose, tabsToClose, type CloseCommand } from './tabActions'
 import { completionSchema, type CompletionSchema } from './sqlCompletion'
 import { SqlSchemaContext } from './sqlSchema'
 
@@ -53,6 +56,15 @@ function App() {
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set())
   // Numbers for query tabs: Query 1, Query 2, … (not reused after closing).
   const queryNumber = useRef(0)
+  // Each tab's latest filters (table tabs) or SQL (query tabs), for Duplicate.
+  const tabState = useRef<Record<string, { filters?: TableFilter[]; sql?: string }>>({})
+  // Tabs waiting to close until the user confirms losing their unsaved edits.
+  const [closing, setClosing] = useState<{ ids: string[]; from?: string } | null>(null)
+  const duplicateSeq = useRef(0)
+  // ⌘R / Ctrl+R: per table tab, how many times its rows were asked to reload.
+  const [refreshes, setRefreshes] = useState<Record<string, number>>({})
+  const refreshActive = useRef(() => {}) // set below, once tabs and the active tab are known
+  const lastRefresh = useRef(0)
   // Disconnected screen: saved + recent connections, and what the form should load.
   const [lists, setLists] = useState<ConnectionLists | null>(null)
   const [listsError, setListsError] = useState<string | null>(null)
@@ -133,13 +145,18 @@ function App() {
   }, [dynamo, loadDynamoTables])
 
   // While connected: ⌘P / Ctrl+P opens the table switcher (Postgres or
-  // DynamoDB), ⌘T / Ctrl+T a new query tab (Postgres only, for now).
+  // DynamoDB), ⌘T / Ctrl+T a new query tab (Postgres only, for now),
+  // ⌘R / Ctrl+R (with Shift too) reloads the open table tab's rows instead
+  // of the whole window.
   useEffect(() => {
     if (!connection && !dynamo) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
-      if (key === 'p') {
+      if (key === 'r') {
+        e.preventDefault()
+        refreshActive.current()
+      } else if (key === 'p') {
         e.preventDefault()
         setPaletteOpen(true)
       } else if (key === 't' && connection) {
@@ -335,16 +352,66 @@ function App() {
       return next
     })
 
-  // Closing the active tab moves to the tab on its left (or the right, if it was first).
-  const closeTab = (id: string) => {
-    const index = workspaceTabs.findIndex((t) => t.id === id)
-    const remaining = workspaceTabs.filter((t) => t.id !== id)
-    setTabs((current) => current.filter((t) => t.id !== id))
-    setTabDirty(id, false)
-    if (id === activeTab) setActiveTab(remaining[Math.max(0, index - 1)]?.id ?? '')
+  // Closes tabs of this workspace. If the active one goes, the tab the command
+  // was used on (from) takes over, else the one to its left (tabActions.ts).
+  const closeTabs = (ids: string[], from?: string) => {
+    const next = activeAfterClose(workspaceTabs.map((t) => t.id), ids, activeTab, from)
+    const gone = new Set(ids)
+    setTabs((current) => current.filter((t) => !gone.has(t.id)))
+    for (const id of ids) {
+      setTabDirty(id, false)
+      delete tabState.current[id]
+    }
+    if (next !== activeTab) setActiveTab(next)
+  }
+  // The tab bar's ✕, middle-click and Close commands: tabs with unsaved
+  // edits close only once the user says so.
+  const requestClose = (id: string, command: CloseCommand) => {
+    const ids = tabsToClose(workspaceTabs.map((t) => t.id), id, command)
+    const from = command === 'close' ? undefined : id
+    if (ids.some((x) => dirtyTabs.has(x))) setClosing({ ids, from })
+    else if (ids.length > 0) closeTabs(ids, from)
+  }
+
+  // A second tab like this one, right after it: a table with the same
+  // filters, or a query with the same SQL (not linked to its saved query).
+  const duplicateTab = (id: string) => {
+    const tab = workspaceTabs.find((t) => t.id === id)
+    if (!tab || !workspace) return
+    const state = tabState.current[id]
+    let copy: Tab
+    if (tab.kind === 'table') {
+      duplicateSeq.current += 1
+      copy = {
+        id: `${tab.id}#${duplicateSeq.current}`, workspace, kind: 'table', title: tab.title, table: tab.table,
+        preset: { filters: state?.filters ?? tab.preset?.filters ?? [], seq: ++presetSeq.current },
+      }
+    } else if (tab.kind === 'query') {
+      queryNumber.current += 1
+      copy = { id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `${tab.title} (copy)`, initialSql: state?.sql ?? tab.initialSql ?? '' }
+    } else {
+      return
+    }
+    setTabs((current) => {
+      const at = current.findIndex((t) => t.id === id)
+      return [...current.slice(0, at + 1), copy, ...current.slice(at + 1)]
+    })
+    setActiveTab(copy.id)
   }
 
   const active = workspaceTabs.find((t) => t.id === activeTab)
+
+  // Reload the open tab's rows, if it's a table tab: never the window (which
+  // closed every tab), and never a query tab's SQL (it could change data
+  // again). The macOS menu's View → Reload asks the same (menu_darwin.go);
+  // the key and the menu both firing for one ⌘R counts once.
+  refreshActive.current = () => {
+    const now = Date.now()
+    if (now - lastRefresh.current < 300 || active?.kind !== 'table') return
+    lastRefresh.current = now
+    setRefreshes((current) => ({ ...current, [active.id]: (current[active.id] ?? 0) + 1 }))
+  }
+  useEffect(() => Events.On('spydb:refresh-tab', () => refreshActive.current()), [])
   const activeTable = active?.kind === 'table' ? active.table.qualifiedName : null
   const activeDynamoTable = active?.kind === 'dynamo-table' ? active.table : null
 
@@ -472,7 +539,8 @@ function App() {
             </div>
           )}
           {workspace && workspaceTabs.length > 0 && (
-            <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={closeTab} dirtyIds={dirtyTabs} />
+            <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={requestClose}
+                    onDuplicate={duplicateTab} dirtyIds={dirtyTabs} />
           )}
           {/* Every open tab stays mounted, other connections' and while disconnected too (hidden),
               so coming back keeps its page, filters, SQL, results and unsaved edits. */}
@@ -482,13 +550,16 @@ function App() {
               <div key={tab.id} role="tabpanel" className={`tab-panel tab-panel-${tab.kind}`} hidden={!shown}>
                 {tab.kind === 'table' && (
                   <TableTab table={tab.table} tabId={tab.id} preset={tab.preset} onSchemaChange={loadSchemas}
-                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} onFollow={followKey} />
+                            onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)} onFollow={followKey}
+                            onFiltersChange={(filters) => { tabState.current[tab.id] = { ...tabState.current[tab.id], filters } }}
+                            refreshSignal={refreshes[tab.id]} />
                 )}
                 {tab.kind === 'query' && (
                   <QueryTab tabId={tab.id} title={tab.title} initialSql={tab.initialSql ?? ''} linked={!!tab.savedQueryId}
                             database={connection?.database ?? ''} active={shown} onSchemaChange={loadSchemas}
                             onDirtyChange={(dirty) => setTabDirty(tab.id, dirty)}
-                            onSaveQuery={(sql, name) => saveQueryFromTab(tab.id, sql, name)} />
+                            onSaveQuery={(sql, name) => saveQueryFromTab(tab.id, sql, name)}
+                            onSqlChange={(sql) => { tabState.current[tab.id] = { ...tabState.current[tab.id], sql } }} />
                 )}
                 {tab.kind === 'connections' && (
                   <ServerConnectionsPanel config={tab.config} temporary={false} />
@@ -500,6 +571,21 @@ function App() {
         </main>
         </SqlSchemaContext.Provider>
       </div>
+
+      {closing && (() => {
+        const dirty = tabs.filter((t) => closing.ids.includes(t.id) && dirtyTabs.has(t.id)).map((t) => t.title)
+        const n = closing.ids.length
+        return (
+          <ConfirmDialog
+            title="Discard unsaved changes?"
+            message={<>{dirty.length === 1 ? <strong>{dirty[0]}</strong> : <><strong>{dirty.length} tabs</strong> ({dirty.join(', ')})</>}{' '}
+              {dirty.length === 1 ? 'has' : 'have'} unsaved changes. Closing {n === 1 ? 'it' : `these ${n} tabs`} throws them away.</>}
+            confirmLabel={n === 1 ? 'Close and discard' : `Close ${n} tabs and discard`}
+            onConfirm={() => { closeTabs(closing.ids, closing.from); setClosing(null) }}
+            onCancel={() => setClosing(null)}
+          />
+        )
+      })()}
 
       {connection && importOpen && (
         <ImportDialog
