@@ -24,7 +24,17 @@ wails3 generate syso -arch amd64 -icon "$res/icon.ico" -manifest "$res/wails.exe
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags production -trimpath -buildvcs=false \
   -ldflags="-w -s -H windowsgui" -o bin/SpyDB.exe .
 
+ls -l bin/SpyDB.exe
+
 # 3. The installer, carrying the WebView2 bootstrapper for a Windows without WebView2.
+# makensis runs from the script's folder, where its paths start (on Windows
+# it doesn't move there for a script named with /, as Git Bash names it); a
+# $MAKENSIS in a container takes the repo's folder and the script's path.
 wails3 generate webview2bootstrapper -dir build/windows/nsis
-${MAKENSIS:-makensis} -V2 -DARG_WAILS_AMD64_BINARY=../../../bin/SpyDB.exe -DINFO_PRODUCTVERSION="$version" build/windows/nsis/project.nsi
+if [ -n "${MAKENSIS:-}" ]; then
+  $MAKENSIS -V2 '-DARG_WAILS_AMD64_BINARY=..\..\..\bin\SpyDB.exe' -DINFO_PRODUCTVERSION="$version" build/windows/nsis/project.nsi
+else
+  (cd build/windows/nsis && makensis -V2 '-DARG_WAILS_AMD64_BINARY=..\..\..\bin\SpyDB.exe' -DINFO_PRODUCTVERSION="$version" project.nsi)
+fi
+ls -l bin/SpyDB-windows-setup.exe
 echo "Built bin/SpyDB.exe and bin/SpyDB-windows-setup.exe ($version)."
