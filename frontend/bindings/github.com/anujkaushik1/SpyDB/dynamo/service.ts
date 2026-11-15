@@ -8,7 +8,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -23,9 +23,7 @@ import * as $models from "./models.js";
  * that opens the browser again (AWSSignIn).
  */
 export function AWSBrowserSignIn(profile: string, region: string): $CancellablePromise<$models.AWSIdentity> {
-    return $Call.ByID(1392217731, profile, region).then(($result: any) => {
-        return $$createType0($result);
-    });
+    return $Call.ByID(1392217731, profile, region);
 }
 
 /**
@@ -33,10 +31,8 @@ export function AWSBrowserSignIn(profile: string, region: string): $CancellableP
  * Ones with nothing to sign in with (kind "other", like a [default] that only
  * sets a region) are left out: signing in with them could only fail.
  */
-export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[]> {
-    return $Call.ByID(1498687985).then(($result: any) => {
-        return $$createType2($result);
-    });
+export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[] | null> {
+    return $Call.ByID(1498687985);
 }
 
 /**
@@ -50,9 +46,7 @@ export function AWSProfiles(): $CancellablePromise<$models.AWSProfile[]> {
  * nothing.
  */
 export function AWSSignIn(profile: string): $CancellablePromise<$models.AWSIdentity> {
-    return $Call.ByID(593297805, profile).then(($result: any) => {
-        return $$createType0($result);
-    });
+    return $Call.ByID(593297805, profile);
 }
 
 /**
@@ -73,16 +67,14 @@ export function CancelSignIn(): $CancellablePromise<void> {
  * stores nothing. Nothing goes to AWS yet; ListTables is the first call.
  */
 export function Connect(profile: string): $CancellablePromise<$models.Connection> {
-    return $Call.ByID(1299537164, profile).then(($result: any) => {
-        return $$createType3($result);
-    });
+    return $Call.ByID(1299537164, profile);
 }
 
 /**
  * DeleteItems deletes items of a table, all of them or none, checking first
  * (and again while deleting) that none changed since you loaded it.
  */
-export function DeleteItems(table: string, deletes: $models.ItemDelete[]): $CancellablePromise<number> {
+export function DeleteItems(table: string, deletes: $models.ItemDelete[] | null): $CancellablePromise<number> {
     return $Call.ByID(2900975203, table, deletes);
 }
 
@@ -98,9 +90,7 @@ export function DeleteSavedKeys(id: string): $CancellablePromise<void> {
  * items it has. FindItems keeps using this answer (see tableDetails).
  */
 export function DescribeTable(table: string): $CancellablePromise<$models.TableDetails> {
-    return $Call.ByID(3208458281, table).then(($result: any) => {
-        return $$createType4($result);
-    });
+    return $Call.ByID(3208458281, table);
 }
 
 /**
@@ -119,10 +109,8 @@ export function Disconnect(): $CancellablePromise<void> {
  * page by page (Scan). Either way it reads up to 50 items a page, so a page
  * can hold fewer matches than that. It only reads.
  */
-export function FindItems(table: string, filters: $models.Filter[], next: string): $CancellablePromise<$models.ItemsPage> {
-    return $Call.ByID(861075, table, filters, next).then(($result: any) => {
-        return $$createType5($result);
-    });
+export function FindItems(table: string, filters: $models.Filter[] | null, next: string): $CancellablePromise<$models.ItemsPage> {
+    return $Call.ByID(861075, table, filters, next);
 }
 
 /**
@@ -131,9 +119,7 @@ export function FindItems(table: string, filters: $models.Filter[], next: string
  * who they belong to, keeps them for Connect, and saves them if asked.
  */
 export function KeySignIn(k: $models.AccessKeys): $CancellablePromise<$models.AWSIdentity> {
-    return $Call.ByID(574403003, k).then(($result: any) => {
-        return $$createType0($result);
-    });
+    return $Call.ByID(574403003, k);
 }
 
 /**
@@ -141,10 +127,8 @@ export function KeySignIn(k: $models.AccessKeys): $CancellablePromise<$models.AW
  * DescribeTable per table, eight at a time (DescribeTable is free and
  * reads no items). A table that can't be described is listed without a count.
  */
-export function ListTableSummaries(): $CancellablePromise<$models.TableSummary[]> {
-    return $Call.ByID(3590393546).then(($result: any) => {
-        return $$createType7($result);
-    });
+export function ListTableSummaries(): $CancellablePromise<$models.TableSummary[] | null> {
+    return $Call.ByID(3590393546);
 }
 
 /**
@@ -152,20 +136,16 @@ export function ListTableSummaries(): $CancellablePromise<$models.TableSummary[]
  * (alphabetical) order. AWS gives up to 100 names per call; this asks
  * until it has them all.
  */
-export function ListTables(): $CancellablePromise<string[]> {
-    return $Call.ByID(53529079).then(($result: any) => {
-        return $$createType8($result);
-    });
+export function ListTables(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(53529079);
 }
 
 /**
  * PlanFind says how FindItems would read a table for these filters, without
  * reading it: the table tab shows it beside Apply.
  */
-export function PlanFind(table: string, filters: $models.Filter[]): $CancellablePromise<$models.FindPlan> {
-    return $Call.ByID(3402430042, table, filters).then(($result: any) => {
-        return $$createType9($result);
-    });
+export function PlanFind(table: string, filters: $models.Filter[] | null): $CancellablePromise<$models.FindPlan> {
+    return $Call.ByID(3402430042, table, filters);
 }
 
 /**
@@ -177,9 +157,7 @@ export function PlanFind(table: string, filters: $models.Filter[]): $Cancellable
  * DELETE change one item, which their WHERE must name by its whole key.
  */
 export function RunPartiQL(statement: string, next: string): $CancellablePromise<$models.PartiQLResult> {
-    return $Call.ByID(1513917116, statement, next).then(($result: any) => {
-        return $$createType10($result);
-    });
+    return $Call.ByID(1513917116, statement, next);
 }
 
 /**
@@ -192,44 +170,20 @@ export function RunPartiQL(statement: string, next: string): $CancellablePromise
  * which AWS charges double for). It returns the items as saved, in order; an
  * entry is nil if an item couldn't be read back (it was saved all the same).
  */
-export function SaveItems(table: string, edits: $models.ItemEdit[]): $CancellablePromise<{ [_ in string]?: $models.Value }[]> {
-    return $Call.ByID(2272635901, table, edits).then(($result: any) => {
-        return $$createType13($result);
-    });
+export function SaveItems(table: string, edits: $models.ItemEdit[] | null): $CancellablePromise<({ [_ in string]?: $models.Value } | null)[] | null> {
+    return $Call.ByID(2272635901, table, edits);
 }
 
 /**
  * SavedAccessKeys lists the keys saved on this computer, most recently used first.
  */
-export function SavedAccessKeys(): $CancellablePromise<$models.SavedKeys[]> {
-    return $Call.ByID(3302241691).then(($result: any) => {
-        return $$createType15($result);
-    });
+export function SavedAccessKeys(): $CancellablePromise<$models.SavedKeys[] | null> {
+    return $Call.ByID(3302241691);
 }
 
 /**
  * SavedKeySignIn signs in with keys saved earlier (SavedKeys.ID).
  */
 export function SavedKeySignIn(id: string): $CancellablePromise<$models.AWSIdentity> {
-    return $Call.ByID(2307058334, id).then(($result: any) => {
-        return $$createType0($result);
-    });
+    return $Call.ByID(2307058334, id);
 }
-
-// Private type creation functions
-const $$createType0 = $models.AWSIdentity.createFrom;
-const $$createType1 = $models.AWSProfile.createFrom;
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $models.Connection.createFrom;
-const $$createType4 = $models.TableDetails.createFrom;
-const $$createType5 = $models.ItemsPage.createFrom;
-const $$createType6 = $models.TableSummary.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Array($Create.Any);
-const $$createType9 = $models.FindPlan.createFrom;
-const $$createType10 = $models.PartiQLResult.createFrom;
-const $$createType11 = $models.Value.createFrom;
-const $$createType12 = $Create.Map($Create.Any, $$createType11);
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = $models.SavedKeys.createFrom;
-const $$createType15 = $Create.Array($$createType14);

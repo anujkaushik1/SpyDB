@@ -6,7 +6,7 @@ export {
     DBService
 };
 
-export {
+export type {
     Column,
     ColumnDescription,
     ConnectionInfo,

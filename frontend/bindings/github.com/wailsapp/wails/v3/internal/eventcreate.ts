@@ -6,17 +6,4 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as dynamo$0 from "../../../../anujkaushik1/SpyDB/dynamo/models.js";
-
-function configure() {
-    Object.freeze(Object.assign($Create.Events, {
-        "dynamo:aws-cli-setup": $$createType0,
-    }));
-}
-
-// Private type creation functions
-const $$createType0 = dynamo$0.AWSCLISetup.createFrom;
-
-configure();
+Object.freeze($Create.Events);

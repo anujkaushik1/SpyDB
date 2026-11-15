@@ -40,11 +40,11 @@ export default function TableDetails({ target, onClose }: { target: DetailsTarge
       ]
       sections = [
         { title: 'Columns', columns: ['Name', 'Type', 'Nullable', 'Default', 'Primary key', 'Comment'],
-          rows: pg.columns.map((c) => [<code key="n">{c.name}</code>, c.type, yes(c.nullable), c.identity ? `identity (${c.identity})` : c.default ? <code key="d">{c.default}</code> : '', yes(c.primaryKey), c.comment]) },
+          rows: (pg.columns ?? []).map((c) => [<code key="n">{c.name}</code>, c.type, yes(c.nullable), c.identity ? `identity (${c.identity})` : c.default ? <code key="d">{c.default}</code> : '', yes(c.primaryKey), c.comment]) },
         { title: 'Indexes', columns: ['Name', 'Columns', 'Unique', 'Method', 'Size'], empty: 'No indexes.',
-          rows: pg.indexes.map((ix) => [<code key="n" title={ix.definition}>{ix.name}{ix.primary ? ' (primary key)' : ''}</code>, ix.columns.join(', '), yes(ix.unique), ix.method, formatSize(ix.sizeBytes)]) },
+          rows: (pg.indexes ?? []).map((ix) => [<code key="n" title={ix.definition}>{ix.name}{ix.primary ? ' (primary key)' : ''}</code>, (ix.columns ?? []).join(', '), yes(ix.unique), ix.method, formatSize(ix.sizeBytes)]) },
         { title: 'Foreign keys', columns: ['Name', 'Columns', 'Points to'], empty: 'No foreign keys.',
-          rows: pg.foreignKeys.map((fk) => [<code key="n">{fk.name}</code>, fk.columns.join(', '), `${fk.refQualifiedName} (${fk.refColumns.join(', ')})`]) },
+          rows: (pg.foreignKeys ?? []).map((fk) => [<code key="n">{fk.name}</code>, (fk.columns ?? []).join(', '), `${fk.refQualifiedName} (${(fk.refColumns ?? []).join(', ')})`]) },
       ]
     }
   } else {
