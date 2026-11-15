@@ -3,6 +3,7 @@ package dynamo
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -50,7 +51,8 @@ func TestKeySignInOnDynamoDBLocal(t *testing.T) {
 	if !strings.Contains(string(data), `"secretAccessKey": "secret"`) {
 		t.Fatalf("the secret isn't in the file: %s", data)
 	}
-	if info, _ := os.Stat(file); info.Mode().Perm()&0o077 != 0 {
+	// Windows has no file modes: the folder is in the user's profile, which Windows keeps to that user.
+	if info, _ := os.Stat(file); runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("file readable by others: %v", info.Mode())
 	}
 
