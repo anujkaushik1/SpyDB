@@ -374,7 +374,8 @@ function App() {
   }
 
   // A second tab like this one, right after it: a table with the same
-  // filters, or a query with the same SQL (not linked to its saved query).
+  // filters, a query with the same SQL (not linked to its saved query), or
+  // a DynamoDB table from its first page.
   const duplicateTab = (id: string) => {
     const tab = workspaceTabs.find((t) => t.id === id)
     if (!tab || !workspace) return
@@ -389,6 +390,9 @@ function App() {
     } else if (tab.kind === 'query') {
       queryNumber.current += 1
       copy = { id: `query-${queryNumber.current}`, workspace, kind: 'query', title: `${tab.title} (copy)`, initialSql: state?.sql ?? tab.initialSql ?? '' }
+    } else if (tab.kind === 'dynamo-table') {
+      duplicateSeq.current += 1
+      copy = { id: `${tab.id}#${duplicateSeq.current}`, workspace, kind: 'dynamo-table', title: tab.title, table: tab.table }
     } else {
       return
     }
