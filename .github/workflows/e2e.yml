@@ -1,9 +1,9 @@
 # Tests SpyDB on GitHub's own Ubuntu (22.04 and 24.04), Windows and Mac
 # computers, against a real database of each kind SpyDB opens:
-#   - the Go tests, with Postgres and DynamoDB Local for the ones that need them;
+#   - the Go tests, with Postgres, DynamoDB Local and MongoDB for the ones that need them;
 #   - e2e/run.mjs: the app (its server build) in headless Chrome, used like a
 #     person would: connect, open tables, edit, save, delete, query, switch.
-# Postgres and DynamoDB Local run on the test computer itself, with made-up
+# Postgres, DynamoDB Local and MongoDB run on the test computer itself, with made-up
 # data; nothing here reaches AWS or any real database.
 # Runs on every push to a branch, or from Actions → "End-to-end tests" → Run.
 name: End-to-end tests
@@ -28,6 +28,8 @@ jobs:
     env:
       E2E_DDB: http://127.0.0.1:8000
       E2E_PG_DB: postgres
+      E2E_MONGO_URL: mongodb://127.0.0.1:27017
+      MONGO_VERSION: "8.0.4"
       E2E_SHOTS: ${{ github.workspace }}/e2e-shots
     defaults:
       run:
@@ -44,11 +46,12 @@ jobs:
           node-version: 24
 
       # ----- The databases, on this computer ---------------------------------
-      - name: "Ubuntu: Postgres and DynamoDB Local in Docker"
+      - name: "Ubuntu: Postgres, DynamoDB Local and MongoDB in Docker"
         if: runner.os == 'Linux'
         run: |
           docker run -d --name pg -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16
           docker run -d --name ddb -p 8000:8000 amazon/dynamodb-local:latest
+          docker run -d --name mongo -p 27017:27017 mongo:${MONGO_VERSION}
           echo "E2E_PG_USER=postgres" >> "$GITHUB_ENV"
 
       - name: "Windows: its own Postgres, trusting this computer"
@@ -84,10 +87,25 @@ jobs:
           cd "$RUNNER_TEMP/ddb"
           nohup java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -inMemory -sharedDb -port 8000 > ddb.log 2>&1 &
 
-      - name: Wait for both
+      - name: "Windows: MongoDB (its download)"
+        if: runner.os == 'Windows'
         run: |
+          curl -fsSL -o mongo.zip "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-${MONGO_VERSION}.zip"
+          unzip -q mongo.zip -d "$RUNNER_TEMP/mongo" && mkdir -p "$RUNNER_TEMP/mongo-data"
+          nohup "$RUNNER_TEMP"/mongo/mongodb-win32-x86_64-windows-*/bin/mongod.exe --dbpath "$RUNNER_TEMP/mongo-data" --port 27017 --bind_ip 127.0.0.1 > "$RUNNER_TEMP/mongo.log" 2>&1 &
+
+      - name: "Mac: MongoDB (its download)"
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL -o mongo.tgz "https://fastdl.mongodb.org/osx/mongodb-macos-arm64-${MONGO_VERSION}.tgz"
+          mkdir -p "$RUNNER_TEMP/mongo" "$RUNNER_TEMP/mongo-data" && tar -xzf mongo.tgz -C "$RUNNER_TEMP/mongo"
+          nohup "$RUNNER_TEMP"/mongo/mongodb-macos-*/bin/mongod --dbpath "$RUNNER_TEMP/mongo-data" --port 27017 --bind_ip 127.0.0.1 > "$RUNNER_TEMP/mongo.log" 2>&1 &
+
+      - name: Wait for all three
+        run: |
+          mongo_up() { node -e "require('net').connect(27017, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"; }
           for i in $(seq 1 90); do
-            pg_isready -h localhost -p 5432 -q && curl -s -o /dev/null http://127.0.0.1:8000 && { echo "both up"; exit 0; }
+            pg_isready -h localhost -p 5432 -q && curl -s -o /dev/null http://127.0.0.1:8000 && mongo_up && { echo "all up"; exit 0; }
             sleep 2
           done
           echo "the databases didn't start"; exit 1
@@ -115,6 +133,7 @@ jobs:
       - name: Go tests, with the databases
         env:
           SPYDB_DYNAMO_LOCAL: http://127.0.0.1:8000
+          SPYDB_MONGO_URL: mongodb://127.0.0.1:27017
           SPYDB_TEST_HOST: localhost
           SPYDB_TEST_DATABASE: postgres
         run: |

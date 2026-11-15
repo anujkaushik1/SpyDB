@@ -1,6 +1,6 @@
 # SpyDB
 
-A fast, lightweight Postgres desktop client for macOS, Ubuntu and Windows, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
+A fast, lightweight desktop client for Postgres, DynamoDB and MongoDB on macOS, Ubuntu and Windows, built with Go ([Wails v3](https://v3.wails.io/)) and React. The whole app is 21 MB.
 
 ## Install or update
 
