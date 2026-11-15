@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Service as Mongo, type DocumentPage, type Filter } from '../../bindings/github.com/anujkaushik1/SpyDB/mongodb'
 import Banner, { errorMessage } from '../Banner'
 import DataGrid, { type Sort } from '../DataGrid'
+import ExportMenu, { type ExportChoice } from '../ExportMenu'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
 import { addSeen, docColumns, docKeys, docRows, fieldType, NEW_FIELD_TYPES, toDoc, type Doc, type NewField, type SeenFields } from './docGrid'
 import MongoQueryEditor from './MongoQueryEditor'
@@ -228,6 +229,23 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
     setAdding(null)
   }
 
+  // Export: every document that matches, in the order shown; or the whole collection.
+  const exportOrder = { collection, sortBy: sort?.column ?? '', sortDesc: sort?.desc ?? false }
+  const exportChoices: ExportChoice[] = [
+    ...(filtered ? [{
+      label: `Filtered documents (${applied.length} filter${applied.length > 1 ? 's' : ''})`,
+      note: 'Every document that matches, not just this page',
+      fileName: `${collection}_filtered`,
+      run: (path: string, format: string) => Mongo.ExportCollection({ ...exportOrder, filters: applied }, path, format),
+    }] : []),
+    {
+      label: 'Whole collection',
+      note: 'A column per field; objects and lists as JSON',
+      fileName: collection,
+      run: (path: string, format: string) => Mongo.ExportCollection({ ...exportOrder, filters: [] }, path, format),
+    },
+  ]
+
   const first = page * PAGE_SIZE + 1
   const filterBar = (
     <div className="filter-bar" onKeyDown={(e) => {
@@ -317,6 +335,7 @@ function DocumentsView({ collection, preset, onFiltersChange, onFields, toggle, 
           {data && ` · ${data.durationMs} ms`}
         </span>
         <div className="grid-pager">
+          {columns.length > 0 && <ExportMenu choices={exportChoices} />}
           <div className="add-field-wrap">
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding((a) => (a ? null : { name: '', type: 'string' }))}
                     title="Add a field: a new column to type values into, saved with the documents you fill in">

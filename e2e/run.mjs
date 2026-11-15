@@ -3,11 +3,12 @@
 // person would: clicks, typing, keys. The same on macOS, Ubuntu and Windows
 // (.github/workflows/e2e.yml runs it on each).
 //
-//   node e2e/run.mjs [postgres] [dynamo] …   (default: all of them)
+//   node e2e/run.mjs [postgres] [dynamo] [mongo] …   (default: all of them)
 //
 // Needs, already running: Postgres (E2E_PG_USER, E2E_PG_DB, E2E_PG_PASSWORD;
-// psql on the PATH or E2E_PSQL) and DynamoDB Local (E2E_DDB, default
-// http://127.0.0.1:8000). The server build: E2E_SERVER (default
+// psql on the PATH or E2E_PSQL), DynamoDB Local (E2E_DDB, default
+// http://127.0.0.1:8000) and MongoDB (E2E_MONGO_URL, default
+// mongodb://127.0.0.1:27017; only spydb_test_* databases are written). The server build: E2E_SERVER (default
 // bin/spydb-server), built with `go build -tags server`. Chrome: E2E_CHROME.
 // Screenshots go to E2E_SHOTS (default a temporary folder). Each test gets a
 // fresh app with its own empty settings folder, and a fake AWS CLI (fakeaws)
@@ -46,6 +47,15 @@ const suites = {
     after: () => sql('DROP TABLE IF EXISTS spydb_ui_test'),
   },
   dynamo: { before: seed, after: () => {} },
+  mongo: {
+    before: () => mongoseed('reset', 'spydb_test_e2e', 'spydb_test_e2e_other'),
+    after: () => mongoseed('drop', 'spydb_test_e2e', 'spydb_test_e2e_other'),
+  },
+}
+// MongoDB (E2E_MONGO_URL): mongoseed only ever touches spydb_test_* databases.
+const mongoUrl = env.E2E_MONGO_URL ?? 'mongodb://127.0.0.1:27017'
+function mongoseed(...args) {
+  execFileSync('go', ['run', './e2e/mongoseed', mongoUrl, ...args], { cwd: root, stdio: 'inherit' })
 }
 const picked = process.argv.slice(2).length > 0 ? process.argv.slice(2) : Object.keys(suites)
 
@@ -104,7 +114,7 @@ for (const name of picked) {
     const page = await open(debugPort, `http://localhost:${port}/`)
     try {
       const test = (await import(`./${name}.mjs`)).default
-      await test(page, { shots: join(shots, name), pg, sql, root })
+      await test(page, { shots: join(shots, name), pg, sql, root, mongoUrl })
     } finally {
       page.close()
     }

@@ -68,6 +68,18 @@ export function Disconnect(): $CancellablePromise<void> {
 }
 
 /**
+ * ExportCollection writes the documents to path as CSV or Excel ("csv" or
+ * "xlsx"), one row each, with a column per field (_id first, then in the
+ * order fields first appear) and values as the grid shows them; objects
+ * and arrays as JSON. Documents needn't share fields, so they're read once
+ * into a temporary file while the columns are gathered, then written out:
+ * the server is read only once. It returns how many were written.
+ */
+export function ExportCollection(q: $models.ExportQuery, path: string, format: string): $CancellablePromise<number> {
+    return $Call.ByID(3557127194, q, path, format);
+}
+
+/**
  * FetchMore reads the next page of a tab's result.
  */
 export function FetchMore(tab: string, runID: number): $CancellablePromise<$models.QueryPage> {

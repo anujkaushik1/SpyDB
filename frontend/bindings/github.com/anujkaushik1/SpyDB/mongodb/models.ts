@@ -195,6 +195,17 @@ export interface DocumentQuery {
 }
 
 /**
+ * ExportQuery is what a collection tab exports: every document that matches
+ * the filters (all of them with none), in the tab's order.
+ */
+export interface ExportQuery {
+    "collection": string;
+    "filters": Filter[] | null;
+    "sortBy": string;
+    "sortDesc": boolean;
+}
+
+/**
  * FieldChange is one field's new value.
  */
 export interface FieldChange {

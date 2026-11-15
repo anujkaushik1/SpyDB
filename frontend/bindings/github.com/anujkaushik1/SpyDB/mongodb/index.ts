@@ -16,6 +16,7 @@ export type {
     DocumentEdit,
     DocumentPage,
     DocumentQuery,
+    ExportQuery,
     FieldChange,
     Filter,
     QueryPage,

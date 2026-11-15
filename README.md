@@ -69,7 +69,17 @@ To require an update, raise the platform's minimum in [`updates.json`](updates.j
 - **Delete** items from the right-click menu, after a confirmation.
 - **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time and its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
 
-**Switch engines without disconnecting:** Pg / Dy in the left rail. Each engine stays connected, with its tabs, while you use the other.
+### MongoDB
+
+- **Connect** with a connection string (`mongodb://` or `mongodb+srv://`, as Atlas gives it) or host, port, user, password and auth database, with TLS for hosted servers. Test first, save connections by name, and reconnect from the 10 most recent.
+- **Browse** a database's collections with about how many documents each holds (from the server's metadata: nothing is scanned). Switch to another database or saved connection from the top of the sidebar; each database keeps its own tabs. ⌘P / Ctrl+P jumps to a collection.
+- **Collection tabs:** 50 documents per page, `_id` first and then fields in the order they appear, sort by any field, and filters (equals, contains, >, exists and 6 more) that type your value like the field (an ObjectId, a number, a date).
+- **Edit in place:** type in a cell, add a field as a new column (text, number, true / false, date, ObjectId or JSON), edit a document as JSON (adding a key adds the field, deleting one removes it), ✕ in a cell to remove a field. Fields keep their type: a long stays a long, a date a date, and the untouched parts of an object keep theirs. Saves are checked: each changed field must still hold what you saw, by `_id`; on a replica set or cluster all of them save in one transaction.
+- **Delete** documents from the right-click menu, after a confirmation.
+- **Queries:** `</>` in a collection tab, or ⌘T / Ctrl+T for a query tab, in mongosh's syntax: `db.orders.find({status: "PAID"}).sort({_id: -1})`, `aggregate`, `countDocuments`, `distinct`, `insertOne` / `insertMany`, `updateOne` / `updateMany`, `replaceOne`, `deleteOne` / `deleteMany`, with `ObjectId(…)`, `ISODate(…)`, `NumberLong(…)` and the like. Results come 50 at a time; `find` results are editable. Esc cancels.
+- **Export** filtered documents or a whole collection to CSV or Excel.
+
+**Switch engines without disconnecting:** Pg / Dy / Mg in the left rail. Each engine stays connected, with its tabs, while you use another.
 
 ## How it works
 
@@ -201,12 +211,13 @@ wails3 dev                                # run with hot reload
 cd frontend && npm test                   # window unit tests
 SPYDB_TEST_DATABASE=mydb go test ./...    # Go tests against a local Postgres (they create and drop their own schemas)
 SPYDB_DYNAMO_LOCAL=http://127.0.0.1:8000 go test ./dynamo/   # DynamoDB writes, against DynamoDB Local (docker run -p 8000:8000 amazon/dynamodb-local)
+SPYDB_MONGO_URL=mongodb://127.0.0.1:27017 go test ./mongodb/   # MongoDB, in databases named spydb_test_* it makes and drops (docker run -p 27017:27017 mongo:8.0)
 go build -tags server -o bin/spydb-server . && E2E_PG_USER=me E2E_PG_DB=mydb node e2e/run.mjs   # the app in headless Chrome
 wails3 build                              # binary in bin/
 wails3 task package                       # macOS app bundle in bin/spydb.app
 ```
 
-The end-to-end tests (`e2e/`) click through the real app in headless Chrome against a test Postgres and DynamoDB Local, with made-up data; GitHub runs them on Ubuntu 22.04 and 24.04, Windows and macOS on every push (`.github/workflows/e2e.yml`).
+The end-to-end tests (`e2e/`) click through the real app in headless Chrome against a test Postgres, DynamoDB Local and MongoDB (`E2E_MONGO_URL`, only `spydb_test_*` databases), with made-up data; GitHub runs them on Ubuntu 22.04 and 24.04, Windows and macOS on every push (`.github/workflows/e2e.yml`).
 
 To pre-fill the connect form while developing, copy `db.config.example.json` to `db.config.json` (gitignored, since it can hold a password).
 
@@ -260,6 +271,9 @@ The release workflow does the same on GitHub's Windows computer, then installs t
 | `postgres/returning.go` | Adds `RETURNING *` to UPDATEs, when safe |
 | `postgres/connections.go`, `queries.go` | Saved connections and queries on disk |
 | `postgres/dbconfig.go`, `dberrors.go` | Connection settings; plain-language errors |
+| `mongodb/service.go`, `config.go`, `connections.go` | MongoDB: connect, databases and collections; connection settings; saved connections |
+| `mongodb/find.go`, `values.go`, `edits.go` | Pages of documents and filters; BSON values as text and back, keeping types; saving and deleting safely |
+| `mongodb/shell.go`, `query.go`, `export.go` | The query editor's mongosh-like commands and their results; CSV and Excel export |
 | `updater/` | Checks for a newer release when SpyDB opens and installs it (`install_darwin.go`, `install_linux.go`, `install_windows.go`) |
 
 | React (window), in `frontend/src/` | |
@@ -272,3 +286,4 @@ The release workflow does the same on GitHub's Windows computer, then installs t
 | `ConnectionForm.tsx`, `ConnectionsSidebar.tsx` | The connect screen |
 | `JsonEditorModal.tsx`, `ExportMenu.tsx`, `ImportDialog.tsx`, `ServerConnectionsPanel.tsx` | JSON editor, export, import, active connections |
 | `UpdateCheck.tsx` | The update offered when SpyDB opens |
+| `mongo/` | MongoDB's connect screen, sidebar, collection and query tabs (`docGrid.ts`: documents ↔ grid ↔ what Go saves) |

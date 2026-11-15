@@ -1085,7 +1085,9 @@ kbd {
 /* ----- Table tab: filter bar, grid, status bar ----------------------------- */
 .tab-panel-table,
 .tab-panel-query,
-.tab-panel-dynamo-table {
+.tab-panel-dynamo-table,
+.tab-panel-mongo-collection,
+.tab-panel-mongo-query {
     display: flex;
     flex-direction: column;
 }

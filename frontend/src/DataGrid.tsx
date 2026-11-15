@@ -736,7 +736,7 @@ export default function DataGrid(props: Props) {
                       >
                         {isEditing && editing ? (
                           <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit}
-                                      removable={!!store && baseValue(i, j) !== undefined} />
+                                      removable={store && baseValue(i, j) !== undefined ? one : undefined} />
                         ) : value === null ? 'NULL' : value === undefined ? '' : cellText(value, category)}
                         {links.length > 0 && (
                           <button type="button" className="cell-link" tabIndex={-1}
@@ -892,7 +892,7 @@ function LinkMenu({ x, y, links, onPick, onClose }: { x: number; y: number; link
 type EditorProps = {
   initial: string
   typed: boolean // editing began by typing a character, so the value already changed
-  removable?: boolean // a document's field: offer taking it off the document
+  removable?: string // a document store's field: offer taking it off the row, named so (an item, a document)
   onDone: (result: { value: CellValue } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => void
 }
 
@@ -956,7 +956,7 @@ function CellEditor({ initial, typed, removable, onDone }: EditorProps) {
         NULL
       </button>
       {removable && (
-        <button type="button" className="cell-null-btn" title="Remove the field from this item"
+        <button type="button" className="cell-null-btn" title={`Remove the field from this ${removable}`}
                 onMouseDown={(e) => e.preventDefault()} onClick={() => finish({ value: undefined })}>
           ✕
         </button>
