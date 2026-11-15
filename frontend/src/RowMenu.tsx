@@ -16,6 +16,7 @@ type Props = {
   x: number // where the right-click happened, in viewport px
   y: number
   rowCount: number
+  noun?: [string, string] // what a row is: ['row', 'rows'] (Postgres), ['item', 'items'] (DynamoDB)…
   onCopyValue?: () => void // given when the click was on a cell
   onOpenJson?: () => void // given when that cell is json / jsonb
   onViewJson: () => void // the selected rows as JSON
@@ -27,7 +28,8 @@ type Props = {
 
 // The grid's right-click menu: copy the clicked value, or the selected rows
 // in one of the formats; last, apart, delete them.
-export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onViewJson, onCopy, onDelete, deleteBlocked, onClose }: Props) {
+export default function RowMenu({ x, y, rowCount, noun = ['row', 'rows'], onCopyValue, onOpenJson, onViewJson, onCopy, onDelete, deleteBlocked, onClose }: Props) {
+  const [one, many] = noun
   const root = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: x, top: y })
   useDismiss(true, root, onClose)
@@ -71,12 +73,12 @@ export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onVie
     <div className="row-menu" role="menu" ref={root} style={position} onKeyDown={onKeyDown}
          onContextMenu={(e) => e.preventDefault()}>
       <button type="button" role="menuitem" className="row-menu-item" onClick={onViewJson}>
-        View {rowCount === 1 ? 'row' : `${rowCount.toLocaleString()} rows`} as JSON
+        View {rowCount === 1 ? one : `${rowCount.toLocaleString()} ${many}`} as JSON
       </button>
       {onOpenJson && <button type="button" role="menuitem" className="row-menu-item" onClick={onOpenJson}>Open in JSON editor</button>}
       {onCopyValue && <button type="button" role="menuitem" className="row-menu-item" onClick={onCopyValue}>Copy value</button>}
       <div className="row-menu-sep" role="separator" />
-      <p className="row-menu-title">Copy {rowCount.toLocaleString()} row{rowCount === 1 ? '' : 's'} as</p>
+      <p className="row-menu-title">Copy {rowCount.toLocaleString()} {rowCount === 1 ? one : many} as</p>
       {FORMATS.map(({ format, hint }) => (
         <button key={format} type="button" role="menuitem" className="row-menu-item" onClick={() => onCopy(format)}>
           {FORMAT_LABELS[format]}
@@ -87,7 +89,7 @@ export default function RowMenu({ x, y, rowCount, onCopyValue, onOpenJson, onVie
         <>
           <div className="row-menu-sep" role="separator" />
           <button type="button" role="menuitem" className="row-menu-item danger" onClick={onDelete} disabled={!onDelete}>
-            Delete {rowCount === 1 ? 'row' : `${rowCount.toLocaleString()} rows`}…
+            Delete {rowCount === 1 ? one : `${rowCount.toLocaleString()} ${many}`}…
           </button>
           {deleteBlocked && <p className="row-menu-note">{deleteBlocked}</p>}
         </>

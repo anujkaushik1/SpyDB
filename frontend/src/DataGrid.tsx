@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { DBService, type EditTarget, type ForeignKey, type RowDelete, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
+import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner } from './icons'
 import { copyText } from './clipboard'
@@ -32,23 +32,50 @@ type Cell = { row: number; col: number }
 const MIN_COLUMN = 56 // px
 const MAX_FIT = 2400 // double-click fits a column to its values, up to this (wider than the 400px cells start at in style.css)
 
-type Values = Record<string, string | null> // column (or key name) → value; null is NULL
+// A cell: text (Postgres's text output, or a document's field as text), null
+// for NULL, or undefined for a field a document (a DynamoDB item, a MongoDB
+// document) doesn't have, shown as an empty cell.
+export type CellValue = string | null | undefined
+
+export type GridValues = Record<string, CellValue> // column (or key name) → value
 
 // Edited cells, keyed by the row's key as loaded (JSON), so an edit stays
 // attached to its row across pages. `key` finds the row when saving, `old`
 // holds each edited cell's value before the edit (the save checks nobody
-// changed it meanwhile).
-type Edits = Record<string, { key: Values; old: Values; values: Values }>
+// changed it meanwhile). In a document store's grid a value can be undefined
+// (take the field off), and `types` says what a field's new value is when
+// the JSON view decided it (5 a number, "5" text); see GridStore.
+export type GridEdit = { key: GridValues; old: GridValues; values: GridValues; types?: Record<string, string> }
+type Edits = Record<string, GridEdit>
 // Rows saved from query results, which aren't reloaded: their new key (a
 // ctid changes on every save) and values as Postgres now shows them.
-type Saved = Record<string, { key: Values; values: Values }>
+type Saved = Record<string, { key: GridValues; values: GridValues }>
+
+// Where edits go when it isn't a Postgres table (target): a DynamoDB table,
+// a MongoDB collection. Rows are found by keyNames (each row's values in
+// rowKeys). Documents needn't share fields, so the JSON view and Copy as
+// JSON are the store's (each row's own fields, as their own types), and in
+// the JSON view fields can be added and removed.
+export type GridStore = {
+  where: string // what's saved to, for messages: "Saved 2 items to orders"
+  noun: [string, string] // a row is an ['item', 'items'], or a ['document', 'documents']
+  keyNames: string[]
+  save: (edits: GridEdit[]) => Promise<number> // all of them or none; throws to keep them unsaved
+  delete: (rows: { key: GridValues; old: GridValues }[]) => Promise<number> // likewise
+  // The rows (indexes) as JSON, unsaved edits included: one object, or an array (asArray, or several rows).
+  rowsJson: (rows: number[], edit: (row: number) => GridEdit | undefined, asArray: boolean) => string
+  // Edited JSON back into field changes (row: index into rows), or what's wrong with it.
+  applyRowsJson: (rows: number[], text: string, edit: (row: number) => GridEdit | undefined) =>
+    { changes: { row: number; field: string; value: CellValue; type?: string }[] } | { error: string }
+}
 
 type Props = {
   columns: GridColumn[]
-  rows: (string | null)[][]
+  rows: CellValue[][]
   firstRowNumber: number
-  target: EditTarget | null // where edits save; null = read-only
-  rowKeys: (string | null)[][] // per row, its key (target.key); from Go, never shown
+  target: EditTarget | null // where edits save in Postgres; null = read-only, unless store is given
+  store?: GridStore // where they save otherwise (DynamoDB, MongoDB)
+  rowKeys: (string | null)[][] // per row, its key (target.key or store.keyNames); never shown
   readOnlyReason?: string // why it can't be edited, e.g. "a join"
   keepSavedValues?: boolean // query results: show saved values (the rows aren't reloaded)
   onSaved?: () => void // after a successful save or delete; table tabs reload their rows
@@ -73,9 +100,12 @@ type Link = { key: GridForeignKey; values: string[] }
 // (rowKeys: primary key, or ctid + row hash; the key columns may not be
 // shown) and cells can be edited: click to select, double-click / Enter /
 // type to edit. Changes wait in a bar at the bottom until Save, which sends
-// them as UPDATEs in one transaction (DBService.SaveRows).
+// them as UPDATEs in one transaction (DBService.SaveRows). With `store`
+// instead, the same edits save to a DynamoDB table or MongoDB collection.
 export default function DataGrid(props: Props) {
-  const { columns, rows, rowKeys, firstRowNumber, target, keepSavedValues, onSaved, onDirtyChange, sort, onSort } = props
+  const { columns, rows, rowKeys, firstRowNumber, target, store, keepSavedValues, onSaved, onDirtyChange, sort, onSort } = props
+  const [one, many] = store?.noun ?? ['row', 'rows']
+  const count = (n: number) => (n === 1 ? `1 ${one}` : `${n.toLocaleString()} ${many}`)
   const [selected, setSelected] = useState<Cell | null>(null)
   const [editing, setEditing] = useState<{ cell: Cell; initial: string; typed: boolean } | null>(null)
   const [pending, setPending] = useState<Edits>({})
@@ -103,7 +133,7 @@ export default function DataGrid(props: Props) {
   const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; links: Link[] } | null>(null) // a value that points at rows in several tables
   // Rows asked to be deleted, as they were when Delete was clicked: what Go
   // deletes, even if the rows on screen change meanwhile.
-  const [toDelete, setToDelete] = useState<{ target: EditTarget; rows: RowDelete[]; names: string[] } | null>(null)
+  const [toDelete, setToDelete] = useState<{ target: EditTarget | null; rows: { key: GridValues; old: GridValues }[]; names: string[] } | null>(null)
   const deleting = useRef<{ cancel: () => void } | null>(null) // the delete running, for Stop
   const stopped = useRef(false)
   const ownRef = useRef<HTMLDivElement>(null)
@@ -144,8 +174,8 @@ export default function DataGrid(props: Props) {
     setWidth(currentWidths(), col, Math.min(fit, MAX_FIT))
   }
 
-  const keyNames = target?.key ?? []
-  const canEdit = target !== null && keyNames.length > 0 && rowKeys.length === rows.length
+  const keyNames = store?.keyNames ?? target?.key ?? []
+  const canEdit = (target !== null || !!store) && keyNames.length > 0 && rowKeys.length === rows.length
   const isEditable = (col: number) => canEdit && columns[col]?.source !== ''
   const isJson = (col: number) => columns[col]?.category === 'json'
   const arrayOf = (col: number) => arrayElement(columns[col]?.type ?? '')
@@ -156,7 +186,7 @@ export default function DataGrid(props: Props) {
     if (isJson(cell.col)) return true
     const element = arrayOf(cell.col)
     const value = shownValue(cell.row, cell.col)
-    return element !== null && (value === null || arrayToJson(value, element) !== null)
+    return element !== null && value !== undefined && (value === null || arrayToJson(value, element) !== null)
   }
 
   // Each column's foreign keys, one per table and columns they point at.
@@ -189,7 +219,7 @@ export default function DataGrid(props: Props) {
   // Rows are told apart by their key as loaded; after a save, `saved` holds
   // the key that finds the row now.
   const rowId = (r: number) => JSON.stringify(rowKeys[r] ?? [])
-  const currentKey = (r: number): Values =>
+  const currentKey = (r: number): GridValues =>
     saved[rowId(r)]?.key ?? Object.fromEntries(keyNames.map((name, j) => [name, rowKeys[r]?.[j] ?? null]))
   // The value without unsaved edits: saved (query results) or as loaded.
   const baseValue = (r: number, col: number) => {
@@ -241,50 +271,70 @@ export default function DataGrid(props: Props) {
     return () => clearTimeout(timer)
   }, [savedMessage])
 
-  // Returns `edits` with one cell set; setting it back to its base value drops the edit.
-  const withCell = (edits: Edits, cell: Cell, value: string | null): Edits => {
-    const id = rowId(cell.row)
-    const source = columns[cell.col].source
-    const base = baseValue(cell.row, cell.col)
-    const entry = edits[id] ?? { key: currentKey(cell.row), old: {}, values: {} }
+  // Returns `edits` with row's field `source` (whose value without edits is
+  // base) set; setting it back to base drops the edit. type: what the JSON
+  // view made the value (a document store's); a typed value drops it.
+  const withValue = (edits: Edits, row: number, source: string, base: CellValue, value: CellValue, type?: string): Edits => {
+    const id = rowId(row)
+    const entry = edits[id] ?? { key: currentKey(row), old: {}, values: {} }
     const values = { ...entry.values }
     const old = { ...entry.old }
-    if (value === base) {
+    const types = { ...entry.types }
+    if (value === base && type === undefined) {
       delete values[source]
       delete old[source]
     } else {
       values[source] = value
       old[source] = base
     }
+    if (type === undefined || !(source in values)) delete types[source]
+    else types[source] = type
     const next = { ...edits }
     if (Object.keys(values).length === 0) delete next[id]
-    else next[id] = { key: entry.key, old, values }
+    else next[id] = { key: entry.key, old, values, ...(Object.keys(types).length > 0 && { types }) }
     return next
   }
+  const withCell = (edits: Edits, cell: Cell, value: CellValue): Edits =>
+    withValue(edits, cell.row, columns[cell.col].source, baseValue(cell.row, cell.col), value)
+  // A field by name, which may have no column yet (one the JSON view added).
+  const withField = (edits: Edits, row: number, field: string, value: CellValue, type?: string): Edits => {
+    const col = columns.findIndex((c) => c.source === field)
+    return withValue(edits, row, field, col < 0 ? undefined : baseValue(row, col), value, type)
+  }
+  const editOf = (row: number): GridEdit | undefined => pending[rowId(row)]
 
   const save = async (edits: Edits = pending) => {
     const to = editedTarget.current ?? target
-    if (!to || saving || Object.keys(edits).length === 0) return
+    if ((!to && !store) || saving || Object.keys(edits).length === 0) return
     setSaving(true)
     setSaveError(null)
     try {
       const ids = Object.keys(edits)
+      if (store) {
+        // The store puts the saved values in the rows it gives the grid.
+        const n = await store.save(ids.map((id) => edits[id]))
+        changePending({})
+        setSavedMessage(`Saved ${count(n)} to ${store.where}`)
+        onSaved?.()
+        return
+      }
+      if (!to) return
       const rowEdits: RowEdit[] = ids.map((id) => edits[id])
       const savedRows = (await DBService.SaveRows(to, rowEdits)) ?? []
-      const count = savedRows.length
+      const n = savedRows.length
       if (keepSavedValues) {
         // One saved row per edit, in order: keep its new key and values.
         setSaved((current) => {
           const next = { ...current }
           ids.forEach((id, k) => {
-            const row = savedRows[k] as { key: Values | null; values: Values | null } | undefined
+            const row = savedRows[k] as { key: GridValues | null; values: GridValues | null } | undefined
             next[id] = { key: row?.key ?? edits[id].key, values: { ...next[id]?.values, ...(row?.values ?? edits[id].values) } }
           })
           return next
         })
       }
       changePending({})
-      setSavedMessage(`Saved ${count} row${count === 1 ? '' : 's'} to ${to.schema}.${to.table}`)
+      setSavedMessage(`Saved ${count(n)} to ${to.schema}.${to.table}`)
       onSaved?.()
     } catch (err) {
       changePending(edits) // keep them, so nothing typed is lost
@@ -310,7 +360,7 @@ export default function DataGrid(props: Props) {
   }
 
   // result: the new value, or null when the edit was cancelled or left unchanged.
-  const finishEdit = (result: { value: string | null } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => {
+  const finishEdit = (result: { value: CellValue } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => {
     if (!editing) return
     const { cell } = editing
     const next = result ? withCell(pending, cell, result.value) : pending
@@ -368,8 +418,9 @@ export default function DataGrid(props: Props) {
   }
   // Selected rows top to bottom, as shown (unsaved edits included).
   const copyRows = (format: CopyFormat) => {
-    const picked = shownRows([...rowSelection].sort((a, b) => a - b))
-    copy(formatRows(format, columns, picked), `Copied ${picked.length} row${picked.length === 1 ? '' : 's'} as ${FORMAT_LABELS[format]}`)
+    const indexes = [...rowSelection].sort((a, b) => a - b)
+    const text = store && format === 'json' ? store.rowsJson(indexes, editOf, true) : formatRows(format, columns, shownRows(indexes))
+    copy(text, `Copied ${count(indexes.length)} as ${FORMAT_LABELS[format]}`)
   }
   const copyCell = (cell: Cell) =>
     copy(formatValue(shownValue(cell.row, cell.col), columns[cell.col].category), 'Copied value')
@@ -416,13 +467,20 @@ export default function DataGrid(props: Props) {
 
   // Edited "View as JSON": changed fields become unsaved cell edits, like typed
   // ones. A rule broken (key removed, primary key changed…) comes back as a
-  // message for the modal, which stays open.
+  // message for the modal, which stays open. A store's rows can gain and
+  // lose fields this way too.
   const applyRowJson = (indexes: number[], text: string | null) => {
-    if (text === null) return 'A whole row can’t be set to NULL.'
-    const result = rowJsonEdits(columns, shownRows(indexes), text, isEditable)
-    if ('error' in result) return result.error
+    if (text === null) return `A whole ${one} can’t be set to NULL.`
     let next = pending
-    for (const e of result.edits) next = withCell(next, { row: indexes[e.row], col: e.col }, e.value)
+    if (store) {
+      const result = store.applyRowsJson(indexes, text, editOf)
+      if ('error' in result) return result.error
+      for (const c of result.changes) next = withField(next, indexes[c.row], c.field, c.value, c.type)
+    } else {
+      const result = rowJsonEdits(columns, shownRows(indexes) as (string | null)[][], text, isEditable)
+      if ('error' in result) return result.error
+      for (const e of result.edits) next = withCell(next, { row: indexes[e.row], col: e.col }, e.value)
+    }
     changePending(next)
     setSavedMessage(null)
     closeRowJson()
@@ -441,14 +499,14 @@ export default function DataGrid(props: Props) {
   // Each row's key, and every value shown from the table (Go checks none
   // changed since), named for the confirmation: "id = 5", or "row 12".
   const askDelete = () => {
-    if (!target || deleteBlocked) return
+    if ((!target && !store) || deleteBlocked) return
     setToDelete({
-      target,
+      target: store ? null : target,
       rows: deletable.map((i) => ({
         key: currentKey(i),
         old: Object.fromEntries(columns.flatMap((c, j) => (c.source ? [[c.source, baseValue(i, j)]] : []))),
       })),
-      names: deletable.map((i) => target.kind === 'pk'
+      names: deletable.map((i) => store || target?.kind === 'pk'
         ? keyNames.map((name) => `${name} = ${currentKey(i)[name] ?? 'NULL'}`).join(', ')
         : `row ${(firstRowNumber + i).toLocaleString()}: ${columns.slice(0, 3).map((c, j) => `${c.name} = ${baseValue(i, j) ?? 'NULL'}`).join(', ')}`),
     })
@@ -457,12 +515,23 @@ export default function DataGrid(props: Props) {
   const runDelete = async () => {
     if (!toDelete) return
     const { target: to, rows: picked } = toDelete
+    if (store) {
+      // Throws to keep the dialog open; the store takes the rows out of those it gives the grid.
+      const n = await store.delete(picked)
+      setToDelete(null)
+      setRowSelection(new Set())
+      setSavedMessage(`Deleted ${count(n)} from ${store.where}`)
+      onSaved?.()
+      wrap.current?.focus({ preventScroll: true })
+      return
+    }
+    if (!to) return
     stopped.current = false
     const call = DBService.DeleteRows(to, picked)
     deleting.current = call
-    let count: number
+    let n: number
     try {
-      count = await call
+      n = await call
     } catch (err) {
       if (!stopped.current) throw err
       // Stopped: Go's transaction rolls back, unless it was already
@@ -474,7 +543,7 @@ export default function DataGrid(props: Props) {
     }
     setToDelete(null)
     setRowSelection(new Set())
-    setSavedMessage(`Deleted ${count} row${count === 1 ? '' : 's'} from ${to.schema}.${to.table}`)
+    setSavedMessage(`Deleted ${count(n)} from ${to.schema}.${to.table}`)
     onSaved?.()
     wrap.current?.focus({ preventScroll: true })
   }
@@ -632,6 +701,7 @@ export default function DataGrid(props: Props) {
                   {row.map((_, j) => {
                     const value = shownValue(i, j)
                     const category = columns[j].category
+                    const tip = value === undefined ? `no ${columns[j].name}` : value ?? 'NULL'
                     const isSelected = selected?.row === i && selected?.col === j
                     const isEditing = editing?.cell.row === i && editing?.cell.col === j
                     const links = props.onFollow && !isEditing ? linksOf(i, j) : []
@@ -647,8 +717,8 @@ export default function DataGrid(props: Props) {
                         key={j}
                         data-cell={`${i}-${j}`}
                         className={classes}
-                        title={isJson(j) || arrayOf(j) ? `${value ?? 'NULL'} — double-click to open the JSON editor`
-                          : isEditable(j) ? `${value ?? 'NULL'} — double-click to edit` : value ?? 'NULL'}
+                        title={isJson(j) || arrayOf(j) ? `${tip} — double-click to open the JSON editor`
+                          : isEditable(j) ? `${tip} — double-click to edit` : tip}
                         onClick={(e) => {
                           // Clicks inside the cell editor place the cursor; moving focus would end the edit.
                           if (isEditing) return
@@ -665,8 +735,9 @@ export default function DataGrid(props: Props) {
                         onContextMenu={(e) => openMenu(e, i, j)}
                       >
                         {isEditing && editing ? (
-                          <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit} />
-                        ) : value === null ? 'NULL' : cellText(value, category)}
+                          <CellEditor initial={editing.initial} typed={editing.typed} onDone={finishEdit}
+                                      removable={!!store && baseValue(i, j) !== undefined} />
+                        ) : value === null ? 'NULL' : value === undefined ? '' : cellText(value, category)}
                         {links.length > 0 && (
                           <button type="button" className="cell-link" tabIndex={-1}
                                   title={links.length === 1 ? linkTitle(links[0]) : `Open the row it points to (${links.length} tables)`}
@@ -692,6 +763,7 @@ export default function DataGrid(props: Props) {
           x={menu.x}
           y={menu.y}
           rowCount={rowSelection.size}
+          noun={[one, many]}
           onCopyValue={menu.cell ? () => { copyCell(menu.cell!); closeMenu() } : undefined}
           onOpenJson={menu.cell && opensJson(menu.cell) ? () => { closeMenu(); openJson(menu.cell!) } : undefined}
           onViewJson={() => { closeMenu(); setRowJson([...rowSelection].sort((a, b) => a - b)) }}
@@ -702,8 +774,8 @@ export default function DataGrid(props: Props) {
         />
       )}
       {toDelete && (
-        <DeleteRowsDialog target={toDelete.target} rows={toDelete.names} onDelete={runDelete}
-                          onStop={() => { stopped.current = true; deleting.current?.cancel() }}
+        <DeleteRowsDialog target={toDelete.target} where={store?.where} noun={[one, many]} rows={toDelete.names} onDelete={runDelete}
+                          onStop={store ? undefined : () => { stopped.current = true; deleting.current?.cancel() }}
                           onClose={() => { setToDelete(null); wrap.current?.focus({ preventScroll: true }) }} />
       )}
       {copied && <div className={copied.error ? 'copy-toast error' : 'copy-toast'} role="status">{copied.text}</div>}
@@ -717,7 +789,7 @@ export default function DataGrid(props: Props) {
           <JsonEditorModal
             title={columns[jsonCell.col].name}
             tag={columns[jsonCell.col].type}
-            note={`row ${(firstRowNumber + jsonCell.row).toLocaleString()}`}
+            note={`${one} ${(firstRowNumber + jsonCell.row).toLocaleString()}`}
             value={jsonValue(shownValue(jsonCell.row, jsonCell.col), arrayOf(jsonCell.col))}
             readOnly={!isEditable(jsonCell.col)}
             onApply={(value) => applyJson(jsonCell, value)}
@@ -728,13 +800,15 @@ export default function DataGrid(props: Props) {
       {rowJson && (
         <Suspense fallback={loadingJson}>
           <JsonEditorModal
-            title={rowJson.length === 1 ? `Row ${(firstRowNumber + rowJson[0]).toLocaleString()}` : `${rowJson.length.toLocaleString()} rows`}
+            title={rowJson.length === 1 ? `${one[0].toUpperCase()}${one.slice(1)} ${(firstRowNumber + rowJson[0]).toLocaleString()}` : count(rowJson.length)}
             tag="JSON"
-            note={`${columns.length} column${columns.length === 1 ? '' : 's'}`}
-            value={rowsAsJson(columns, shownRows(rowJson))}
+            note={store ? store.where : `${columns.length} column${columns.length === 1 ? '' : 's'}`}
+            value={store ? store.rowsJson(rowJson, editOf, false) : rowsAsJson(columns, shownRows(rowJson))}
             readOnly={!canEdit}
             readOnlyNote={`This result can’t be edited${props.readOnlyReason ? ` (${props.readOnlyReason})` : ''}. ${shortcut('F')} to search; Copy still works.`}
-            hint={`Apply keeps changed fields as unsaved edits until you save (${shortcut('S')}). Keys and the primary key can’t change.`}
+            hint={store
+              ? `Apply keeps changes as unsaved edits until you save (${shortcut('S')}). Add a field to add it, delete one to remove it; the key can’t change.`
+              : `Apply keeps changed fields as unsaved edits until you save (${shortcut('S')}). Keys and the primary key can’t change.`}
             allowNull={false}
             onApply={(text) => applyRowJson(rowJson, text)}
             onClose={closeRowJson}
@@ -751,7 +825,7 @@ export default function DataGrid(props: Props) {
         <div className="changes-bar" role="status">
           <span className="changes-dot" aria-hidden="true" />
           <span className="changes-text">
-            <strong>{changedCells}</strong> unsaved change{changedCells === 1 ? '' : 's'} in {changedRows} row{changedRows === 1 ? '' : 's'}
+            <strong>{changedCells}</strong> unsaved change{changedCells === 1 ? '' : 's'} in {count(changedRows)}
           </span>
           <span className="changes-hint">{shortcut('S')} to save</span>
           <button type="button" className="btn btn-secondary btn-sm" onClick={discard} disabled={saving}>Discard</button>
@@ -789,7 +863,8 @@ function contentWidth(cell: HTMLTableCellElement) {
 }
 
 // What the JSON editor opens with: an array's value as a JSON array.
-function jsonValue(value: string | null, element: ReturnType<typeof arrayElement>) {
+function jsonValue(value: CellValue, element: ReturnType<typeof arrayElement>) {
+  if (value === undefined) return null // a field the document hasn't got
   return value === null || element === null ? value : arrayToJson(value, element) ?? value
 }
 
@@ -817,12 +892,14 @@ function LinkMenu({ x, y, links, onPick, onClose }: { x: number; y: number; link
 type EditorProps = {
   initial: string
   typed: boolean // editing began by typing a character, so the value already changed
-  onDone: (result: { value: string | null } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => void
+  removable?: boolean // a document's field: offer taking it off the document
+  onDone: (result: { value: CellValue } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => void
 }
 
 // The input inside a cell being edited. Enter saves and moves down, Tab moves
-// sideways, Esc cancels, ⌘S saves everything; NULL sets the cell to NULL.
-function CellEditor({ initial, typed, onDone }: EditorProps) {
+// sideways, Esc cancels, ⌘S saves everything; NULL sets the cell to NULL, and
+// ✕ (removable) takes the field off the document.
+function CellEditor({ initial, typed, removable, onDone }: EditorProps) {
   const [text, setText] = useState(initial)
   const input = useRef<HTMLInputElement>(null)
   const changed = useRef(typed)
@@ -837,7 +914,7 @@ function CellEditor({ initial, typed, onDone }: EditorProps) {
   }, [])
 
   // Leaving a cell untouched is not an edit (so a NULL doesn't silently become '').
-  const finish = (result: { value: string | null } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => {
+  const finish = (result: { value: CellValue } | null, move?: 'down' | 'right' | 'left', saveAfter?: boolean) => {
     if (done.current) return
     done.current = true
     onDone(result, move, saveAfter)
@@ -878,6 +955,12 @@ function CellEditor({ initial, typed, onDone }: EditorProps) {
               onMouseDown={(e) => e.preventDefault()} onClick={() => finish({ value: null })}>
         NULL
       </button>
+      {removable && (
+        <button type="button" className="cell-null-btn" title="Remove the field from this item"
+                onMouseDown={(e) => e.preventDefault()} onClick={() => finish({ value: undefined })}>
+          ✕
+        </button>
+      )}
     </div>
   )
 }

@@ -1237,6 +1237,8 @@ kbd {
 .grid td.cell-bool-true { color: var(--v-true); }
 .grid td.cell-bool-false { color: var(--v-false); }
 .grid td.cell-null { color: var(--v-null); font-style: italic; }
+/* A field this document (DynamoDB item) hasn't got: an empty cell, faintly hatched. */
+.grid td.cell-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.025) 6px 7px); }
 
 /* Foreign key cells: room on the right for the button that opens the row the
    value points at, shown on hover and on the selected cell. */

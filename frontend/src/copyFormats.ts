@@ -2,10 +2,11 @@ import { cellText } from './cellValues'
 
 export type CopyFormat = 'json' | 'csv' | 'text' | 'markdown'
 type Column = { name: string; category: string }
-type Row = (string | null)[]
+type Row = (string | null | undefined)[]
 
 // Rows as text in the chosen format. Values are Postgres text output; NULL is
-// null in JSON, "NULL" in Markdown and an empty field in CSV / text.
+// null in JSON, "NULL" in Markdown and an empty field in CSV / text. A field
+// a document hasn't got (undefined) is an empty field, and null in JSON.
 export function formatRows(format: CopyFormat, columns: Column[], rows: Row[]): string {
   switch (format) {
     case 'json': return toJson(columns, rows)
@@ -16,8 +17,8 @@ export function formatRows(format: CopyFormat, columns: Column[], rows: Row[]): 
 }
 
 // One cell as you'd paste it: what the grid shows, NULL as empty.
-export function formatValue(value: string | null, category: string) {
-  return value === null ? '' : cellText(value, category)
+export function formatValue(value: string | null | undefined, category: string) {
+  return value == null ? '' : cellText(value, category)
 }
 
 // Header row then data rows. A field with the delimiter, a quote or a line
@@ -60,8 +61,8 @@ function jsonObjects(columns: Column[], rows: Row[], indent: string) {
 
 // One Postgres text value as a JSON literal: number, true / false, null,
 // embedded json, or a string.
-export function jsonLiteral(value: string | null, category: string) {
-  if (value === null) return 'null'
+export function jsonLiteral(value: string | null | undefined, category: string) {
+  if (value == null) return 'null'
   if (category === 'number' && JSON_NUMBER.test(value)) return value
   if (category === 'bool' && (value === 't' || value === 'f')) return value === 't' ? 'true' : 'false'
   if (category === 'json') {
@@ -82,7 +83,7 @@ function toMarkdown(columns: Column[], rows: Row[]) {
   return [
     line(columns.map((c) => cell(c.name))),
     line(columns.map(() => '---')),
-    ...rows.map((row) => line(row.map((v, j) => (v === null ? 'NULL' : cell(cellText(v, columns[j].category)))))),
+    ...rows.map((row) => line(row.map((v, j) => (v === null ? 'NULL' : v === undefined ? '' : cell(cellText(v, columns[j].category)))))),
   ].join('\n')
 }
 
