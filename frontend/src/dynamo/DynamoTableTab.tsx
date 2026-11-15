@@ -32,7 +32,12 @@ const planText = (plan: FindPlan) =>
 // page under the ones loaded. A filter with "equals" on a key field lets AWS
 // go straight to those items (it says which index beside Apply); otherwise
 // every item is checked, 50 a page.
-export default function DynamoTableTab({ table }: { table: string }) {
+type Props = {
+  table: string
+  refreshSignal?: number // ⌘R / Ctrl+R: a change reloads from the first page, as ↻ does
+}
+
+export default function DynamoTableTab({ table, refreshSignal }: Props) {
   const [details, setDetails] = useState<TableDetails | null>(null)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [items, setItems] = useState<Item[]>([])
@@ -82,6 +87,8 @@ export default function DynamoTableTab({ table }: { table: string }) {
   useEffect(() => {
     reload()
   }, [table])
+  // Not while a page is loading: ↻ is off then too.
+  useEffect(() => { if (refreshSignal && !loading) reload() }, [refreshSignal])
 
   const columns = useMemo(() => itemColumns(details, items), [details, items])
   const rows = useMemo(() => itemRows(columns, items), [columns, items])

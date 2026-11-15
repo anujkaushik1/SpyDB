@@ -405,13 +405,14 @@ function App() {
 
   const active = workspaceTabs.find((t) => t.id === activeTab)
 
-  // Reload the open tab's rows, if it's a table tab: never the window (which
-  // closed every tab), and never a query tab's SQL (it could change data
-  // again). The macOS menu's View → Reload asks the same (menu_darwin.go);
-  // the key and the menu both firing for one ⌘R counts once.
+  // Reload the open tab's rows, if it's a table tab (Postgres or DynamoDB):
+  // never the window (which closed every tab), and never a query tab's SQL
+  // (it could change data again). The macOS menu's View → Reload asks the
+  // same (menu_darwin.go); the key and the menu both firing for one ⌘R
+  // counts once.
   refreshActive.current = () => {
     const now = Date.now()
-    if (now - lastRefresh.current < 300 || active?.kind !== 'table') return
+    if (now - lastRefresh.current < 300 || (active?.kind !== 'table' && active?.kind !== 'dynamo-table')) return
     lastRefresh.current = now
     setRefreshes((current) => ({ ...current, [active.id]: (current[active.id] ?? 0) + 1 }))
   }
@@ -568,7 +569,7 @@ function App() {
                 {tab.kind === 'connections' && (
                   <ServerConnectionsPanel config={tab.config} temporary={false} />
                 )}
-                {tab.kind === 'dynamo-table' && <DynamoTableTab table={tab.table} />}
+                {tab.kind === 'dynamo-table' && <DynamoTableTab table={tab.table} refreshSignal={refreshes[tab.id]} />}
               </div>
             )
           })}
