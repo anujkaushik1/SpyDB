@@ -62,7 +62,7 @@ await click(`[...document.querySelectorAll('.json-modal .btn')].find((b) => b.in
 await click(`[...document.querySelectorAll('.json-modal .btn')].find((b) => b.innerText === 'Discard')`).catch(() => {})
 
 await rightClick(`__t.row('6').children[0]`)
-await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete row…')`)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole row…')`)
 check('delete dialog checks effects (database + role shown)', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('as role') && document.querySelector('.delete-rows')?.innerText.includes('public.spydb_ui_test')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
 await waitFor(`!document.querySelector('.delete-rows .btn-danger')?.disabled`)

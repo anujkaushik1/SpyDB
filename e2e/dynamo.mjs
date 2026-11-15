@@ -155,8 +155,8 @@ await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b
 // 8. Delete from the row menu, with the confirmation.
 await rightClick(`__t.row('items', '${K[13]}').children[0]`)
 const menu = await evaluate(`[...document.querySelectorAll('.row-menu button')].map((b) => b.innerText.trim())`)
-check('row menu says items, offers Delete item…', menu.includes('Delete item…') && menu.some((m) => m.startsWith('View item as JSON')), menu)
-await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete item…')`)
+check('row menu says items, offers Delete item…', menu.includes('Delete whole item…') && menu.some((m) => m.startsWith('View item as JSON')), menu)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole item…')`)
 check('delete asks first, naming the item', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('userId = ${K[13]}, createdAt = ${1731400000 + Number(K[13].slice(1))}')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
 await shot(`${shots}/d3-delete.png`)

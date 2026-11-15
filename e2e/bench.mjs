@@ -206,7 +206,7 @@ try {
   for (let i = 0; i < 3; i++) {
     const k = keys[20 + i]
     await rightClick(`__t.row('items', '${k}').children[0]`)
-    await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete item…')`)
+    await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole item…')`)
     await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
     deletes.push(await measure(() => click(`document.querySelector('.delete-rows .btn-danger')`), `!__t.row('items', '${k}') && __t.bar().includes('Deleted 1 item')`))
     await until(`!__t.bar().includes('Deleted')`)

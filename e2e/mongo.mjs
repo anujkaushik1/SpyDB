@@ -185,9 +185,9 @@ check('✕ removed status from document 11', await waitFor(`${cell('11', 'status
 // 8. Delete from the row menu.
 await rightClick(`__t.row('docs', '7').children[0]`)
 const menu = await evaluate(`[...document.querySelectorAll('.row-menu button')].map((b) => b.innerText.trim())`)
-check('row menu speaks of documents', menu[0] === 'View document as JSON' && menu.includes('Delete document…'), menu)
-await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete document…')`)
-check('delete asks first, naming the document', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('Delete document from orders') && document.querySelector('.delete-rows')?.innerText.includes('_id = ')`),
+check('row menu speaks of documents', menu[0] === 'View document as JSON' && menu.includes('Delete whole document…'), menu)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole document…')`)
+check('delete asks first, naming the document', await waitFor(`document.querySelector('.delete-rows')?.innerText.includes('Delete the whole document from orders') && document.querySelector('.delete-rows')?.innerText.includes('_id = ')`),
   await evaluate(`document.querySelector('.delete-rows')?.innerText`))
 before = snapshot('orders')
 await click(`document.querySelector('.delete-rows .btn-danger')`)
@@ -284,7 +284,7 @@ check('an ObjectId document saves', await waitFor(`__t.bar().includes('Saved 1 d
 let peopleDiff = changedIds(peopleBefore, snapshot('people'))
 check('only that ObjectId document changed', peopleDiff.length === 1 && peopleDiff[0].includes(people[0]) && snapshot('people')[peopleDiff[0]].includes('"city":"Goa"'), peopleDiff)
 await rightClick(`__t.row('docs', '${people[1]}').children[0]`)
-await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete document…')`)
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete whole document…')`)
 await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
 const peopleMid = snapshot('people')
 await click(`document.querySelector('.delete-rows .btn-danger')`)

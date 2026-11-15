@@ -68,7 +68,7 @@ export default function DeleteRowsDialog({ target, where, noun: [one, many] = ['
             onSubmit={(e) => { e.preventDefault(); confirm() }}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); close() } }}>
         <p className="delete-rows-title">
-          Delete {label} from <strong>{target ? `${target.schema}.${target.table}` : where}</strong>
+          Delete {count === 1 ? `the whole ${one}` : `${count.toLocaleString()} whole ${many}`} from <strong>{target ? `${target.schema}.${target.table}` : where}</strong>
           {effects?.database && <> on <strong>{effects.database}</strong></>}?
         </p>
         {effects?.server && <p className="delete-rows-where">{effects.server} · as role {effects.role}</p>}
