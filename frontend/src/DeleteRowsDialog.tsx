@@ -77,7 +77,7 @@ export default function DeleteRowsDialog({ target, where, noun: [one, many] = ['
           {count > SHOWN && <li className="delete-rows-more">and {(count - SHOWN).toLocaleString()} more</li>}
         </ul>
         <p className="delete-rows-note">
-          This can’t be undone. All of them are deleted, or none: if one changed since you loaded it, nothing is deleted.
+          {count === 1 ? 'This can’t be undone.' : `This can’t be undone. The ${count.toLocaleString()} are deleted together: if one changed since you loaded it, none is.`}
         </p>
         {!effects && !error && <p className="delete-rows-note"><Spinner /> Checking what else this deletes…</p>}
         {cascades && (
