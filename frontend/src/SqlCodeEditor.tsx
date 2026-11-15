@@ -21,6 +21,8 @@ type Props = {
   initialValue: string
   placeholderText: string
   schema?: CompletionSchema // tables and columns to autocomplete
+  completions?: (context: CompletionContext) => CompletionResult | null // instead of SQL's: MongoDB's query editor
+  label?: string // what the editor is, for screen readers; "SQL query" if not given
   className?: string
   onChange: (value: string) => void
   onSelectionChange: (hasSelection: boolean) => void
@@ -105,8 +107,8 @@ function smartCompletions(schema?: CompletionSchema) {
 }
 
 // Postgres SQL (colours for every keyword) with the suggestions above.
-const language = (schema?: CompletionSchema) =>
-  new LanguageSupport(PostgreSQL.language, [PostgreSQL.language.data.of({ autocomplete: smartCompletions(schema) })])
+const language = (schema?: CompletionSchema, completions?: Props['completions']) =>
+  new LanguageSupport(PostgreSQL.language, [PostgreSQL.language.data.of({ autocomplete: completions ?? smartCompletions(schema) })])
 
 // The SQL code editor (CodeMirror): line numbers, colours, autocomplete for
 // SQL keywords and the connection's tables and columns, bracket matching,
@@ -143,12 +145,12 @@ export default forwardRef<SqlCodeEditorHandle, Props>(function SqlCodeEditor(pro
           autocompletion({ filterStrict: true }), // a suggestion must start with what you typed (any case)
           search({ top: true }),
           highlightSelectionMatches(),
-          languageSlot.current.of(language(props.schema)),
+          languageSlot.current.of(language(props.schema, props.completions)),
           syntaxHighlighting(highlight),
           theme,
           placeholder(props.placeholderText),
           keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
-          EditorView.contentAttributes.of({ 'aria-label': 'SQL query', spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
+          EditorView.contentAttributes.of({ 'aria-label': props.label ?? 'SQL query', spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) latest.current.onChange(update.state.doc.toString())
             if (update.docChanged || update.selectionSet) latest.current.onSelectionChange(!update.state.selection.main.empty)
@@ -165,8 +167,8 @@ export default forwardRef<SqlCodeEditorHandle, Props>(function SqlCodeEditor(pro
 
   // Another connection, or a CREATE / ALTER / DROP: autocomplete follows.
   useEffect(() => {
-    view.current?.dispatch({ effects: languageSlot.current.reconfigure(language(props.schema)) })
-  }, [props.schema])
+    view.current?.dispatch({ effects: languageSlot.current.reconfigure(language(props.schema, props.completions)) })
+  }, [props.schema, props.completions])
 
   useImperativeHandle(ref, () => ({
     focus: (atEnd) => {
