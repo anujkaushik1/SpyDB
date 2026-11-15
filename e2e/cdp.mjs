@@ -4,11 +4,15 @@
 import { writeFileSync } from 'node:fs'
 
 export async function open(debugPort, appUrl, { width = 1280, height = 860 } = {}) {
+  // Chrome can take a while to answer on a busy machine (a GitHub runner): up to 60 s.
   let targets
-  for (let i = 0; i < 40; i++) {
-    try { targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json(); break } catch { await sleep(300) }
+  for (let i = 0; i < 200 && !targets?.some((t) => t.type === 'page'); i++) {
+    try { targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json() } catch { /* not up yet */ }
+    if (!targets?.some((t) => t.type === 'page')) await sleep(300)
   }
-  const ws = new WebSocket(targets.find((t) => t.type === 'page').webSocketDebuggerUrl)
+  const page = targets?.find((t) => t.type === 'page')
+  if (!page) throw new Error(`Chrome didn't answer on its debugging port ${debugPort} within 60 s`)
+  const ws = new WebSocket(page.webSocketDebuggerUrl)
   await new Promise((r) => ws.addEventListener('open', r, { once: true }))
   let nextId = 0
   const pending = new Map()
