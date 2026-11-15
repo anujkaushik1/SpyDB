@@ -1256,7 +1256,7 @@ kbd {
     font-weight: 400;
     color: var(--text-subtle);
 }
-.grid-sort { align-self: center; display: grid; place-items: center; margin-left: auto; padding-left: 8px; opacity: 0; color: var(--text-subtle); }
+.grid-sort { align-self: center; display: grid; place-items: center; margin-left: auto; margin-right: 22px; padding-left: 8px; opacity: 0.45; color: var(--text-subtle); }
 .grid-sort.active { opacity: 1; color: var(--focus); }
 .grid-sort svg { width: 12px; height: 12px; }
 
@@ -1316,14 +1316,14 @@ kbd {
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.45;
 }
 .grid-pin svg { width: 13px; height: 13px; }
 .grid th:hover .grid-pin, .grid-pin:focus-visible, .grid-pin.on { opacity: 1; }
+.grid th:hover .grid-sort, .grid-sort.active { opacity: 1; }
 .grid-pin:hover { color: var(--text); background: var(--hover-strong); }
 .grid-pin.on { color: var(--focus); }
 .grid-pin.on svg { fill: currentColor; }
-.grid th:hover .grid-sort { margin-right: 22px; }
 
 .grid td.cell-number { color: var(--v-number); text-align: right; font-variant-numeric: tabular-nums; }
 .grid td.cell-time { color: var(--v-time); }
