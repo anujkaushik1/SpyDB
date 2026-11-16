@@ -798,6 +798,7 @@ kbd {
 }
 
 /* A strip between the editor and the grid: running, done, or results shown. */
+.tab.dragging { opacity: 0.55; cursor: grabbing; }
 .tab-notice {
     flex: 0 0 auto;
     display: flex;
@@ -1075,6 +1076,7 @@ kbd {
 .tab {
     position: relative;
     flex: 0 0 auto;
+    user-select: none;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1546,6 +1548,9 @@ kbd {
 .result-box:focus { outline: none; }
 
 .grid td.cell-selected { box-shadow: inset 0 0 0 2px var(--focus); }
+/* A range of cells dragged, Shift-clicked or Shift+arrowed from the selected one. */
+.grid tbody tr td.cell-in-range { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-bg-strong); }
+.range-dragging, .range-dragging * { user-select: none; cursor: cell; }
 /* An unsaved edit: a blue tint and a bar on the left edge. */
 .grid tbody tr td.cell-changed {
     color: var(--text);

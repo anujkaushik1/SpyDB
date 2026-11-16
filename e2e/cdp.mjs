@@ -56,11 +56,42 @@ export async function open(debugPort, appUrl, { width = 1280, height = 860 } = {
   await send('Page.enable'); await send('Runtime.enable')
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
   await send('Page.navigate', { url: appUrl }); await sleep(1500)
+  // drag(fromJs, toJs): press on one element, move to another in steps, let go (selecting cells, moving tabs).
+  // dx/dy shift the drop point from the destination's centre (a tab's left half, say). Both elements are
+  // kept on screen together: scrolling the one would move the other.
+  const drag = async (fromJs, toJs, { dx = 0, dy = 0 } = {}) => {
+    const place = (js) => evaluate(`(() => { const el = (${js}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, on: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth } })()`)
+    let a = await center(fromJs), b = await place(toJs)
+    if (!a || !b) throw new Error('not found: ' + (a ? toJs : fromJs))
+    if (!b.on) { b = await center(toJs); a = await place(fromJs) }
+    b = { x: b.x + dx, y: b.y + dy }
+    const steps = Math.max(8, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 20))
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 })
+    for (let i = 1; i <= steps; i++) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + (b.x - a.x) * i / steps, y: a.y + (b.y - a.y) * i / steps, button: 'left', buttons: 1 })
+      await sleep(30)
+    }
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(250)
+  }
   // clickWith(js, SHIFT) / clickWith(js, MOD): a click holding a modifier, as for selecting several rows.
-  return { send, evaluate, click: (js) => mouse(js), clickWith: (js, modifiers) => mouse(js, { modifiers }), dblclick: (js) => mouse(js, { count: 2 }), rightClick: (js) => mouse(js, { button: 'right' }), key, type, waitFor, shot, errors, close: () => ws.close() }
+  return { send, evaluate, click: (js) => mouse(js), clickWith: (js, modifiers) => mouse(js, { modifiers }), drag, dblclick: (js) => mouse(js, { count: 2 }), rightClick: (js) => mouse(js, { button: 'right' }), key, type, waitFor, shot, errors, close: () => ws.close() }
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Run in the page, keeps what the app copies in window.__copied instead of the clipboard: the app copies
+// through Wails (a POST to /wails/runtime, object 1 Clipboard, method 0 SetText), or the browser's
+// clipboard where Wails can't; the test machine's clipboard is left alone.
+export const CAPTURE_COPIES = `(() => {
+  const realFetch = window.fetch
+  window.fetch = (url, opts) => {
+    if (opts?.method === 'POST' && String(url).endsWith('/wails/runtime')) {
+      try { const b = JSON.parse(opts.body); if (b.object === 1 && b.method === 0) { window.__copied = b.args?.text; return Promise.resolve(new Response('', { status: 200 })) } } catch {}
+    }
+    return realFetch(url, opts)
+  }
+  Clipboard.prototype.writeText = async (t) => { window.__copied = t }
+})()`
 export const META = 4, CTRL = 2, SHIFT = 8
 // ⌘ on a Mac, Ctrl elsewhere: what SpyDB's and the editors' shortcuts use.
 export const MOD = process.platform === 'darwin' ? META : CTRL

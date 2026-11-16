@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject, type ClipboardEvent } from 'react'
 import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
 import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner, PinIcon } from './icons'
@@ -107,6 +107,73 @@ export default function DataGrid(props: Props) {
   const [one, many] = store?.noun ?? ['row', 'rows']
   const count = (n: number) => (n === 1 ? `1 ${one}` : `${n.toLocaleString()} ${many}`)
   const [selected, setSelected] = useState<Cell | null>(null)
+  // A range of cells from the selected cell (its anchor) to `to`: dragged
+  // over, Shift-clicked or Shift+arrowed. ⌘C copies it, a paste fills it,
+  // Delete sets it to NULL.
+  const [rangeTo, setRangeTo] = useState<Cell | null>(null)
+  const dragFrom = useRef<Cell | null>(null) // the cell a mouse drag started on
+  // The range's corners, kept within the rows and columns there are now (a reload may have fewer).
+  const rangeBox = () => {
+    if (!selected || !rangeTo || rows.length === 0 || columns.length === 0) return null
+    const last = (n: number, max: number) => Math.max(0, Math.min(max - 1, n))
+    return {
+      r0: last(Math.min(selected.row, rangeTo.row), rows.length), r1: last(Math.max(selected.row, rangeTo.row), rows.length),
+      c0: last(Math.min(selected.col, rangeTo.col), columns.length), c1: last(Math.max(selected.col, rangeTo.col), columns.length),
+    }
+  }
+  const rangeCells = (): Cell[] => {
+    const box = rangeBox()
+    if (!box) return []
+    const cells: Cell[] = []
+    for (let r = box.r0; r <= box.r1; r++) for (let c = box.c0; c <= box.c1; c++) cells.push({ row: r, col: c })
+    return cells
+  }
+  const inRange = (r: number, c: number) => { const b = rangeBox(); return !!b && r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1 }
+  useEffect(() => {
+    const up = () => { dragFrom.current = null; wrap.current?.classList.remove('range-dragging') }
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
+  }, [])
+  useEffect(() => { if (!selected) setRangeTo(null) }, [selected])
+  // Every cell of the range in an editable column set to one value (NULL, or
+  // pasted text), as pending edits; how many that was.
+  const fillRange = (cells: Cell[], valueAt: (i: number, cell: Cell) => CellValue): number => {
+    let next = pending
+    let n = 0
+    cells.forEach((cell, i) => {
+      if (!isEditable(cell.col)) return
+      next = withCell(next, cell, valueAt(i, cell))
+      n++
+    })
+    if (n > 0) changePending(next)
+    return n
+  }
+  // Pasted text into the range (or down from the selected cell): one value
+  // fills every cell; lines and tabs go cell by cell, like a spreadsheet.
+  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (editing || !selected || !canEdit) return
+    const target = e.target as HTMLElement
+    if (target !== wrap.current && target.closest('input, textarea, [contenteditable="true"], .cm-editor')) return // a paste into some editor
+    const text = e.clipboardData.getData('text/plain')
+    if (!text) return
+    e.preventDefault()
+    const lines = text.replace(/\r/g, '').split('\n')
+    if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+    const grid = lines.map((l) => l.split('\t'))
+    let cells = rangeCells()
+    if (cells.length === 0) { // no range: as many cells down and across as the text has
+      cells = []
+      for (let r = 0; r < grid.length && selected.row + r < rows.length; r++)
+        for (let c = 0; c < grid[r].length && selected.col + c < columns.length; c++) cells.push({ row: selected.row + r, col: selected.col + c })
+    }
+    const r0 = Math.min(...cells.map((c) => c.row)), c0 = Math.min(...cells.map((c) => c.col))
+    const n = fillRange(cells, (_, cell) => {
+      if (grid.length === 1 && grid[0].length === 1) return grid[0][0] // one value: every cell gets it
+      const line = grid[(cell.row - r0) % grid.length]
+      return line[(cell.col - c0) % line.length] ?? ''
+    })
+    setCopied({ text: n === 0 ? 'Nothing pasted: these columns can’t be edited' : `Pasted into ${n} cell${n === 1 ? '' : 's'} (unsaved)`, error: n === 0 })
+  }
   const [editing, setEditing] = useState<{ cell: Cell; initial: string; typed: boolean } | null>(null)
   const [pending, setPending] = useState<Edits>({})
   // The target the unsaved edits were made against, saved to whatever the
@@ -589,6 +656,19 @@ export default function DataGrid(props: Props) {
     }
     if (mod && e.key.toLowerCase() === 'c') {
       if (window.getSelection()?.toString()) return // text picked with the mouse: normal copy
+      const range = rangeCells()
+      if (range.length > 1 && selected) {
+        e.preventDefault()
+        const { r0, r1, c0, c1 } = rangeBox()!
+        const lines: string[] = []
+        for (let r = r0; r <= r1; r++) {
+          const vals: string[] = []
+          for (let c = c0; c <= c1; c++) { const v = shownValue(r, c); vals.push(v == null ? '' : v) }
+          lines.push(vals.join('\t'))
+        }
+        copy(lines.join('\n'), `Copied ${range.length} cells`)
+        return
+      }
       if (rowSelection.size > 0) {
         e.preventDefault()
         copyRows('text')
@@ -598,8 +678,28 @@ export default function DataGrid(props: Props) {
       }
       return
     }
+    if (e.key === 'Escape' && rangeTo) {
+      setRangeTo(null)
+      return
+    }
     if (e.key === 'Escape' && rowSelection.size > 0) {
       setRowSelection(new Set())
+      return
+    }
+    // Shift+arrows from a selected cell grow the cell range (rows picked by number keep their own Shift+↑/↓ below).
+    if (e.shiftKey && !mod && selected && rowSelection.size === 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault()
+      const from = rangeTo ?? selected
+      const d: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }
+      const to = { row: Math.max(0, Math.min(rows.length - 1, from.row + d[e.key][0])), col: Math.max(0, Math.min(columns.length - 1, from.col + d[e.key][1])) }
+      setRangeTo(to.row === selected.row && to.col === selected.col ? null : to)
+      wrap.current?.querySelector(`[data-cell="${to.row}-${to.col}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      return
+    }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && rangeCells().length > 1) {
+      e.preventDefault()
+      const n = fillRange(rangeCells(), () => null)
+      setCopied({ text: n === 0 ? 'These columns can’t be edited' : `${n} cell${n === 1 ? '' : 's'} set to NULL (unsaved)`, error: n === 0 })
       return
     }
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !mod && rows.length > 0) {
@@ -642,6 +742,7 @@ export default function DataGrid(props: Props) {
         row: Math.max(0, Math.min(rows.length - 1, selected.row + dr)),
         col: Math.max(0, Math.min(columns.length - 1, selected.col + dc)),
       }
+      setRangeTo(null)
       setSelected(cell)
       wrap.current?.querySelector(`[data-cell="${cell.row}-${cell.col}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     } else if (e.key === 'Enter' || e.key === 'F2') {
@@ -660,7 +761,7 @@ export default function DataGrid(props: Props) {
 
   return (
     <>
-      <div className={props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown}>
+      <div className={props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste}>
         {columns.length > 0 && (
           <table className={widths ? 'grid sized' : 'grid'} ref={table}
                  style={widths ? { width: widths.reduce((sum, w) => sum + w, 0) } : undefined}>
@@ -744,6 +845,7 @@ export default function DataGrid(props: Props) {
                       cellClass(value, category),
                       isChanged(i, j) && 'cell-changed',
                       isSelected && 'cell-selected',
+                      inRange(i, j) && !isSelected && 'cell-in-range',
                       isEditing && 'cell-editing',
                       columnKeys[j].length > 0 && 'cell-fk',
                       pinClass(j).trim(),
@@ -757,16 +859,39 @@ export default function DataGrid(props: Props) {
                         style={{ left: pinLeft(j) }}
                         title={isJson(j) || arrayOf(j) ? `${tip} — double-click to open the JSON editor`
                           : isEditable(j) ? `${tip} — double-click to edit` : tip}
+                        onMouseDown={(e) => {
+                          // A drag from here over other cells selects the range between.
+                          if (isEditing || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return
+                          dragFrom.current = { row: i, col: j }
+                          if (!editing) wrap.current?.focus({ preventScroll: true })
+                        }}
+                        onMouseEnter={() => {
+                          const from = dragFrom.current
+                          if (!from) return
+                          if (from.row === i && from.col === j) { setRangeTo(null); return } // back on the cell it started from
+                          if (!wrap.current?.classList.contains('range-dragging')) {
+                            wrap.current?.classList.add('range-dragging')
+                            window.getSelection()?.removeAllRanges() // the range, not the cells' text, is what's being picked
+                          }
+                          if (!selected || selected.row !== from.row || selected.col !== from.col) { setSelected(from); setRowSelection(new Set()) }
+                          setRangeTo({ row: i, col: j })
+                        }}
                         onClick={(e) => {
                           // Clicks inside the cell editor place the cursor; moving focus would end the edit.
                           if (isEditing) return
+                          if (e.shiftKey && selected && rowSelection.size === 0) { // Shift-click: the range from the selected cell to here
+                            setRangeTo(selected.row === i && selected.col === j ? null : { row: i, col: j })
+                            wrap.current?.focus({ preventScroll: true })
+                            return
+                          }
                           if (e.shiftKey || e.metaKey || e.ctrlKey) selectRow(i, e)
                           else {
                             setRowSelection(new Set())
                             anchor.current = i
                             lead.current = i
                           }
-                          setSelected({ row: i, col: j })
+                          if (!dragFrom.current || rangeTo === null || (rangeTo.row === i && rangeTo.col === j && selected?.row === i && selected?.col === j)) setRangeTo(null)
+                          if (!rangeTo || !dragFrom.current) setSelected({ row: i, col: j })
                           wrap.current?.focus({ preventScroll: true })
                         }}
                         onDoubleClick={() => { if (!isEditing) startEdit({ row: i, col: j }) }}

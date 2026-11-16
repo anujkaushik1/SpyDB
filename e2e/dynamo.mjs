@@ -2,7 +2,7 @@
 // deletes, PartiQL (</> and ⌘T / Ctrl+T tabs), the tab menu, and switching to
 // Postgres and back with both staying connected. DynamoDB Local's made-up
 // tables (dynamo-local.mjs) and the test Postgres; run by run.mjs.
-import { check, MOD, SHIFT, sleep } from './cdp.mjs'
+import { CAPTURE_COPIES, check, MOD, SHIFT, sleep } from './cdp.mjs'
 import { changedKeys, ddb, getItem, scanItems, snapshot } from './dynamo-local.mjs'
 
 export default async function dynamo(p, { shots, pg }) {
@@ -575,6 +575,72 @@ check('Load all on a SELECT: every page read, exactly the matching items (Dynamo
   && (await evaluate(`__t.rows('results')`)) === agraNow && /of \d+ read\) · all of them/.test(await evaluate(`__t.pane().querySelector('.results-pane .grid-status').innerText`)), [await evaluate(`__t.rows('results')`), agraNow, await evaluate(`__t.pane().querySelector('.results-pane .grid-status').innerText`)])
 await click(`__t.pane().querySelector('.sql-toggle.on')`)
 await waitFor(`__t.pane().querySelector('.filter-bar') && __t.rows('items') > 0`)
+
+// ===== Cell ranges: drag down a column, Backspace → NULL, a paste into every cell, ⌘C; NULL in an index key is refused whole. Tabs drag into another order. =====
+await click(`__t.pane().querySelector('.grid-pager [aria-label="Reload items"]')`); await waitFor(`__t.rows('items') === 50 && !__t.pane().querySelector('.grid-wrap.loading')`); await sleep(300)
+await evaluate(CAPTURE_COPIES) // what ⌘C copies lands in window.__copied
+const paste = async (text) => { await evaluate(`(() => { const dt = new DataTransfer(); dt.setData('text/plain', ${JSON.stringify(text)}); document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })) })()`); await sleep(300) }
+const inRange = () => evaluate(`__t.grid('items').querySelectorAll('td.cell-in-range').length`)
+const changed = () => evaluate(`__t.grid('items').querySelectorAll('td.cell-changed').length`)
+const toast = () => evaluate(`document.querySelector('.copy-toast')?.innerText ?? ''`)
+const [k1, k2, k3] = [await keyAt(0), await keyAt(1), await keyAt(2)]
+await p.drag(cell(k1, 'paid'), cell(k3, 'paid'))
+check('dragging down 3 paid cells: the first selected, 2 in the range', (await inRange()) === 2 && await evaluate(`${cell(k1, 'paid')}.classList.contains('cell-selected') && ${cell(k3, 'paid')}.classList.contains('cell-in-range')`), await inRange())
+before2 = await snapAll()
+await key('Backspace')
+check('Backspace: 3 cells to NULL, unsaved', (await toast()) === '3 cells set to NULL (unsaved)' && (await changed()) === 3 && (await text(k2, 'paid')) === 'NULL', [await toast(), await changed(), await text(k2, 'paid')])
+await onlyKeys('nothing is written until saved', before2, [])
+await save()
+await onlyKeys('3 paid cells NULL, saved', before2, [k1, k2, k3].map(keyOf))
+check('…paid is NULL in DynamoDB for those', (await o(k1)).paid?.NULL === true && (await o(k2)).paid?.NULL === true && (await o(k3)).paid?.NULL === true, [(await o(k1)).paid, (await o(k3)).paid])
+// city is cityIndex's key: NULL there is refused before anything is sent; nothing changes.
+await p.drag(cell(k1, 'city'), cell(k3, 'city')); await key('Backspace')
+check('3 city cells to NULL, unsaved', (await changed()) === 3, await changed())
+before2 = await snapAll()
+await save()
+check('NULL in an index key: the save is refused, naming the index', await waitFor(`__t.error().includes('key of an index') && __t.error().includes('cityIndex')`), await evaluate(`__t.error()`))
+await onlyKeys('refused: nothing written', before2, [])
+await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText === 'Discard')`)
+check('Discard: the cities are back', (await changed()) === 0 && (await text(k1, 'city')) !== 'NULL', await text(k1, 'city'))
+// A paste: one city into 3 cells (text, which the index takes).
+await p.drag(cell(k1, 'city'), cell(k3, 'city'))
+await paste('Pasted City')
+check('pasting one value fills the 3 city cells, unsaved', (await toast()) === 'Pasted into 3 cells (unsaved)' && (await changed()) === 3 && (await text(k3, 'city')) === 'Pasted City', [await toast(), await changed()])
+before2 = await snapAll()
+await save()
+await onlyKeys('pasted into 3 cells, saved', before2, [k1, k2, k3].map(keyOf))
+check('…city = Pasted City in DynamoDB for exactly those', (await scanItems('orders')).filter((it) => it.city?.S === 'Pasted City').map((it) => it.userId.S).sort().join() === [k1, k2, k3].sort().join(), null)
+// Shift+↓ grows the range; 3 pasted lines go cell by cell into note (a field most items don't have yet).
+await click(cell(k1, 'note')); await key('ArrowDown', SHIFT); await key('ArrowDown', SHIFT)
+check('Shift+↓ twice: a range of 3', (await inRange()) === 2, await inRange())
+await paste('n1\nn2\nn3')
+check('3 pasted lines, cell by cell', (await changed()) === 3 && (await text(k2, 'note')) === 'n2' && (await text(k3, 'note')) === 'n3', [await changed(), await text(k2, 'note')])
+before2 = await snapAll()
+await save()
+await onlyKeys('3 notes pasted, saved', before2, [k1, k2, k3].map(keyOf))
+check('…as strings', (await o(k1)).note?.S === 'n1' && (await o(k2)).note?.S === 'n2' && (await o(k3)).note?.S === 'n3', [(await o(k1)).note, (await o(k3)).note])
+// ⌘C copies the range; Esc lets go of it.
+await p.drag(cell(k1, 'city'), cell(k3, 'city')); await key('c', MOD)
+check('⌘C copies 3 cells as lines', (await toast()) === 'Copied 3 cells' && (await evaluate(`window.__copied`)) === 'Pasted City\nPasted City\nPasted City', await evaluate(`window.__copied`))
+await key('Escape')
+check('Esc clears the range', (await inRange()) === 0, await inRange())
+
+// Tabs drag into another order.
+await click(`[...document.querySelectorAll('.dynamo-sidebar .tree-item')].find((b) => b.innerText.startsWith('events'))`)
+await waitFor(`document.querySelector('.tab.active .tab-title')?.innerText === 'events'`)
+const tabTitles = () => evaluate(`[...document.querySelectorAll('.tabbar .tab .tab-title')].map((t) => t.innerText)`)
+const tabOf = (title) => `[...document.querySelectorAll('.tabbar .tab')].find((t) => t.querySelector('.tab-title')?.innerText === '${title}')`
+const titles = await tabTitles()
+const others = titles.filter((t) => t !== 'orders')
+check('orders and events tabs are open', titles.includes('orders') && titles.includes('events'), titles)
+await p.drag(tabOf('orders'), `document.querySelectorAll('.tabbar .tab')[${titles.length - 1}]`, { dx: 20 })
+check('dragging orders past the last tab puts it last', JSON.stringify(await tabTitles()) === JSON.stringify([...others, 'orders']), await tabTitles())
+await click(tabOf('orders')); await evaluate(helpers)
+check('…and it still shows its 50 items', await waitFor(`document.querySelector('.tab.active .tab-title')?.innerText === 'orders' && __t.rows('items') === 50`), await evaluate(`__t.rows('items')`))
+await p.drag(tabOf('orders'), `document.querySelector('.tabbar .tab')`, { dx: -20 })
+check('dragged before the first tab: first', JSON.stringify(await tabTitles()) === JSON.stringify(['orders', ...others]), await tabTitles())
+await shot(`${shots}/d9-range.png`)
+
 check('the events table never moved', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
 
 check('no page errors', p.errors.length === 0, p.errors)

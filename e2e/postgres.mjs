@@ -2,7 +2,7 @@
 // check of what else goes), a query tab and an edit in its results. Only
 // the table spydb_ui_test, which run.mjs makes (and drops) in the test
 // database.
-import { check, MOD, SHIFT, sleep } from './cdp.mjs'
+import { CAPTURE_COPIES, check, MOD, SHIFT, sleep } from './cdp.mjs'
 
 export default async function postgres(p, { shots, pg, sql }) {
 const { evaluate, click, clickWith, dblclick, rightClick, key, type, waitFor, shot } = p
@@ -392,6 +392,77 @@ await waitFor(`!document.querySelector('.delete-rows .btn-danger')?.disabled`)
 await click(`document.querySelector('.delete-rows .btn-danger')`); await waitFor(`__t.bar().includes('Deleted 1')`)
 onlyThese('a parent nothing points at any more goes', 'spydb_ui_parent', 'id', parentSnap, [6])
 
+// ===== Cell ranges and tab dragging: drag down a column (or Shift+↓); Backspace sets every cell to NULL, a paste fills them, ⌘C copies them; only those cells change. =====
+await openTable('spydb_ui_test')
+await click(`__t.pane().querySelector('.grid-pager [aria-label="Reload rows"]')`); await sleep(600)
+await evaluate(CAPTURE_COPIES) // what ⌘C copies lands in window.__copied
+const paste = async (text) => { await evaluate(`(() => { const dt = new DataTransfer(); dt.setData('text/plain', ${JSON.stringify(text)}); document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })) })()`); await sleep(300) }
+const inRange = () => evaluate(`__t.grid().querySelectorAll('td.cell-in-range').length`)
+const changed = () => evaluate(`__t.grid().querySelectorAll('td.cell-changed').length`)
+const toast = () => evaluate(`document.querySelector('.copy-toast')?.innerText ?? ''`)
+const cellAt = (row, name) => `__t.grid().querySelectorAll('tbody tr')[${row}].children[__t.col('${name}')]`
+const [r1, r2, r3, r4] = await idsShown()
+check('spydb_ui_test reloaded: 13 rows', (await idsShown()).length === 13, await idsShown())
+await p.drag(cell(r1, 'n'), cell(r3, 'n'))
+check('dragging down 3 cells of n: the first is selected, the 2 below are in the range', (await inRange()) === 2 && await evaluate(`${cell(r1, 'n')}.classList.contains('cell-selected') && ${cell(r2, 'n')}.classList.contains('cell-in-range') && ${cell(r3, 'n')}.classList.contains('cell-in-range')`), await inRange())
+check('…and no text got selected on the way', (await evaluate(`window.getSelection().toString()`)) === '', await evaluate(`window.getSelection().toString()`))
+before = snapshot()
+await key('Backspace')
+check('Backspace sets the 3 cells to NULL, unsaved', (await toast()) === '3 cells set to NULL (unsaved)' && (await changed()) === 3 && (await evaluate(`${cell(r2, 'n')}.innerText`)) === 'NULL' && (await evaluate(`__t.bar()`)).includes('3 unsaved'), [await toast(), await changed(), await evaluate(`__t.bar()`)])
+sameExcept(before, [], 'nothing is written until saved')
+await saveAll()
+sameExcept(before, [r1, r2, r3], '3 cells NULL, saved')
+check('…n is NULL in exactly those rows', trueIds('n is null') === [r1, r2, r3].join(','), trueIds('n is null'))
+// A paste fills the range: one value into all 4 cells.
+await p.drag(cell(r1, 'n'), cell(r4, 'n'))
+await paste('42')
+check('pasting 42 into a range of 4 fills all 4, unsaved', (await toast()) === 'Pasted into 4 cells (unsaved)' && (await changed()) === 4 && (await evaluate(`${cell(r4, 'n')}.innerText`)) === '42', [await toast(), await changed()])
+before = snapshot()
+await saveAll()
+sameExcept(before, [r1, r2, r3, r4], 'pasted into 4 cells, saved')
+check('…n = 42 in exactly those rows', trueIds('n = 42') === [r1, r2, r3, r4].join(','), trueIds('n = 42'))
+// Shift+↓ grows the range from the keyboard; 3 pasted lines go cell by cell.
+await click(cell(r1, 'name')); await key('ArrowDown', SHIFT); await key('ArrowDown', SHIFT)
+check('Shift+↓ twice: a range of 3 cells', (await inRange()) === 2 && await evaluate(`${cell(r3, 'name')}.classList.contains('cell-in-range')`), await inRange())
+await paste('first\nsecond\nthird\n')
+const names3 = () => evaluate(`[${cell(r1, 'name')}, ${cell(r2, 'name')}, ${cell(r3, 'name')}].map((c) => c.innerText).join('|')`)
+check('3 pasted lines land in the 3 cells, in order', (await changed()) === 3 && (await names3()) === 'first|second|third', [await changed(), await names3()])
+before = snapshot()
+await saveAll()
+sameExcept(before, [r1, r2, r3], '3 pasted lines, saved')
+check('…the names in Postgres', sql(`select string_agg(name, ',' order by id) from spydb_ui_test where id in (${r1}, ${r2}, ${r3})`) === 'first,second,third', null)
+// ⌘C copies the range as lines of tab-separated values; Esc lets go of it.
+await p.drag(cell(r1, 'name'), cell(r2, 'n'))
+await key('c', MOD)
+check('⌘C copies a 2×2 range as tab-separated lines', (await toast()) === 'Copied 4 cells' && (await evaluate(`window.__copied`)) === 'first\t42\nsecond\t42', [await toast(), await evaluate(`window.__copied`)])
+await key('Escape')
+check('Esc clears the range, the cell stays selected', (await inRange()) === 0 && (await evaluate(`__t.grid().querySelectorAll('td.cell-selected').length`)) === 1, null)
+// NULL into the key column: Postgres refuses, and nothing at all is written.
+await p.drag(cellAt(0, 'id'), cellAt(1, 'id')); await key('Backspace')
+check('2 id cells set to NULL, unsaved', (await changed()) === 2 && (await evaluate(`${cellAt(0, 'id')}.innerText`)) === 'NULL', await changed())
+before = snapshot()
+await saveAll()
+check('NULL in the primary key: refused by Postgres', await waitFor(`/null value|not-null|violates/i.test(__t.pane().querySelector('.changes-error')?.innerText ?? '')`), await evaluate(`__t.pane().querySelector('.changes-error')?.innerText`))
+sameExcept(before, [], 'refused: nothing written')
+await click(`[...__t.pane().querySelectorAll('.changes-bar .btn')].find((b) => b.innerText === 'Discard')`)
+check('Discard: the ids are back', (await changed()) === 0 && (await evaluate(`${cellAt(0, 'id')}.innerText`)) === String(r1), await evaluate(`${cellAt(0, 'id')}.innerText`))
+
+// Tabs drag into another order, which stays when switching tabs.
+const tabTitles = () => evaluate(`[...document.querySelectorAll('.tabbar .tab .tab-title')].map((t) => t.innerText)`)
+const tabOf = (title) => `[...document.querySelectorAll('.tabbar .tab')].find((t) => t.querySelector('.tab-title')?.innerText === '${title}')`
+const titles = await tabTitles()
+const others = titles.filter((t) => t !== 'spydb_ui_test')
+check('several tabs are open', titles.length >= 4 && titles.includes('spydb_ui_test'), titles)
+await p.drag(tabOf('spydb_ui_test'), `document.querySelectorAll('.tabbar .tab')[${titles.length - 1}]`, { dx: 20 })
+check('dragging spydb_ui_test past the last tab puts it last', JSON.stringify(await tabTitles()) === JSON.stringify([...others, 'spydb_ui_test']), await tabTitles())
+await click(tabOf(others[0])); await sleep(300)
+await click(tabOf('spydb_ui_test')); await evaluate(helpers)
+check('…its rows are still there after switching away and back', await waitFor(`document.querySelector('.tab.active .tab-title')?.innerText === 'spydb_ui_test'`) && (await idsShown()).length === 13, await idsShown())
+check('the order stays after switching tabs', JSON.stringify(await tabTitles()) === JSON.stringify([...others, 'spydb_ui_test']), await tabTitles())
+await p.drag(tabOf('spydb_ui_test'), `document.querySelector('.tabbar .tab')`, { dx: -20 })
+check('dragged before the first tab: first', JSON.stringify(await tabTitles()) === JSON.stringify(['spydb_ui_test', ...others]), await tabTitles())
+await shot(`${shots}/p9-range.png`)
+
 // Query results: 3 rows edited in a SELECT's results save to exactly those rows; a JOIN's results are read-only.
 await key('t', MOD)
 await waitFor(`document.querySelector('.tab.active .tab-title')?.innerText.startsWith('Query')`)
@@ -406,6 +477,9 @@ check('…with their values', sql(`select string_agg(name, ',' order by id) from
 await click(`__t.pane().querySelector('.cm-content')`); await key('a', MOD); await type('SELECT t.id, t.name, p.label FROM spydb_ui_test t JOIN spydb_ui_parent p ON p.id = t.parent_id ORDER BY t.id'); await key('Enter', MOD)
 await waitFor(`__t.grid()?.querySelectorAll('tbody tr').length === 13`)
 check('a JOIN’s results are read-only, with the reason', await waitFor(`__t.pane().innerText.includes('read-only') || __t.pane().innerText.includes('Read-only')`), null)
+await p.drag(cellAt(0, 'name'), cellAt(2, 'name'))
+await key('Backspace')
+check('Backspace on a range in read-only results changes nothing', (await toast()) === 'These columns can’t be edited' && (await changed()) === 0, [await toast(), await changed()])
 check('the other tables ended as they should', sql('select count(*) from spydb_ui_big') === '245' && nokey() === 'a1,a9,b2,b2,c3', [sql('select count(*) from spydb_ui_big'), nokey()])
 
 check('no page errors', p.errors.length === 0, p.errors)

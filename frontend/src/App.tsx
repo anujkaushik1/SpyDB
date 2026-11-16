@@ -208,6 +208,22 @@ function App() {
     if (workspace) setActiveTabs((current) => ({ ...current, [workspace]: id }))
   }
 
+  // A tab dragged to another place among its workspace's tabs: before
+  // beforeId, or last. Other workspaces' tabs keep their order.
+  const reorderTab = (id: string, beforeId: string | null) => {
+    setTabs((current) => {
+      const moving = current.find((t) => t.id === id)
+      if (!moving || id === beforeId) return current
+      const rest = current.filter((t) => t.id !== id)
+      let at = beforeId ? rest.findIndex((t) => t.id === beforeId) : -1
+      if (at < 0) { // last among its workspace's tabs
+        at = rest.length
+        for (let i = rest.length - 1; i >= 0; i--) if (rest[i].workspace === moving.workspace) { at = i + 1; break }
+      }
+      return [...rest.slice(0, at), moving, ...rest.slice(at)]
+    })
+  }
+
   // Shows another engine; the one shown so far stays connected.
   const showEngine = (next: Engine) => {
     setEngine(next)
@@ -614,7 +630,7 @@ function App() {
             </div>
           )}
           {workspace && workspaceTabs.length > 0 && (
-            <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={requestClose}
+            <TabBar tabs={workspaceTabs} activeId={activeTab} onSelect={setActiveTab} onClose={requestClose} onReorder={reorderTab}
                     onDuplicate={duplicateTab} dirtyIds={dirtyTabs} />
           )}
           {/* Every open tab stays mounted, other connections' and while disconnected too (hidden),
