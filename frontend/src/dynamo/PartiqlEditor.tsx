@@ -232,6 +232,10 @@ function PartiqlResult({ index, ran, bleed, onDirtyChange, onChanged }: ResultPr
   const [next, setNext] = useState(ran.result.next)
   const [loading, setLoading] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  const [pagesRead, setPagesRead] = useState(1) // of 50 items each
+  const [capacity, setCapacity] = useState(ran.result.capacity)
+  const [loadingAll, setLoadingAll] = useState(false)
+  const stopAll = useRef(false)
   const [details, setDetails] = useState<TableDetails | null>(null)
   const [extra, setExtra] = useState<NewField[]>([])
 
@@ -252,18 +256,31 @@ function PartiqlResult({ index, ran, bleed, onDirtyChange, onChanged }: ResultPr
   const keyNames = store?.keyNames ?? []
   const rowKeys = useMemo(() => items.map((item) => itemKey({ keyNames, types: {} }, item)), [items, keyNames.join('\n')])
 
-  const loadMore = async () => {
+  // Reads the next page; returns where the one after starts ('' at the end; null after an error).
+  const loadMore = async (from = next): Promise<string | null> => {
     setLoading(true)
     setPageError(null)
     try {
-      const page = await Dynamo.RunPartiQL(ran.statement, next)
+      const page = await Dynamo.RunPartiQL(ran.statement, from)
       setItems((current) => [...current, ...(page.items ?? []).filter((i): i is Item => i !== null)])
       setNext(page.next)
+      setPagesRead((n) => n + 1)
+      setCapacity((c) => c + page.capacity)
+      return page.next
     } catch (err) {
       setPageError(errorMessage(err))
+      return null
     } finally {
       setLoading(false)
     }
+  }
+  // Load all: page after page to the end, the count updating as it goes; Stop ends it after the page in flight.
+  const loadAll = async () => {
+    setLoadingAll(true)
+    stopAll.current = false
+    let from: string | null = next
+    while (from && !stopAll.current) from = await loadMore(from)
+    setLoadingAll(false)
   }
 
   return (
@@ -285,15 +302,28 @@ function PartiqlResult({ index, ran, bleed, onDirtyChange, onChanged }: ResultPr
       </DataGrid>
       <div className={bleed ? 'grid-footer' : 'result-footer'}>
         <span className={bleed ? 'grid-status' : 'result-meta'}>
-          {items.length === 1 ? '1 item' : `${items.length.toLocaleString()} items`}{next ? '' : ' · all of them'}
+          {items.length === 1 ? '1 item' : `${items.length.toLocaleString()} items`}
+          {next || pagesRead > 1 ? ` (of ${(pagesRead * 50).toLocaleString()} read${next ? ', more to read' : ''})` : ' · all of them'}
+          {!next && pagesRead > 1 && ' · all of them'}
+          {capacity > 0 && ` · ${formatUnits(capacity)} capacity unit${capacity === 1 ? '' : 's'}`}
           {store ? ` · editable (${table})` : ` · read-only${readOnly ? `: ${readOnly}` : ''}`}
           {pageError && <span className="page-error"> · {pageError}</span>}
         </span>
         <div className="grid-pager">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={loadMore} disabled={loading || !next}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadMore()} disabled={loading || !next}
                   title="Run the statement on from where this page ended (up to 50 items)">
-            {loading ? <><Spinner /> Loading…</> : 'Load more'}
+            {loading && !loadingAll ? <><Spinner /> Loading…</> : 'Load more'}
           </button>
+          {loadingAll ? (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => { stopAll.current = true }} title="Stop after the page being read">
+              <Spinner /> Stop
+            </button>
+          ) : (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={loadAll} disabled={loading || !next}
+                    title="Run the statement on, page after page, until it has no more (Stop any time)">
+              Load all
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Service as Dynamo, type Filter, type FindPlan, type TableDetails } from '../../bindings/github.com/anujkaushik1/SpyDB/dynamo'
 import Banner, { errorMessage } from '../Banner'
+import ConfirmDialog from '../ConfirmDialog'
 import DataGrid, { type Sort } from '../DataGrid'
 import FieldPicker, { type FieldOption } from '../FieldPicker'
 import { CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
@@ -73,7 +74,8 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
 
   // from '' loads the first page again, replacing the items; otherwise the
   // page after, added below them.
-  const load = async (from: string, filters: Filter[]) => {
+  // Reads one page and returns where the next starts ('' at the end; null after an error).
+  const load = async (from: string, filters: Filter[]): Promise<string | null> => {
     setLoading(true)
     try {
       const page = await Dynamo.FindItems(table, filters, from)
@@ -85,11 +87,32 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
       setDurationMs(page.durationMs)
       setLoaded(true)
       setError(null)
+      return page.next
     } catch (err) {
       setError(errorMessage(err)) // the items loaded so far stay
+      return null
     } finally {
       setLoading(false)
     }
+  }
+
+  // Load all: page after page until the end, the counts updating as it goes;
+  // Stop ends it after the page in flight. Walking a big table without a
+  // key reads (and pays for) every item, so that asks first.
+  const [loadingAll, setLoadingAll] = useState(false)
+  const stopAll = useRef(false)
+  const [confirmAll, setConfirmAll] = useState(false)
+  const loadAll = async () => {
+    setLoadingAll(true)
+    stopAll.current = false
+    let from: string | null = next
+    while (from && !stopAll.current) from = await load(from, applied)
+    setLoadingAll(false)
+  }
+  const askLoadAll = () => {
+    const walksTable = !readBy?.query && (details?.itemCount ?? 0) > 100_000
+    if (walksTable) setConfirmAll(true)
+    else loadAll()
   }
 
   // Fields added but not typed into go; ones with unsaved values stay.
@@ -308,8 +331,28 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
                     title={filtered ? 'Check the next items (up to 50)' : 'Read the next page from AWS (up to 50 items)'}>
               Load more
             </button>
+            {loadingAll ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { stopAll.current = true }}
+                      title="Stop after the page being read">
+                <Spinner /> Stop
+              </button>
+            ) : (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={askLoadAll} disabled={loading || !next}
+                      title={filtered ? 'Keep checking, page after page, until every item was (Stop any time)' : 'Read every page to the end (Stop any time)'}>
+                Load all
+              </button>
+            )}
           </div>
         </footer>
+        {confirmAll && details && (
+          <ConfirmDialog
+            title={`Read all of ${table}?`}
+            message={<>No key fits these filters, so AWS reads every item: about <strong>{details.itemCount.toLocaleString()} items</strong> ({formatSize(details.sizeBytes)}), 50 a page, and you pay for each read. You can stop at any time.</>}
+            confirmLabel="Read them all"
+            onConfirm={() => { setConfirmAll(false); loadAll() }}
+            onCancel={() => setConfirmAll(false)}
+          />
+        )}
       </div>
       {pq.results && <div className="results-pane" hidden={!sqlMode}>{pq.results}</div>}
     </div>

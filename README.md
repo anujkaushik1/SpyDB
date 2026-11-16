@@ -58,10 +58,10 @@ SpyDB checks for a newer release each time it opens and offers to install it. To
 ### DynamoDB
 
 - **Sign in** with an AWS profile from `~/.aws` (keys, SSO or browser sign-in), or type an access key and secret key, which you can save on your computer for next time.
-- **Tables:** 50 items at a time with Load more, sort the loaded items by any column, and filters that use a table or index key when they can (it says which) instead of reading every item.
+- **Tables:** 50 items at a time with Load more, or Load all to read on to the end with the counts climbing (Stop any time; it asks first before walking a big table without a key), sort the loaded items by any column, and filters that use a table or index key when they can (it says which) instead of reading every item.
 - **Edit in place:** type in a cell, or edit an item as JSON, where adding a key adds the field (a new column) and deleting one removes it; ✕ in a cell removes a field. Fields keep their DynamoDB type (a number stays a number; sets stay sets). Saves are checked like Postgres's: every item must still hold what you saw, and several items save in one transaction, all or none.
 - **Delete** items from the right-click menu, after a confirmation.
-- **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time and its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
+- **PartiQL** (DynamoDB's SQL): `</>` in a table tab, or ⌘T / Ctrl+T for a PartiQL tab. `SELECT` reads 50 items at a time (Load more, or Load all to the end) and says how many were read for the items shown; its results from one table are editable; `INSERT`, `UPDATE` and `DELETE` work too.
 
 ### Your data stays on your computer
 
