@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type MouseEvent, useRef } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react'
 import type { DBConfig, TableInfo } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import { errorMessage } from './Banner'
 import { copyText } from './clipboard'
@@ -27,40 +27,79 @@ type Props = {
   dirtyIds: Set<string> // tabs with unsaved cell edits, marked with a dot
 }
 
+// A tab being dragged: where it started (from, among rects, the tabs' places
+// at the start), how far it has moved (dx), the slot it would land in (to).
+type Drag = { id: string; from: number; startX: number; dx: number; to: number; moved: boolean; settling: boolean; rects: { id: string; left: number; width: number; right: number }[] }
+const SETTLE_MS = 130 // the slide into the slot when a dragged tab is let go
+
 // Open tables, query tabs and the Connections list; every tab can be closed.
 // Right-click a tab for Close / Close Others / Close Tabs to Right / Close
 // All, Duplicate, and (table tabs) Copy Name.
 export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate, onReorder, dirtyIds }: Props) {
-  // Dragging a tab (the mouse held and moved sideways) moves it live past its
-  // neighbours; letting go leaves it there.
-  const drag = useRef<{ id: string; startX: number; moved: boolean } | null>(null)
-  useEffect(() => {
-    const onMove = (e: globalThis.MouseEvent) => {
-      const d = drag.current
-      if (!d || !onReorder) return
-      if (!d.moved && Math.abs(e.clientX - d.startX) < 6) return
-      d.moved = true
-      document.querySelector(`.tab[data-tab-id="${d.id}"]`)?.classList.add('dragging')
-      const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('.tab') as HTMLElement | null
-      if (!over || over.dataset.tabId === d.id) return
-      const box = over.getBoundingClientRect()
-      const ids = [...document.querySelectorAll<HTMLElement>('.tabbar .tab')].map((t) => t.dataset.tabId ?? '')
-      const from = ids.indexOf(d.id), at = ids.indexOf(over.dataset.tabId ?? '')
-      const before = e.clientX < box.left + box.width / 2
-      const target = before ? at : at + 1 // where it would go, among the tabs as they are
-      if (target === from || target === from + 1) return
-      onReorder(d.id, ids[target] ?? null)
+  // Dragging a tab: it follows the mouse while the tabs it passes slide
+  // aside; letting go slides it into its slot, and then the order changes
+  // for real (in the same render as the slide's end, so nothing jumps).
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const dragRef = useRef<Drag | null>(null)
+  const reorderRef = useRef(onReorder)
+  reorderRef.current = onReorder
+  const settle = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(settle.current), [])
+  const startDrag = (e: MouseEvent<HTMLDivElement>, id: string) => {
+    if (e.button !== 0 || !onReorder || (e.target as HTMLElement).closest('.tab-close')) return
+    const bar = e.currentTarget.parentElement
+    const rects = [...(bar?.querySelectorAll<HTMLElement>('.tab') ?? [])].map((t) => { const r = t.getBoundingClientRect(); return { id: t.dataset.tabId ?? '', left: r.left, width: r.width, right: r.right } })
+    const from = rects.findIndex((r) => r.id === id)
+    if (from < 0) return
+    dragRef.current = { id, from, startX: e.clientX, dx: 0, to: from, moved: false, settling: false, rects }
+    const onMove = (ev: globalThis.MouseEvent) => {
+      const cur = dragRef.current
+      if (!cur || cur.settling) return
+      const dx = ev.clientX - cur.startX
+      if (!cur.moved && Math.abs(dx) < 6) return // a click, so far
+      const me = cur.rects[cur.from]
+      const centre = me.left + me.width / 2 + dx
+      // Its slot: after every other tab whose centre it has passed.
+      const to = cur.rects.filter((r) => r.id !== cur.id && r.left + r.width / 2 < centre).length
+      dragRef.current = { ...cur, dx, to, moved: true }
+      setDrag(dragRef.current)
     }
     const onUp = () => {
-      const d = drag.current
-      if (!d) return
-      document.querySelector(`.tab[data-tab-id="${d.id}"]`)?.classList.remove('dragging')
-      drag.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      const cur = dragRef.current
+      if (!cur) return
+      if (!cur.moved) { dragRef.current = null; return }
+      const me = cur.rects[cur.from]
+      const slotLeft = cur.to > cur.from ? cur.rects[cur.to].right - me.width : cur.rects[cur.to].left
+      const settling: Drag = { ...cur, dx: slotLeft - me.left, settling: true }
+      dragRef.current = settling
+      setDrag(settling)
+      settle.current = window.setTimeout(() => {
+        if (dragRef.current !== settling) return
+        dragRef.current = null
+        setDrag(null)
+        if (cur.to !== cur.from) {
+          const others = cur.rects.filter((r) => r.id !== cur.id)
+          reorderRef.current?.(cur.id, others[cur.to]?.id ?? null)
+        }
+      }, SETTLE_MS)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [onReorder])
+  }
+  // Where a tab is while one is dragged: that one under the mouse, the ones it passed slid aside.
+  const dragStyle = (id: string): CSSProperties | undefined => {
+    if (!drag) return undefined
+    if (id === drag.id) return { transform: `translateX(${drag.dx}px)`, transition: drag.settling ? `transform ${SETTLE_MS}ms ease` : 'none', zIndex: 2 }
+    const i = drag.rects.findIndex((r) => r.id === id)
+    if (i < 0) return undefined
+    const j = i < drag.from ? i : i - 1 // its place among the others
+    const gap = drag.rects.length > 1 ? drag.rects[1].left - drag.rects[0].right : 0
+    const width = drag.rects[drag.from].width + gap
+    const shift = j >= drag.to && j < drag.from ? width : j >= drag.from && j < drag.to ? -width : 0
+    return { transform: `translateX(${shift}px)`, transition: 'transform 160ms ease' }
+  }
   const [menu, setMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null)
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
@@ -115,8 +154,9 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
             tabIndex={0}
             aria-selected={active}
             data-tab-id={tab.id}
-            className={`tab ${accent}${active ? ' active' : ''}`}
-            onMouseDown={(e) => { if (e.button === 0 && !(e.target as HTMLElement).closest('.tab-close')) drag.current = { id: tab.id, startX: e.clientX, moved: false } }}
+            className={`tab ${accent}${active ? ' active' : ''}${drag?.id === tab.id && drag.moved ? ' dragging' : ''}`}
+            style={dragStyle(tab.id)}
+            onMouseDown={(e) => startDrag(e, tab.id)}
             onClick={() => onSelect(tab.id)}
             onKeyDown={onKeyDown}
             onAuxClick={onAuxClick}

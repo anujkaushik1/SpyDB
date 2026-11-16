@@ -798,7 +798,7 @@ kbd {
 }
 
 /* A strip between the editor and the grid: running, done, or results shown. */
-.tab.dragging { opacity: 0.55; cursor: grabbing; }
+.tab.dragging { cursor: grabbing; background: var(--hover-weak); box-shadow: 0 3px 10px rgb(0 0 0 / 0.3); }
 .tab-notice {
     flex: 0 0 auto;
     display: flex;

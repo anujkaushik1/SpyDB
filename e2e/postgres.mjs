@@ -449,18 +449,19 @@ check('Discard: the ids are back', (await changed()) === 0 && (await evaluate(`$
 
 // Tabs drag into another order, which stays when switching tabs.
 const tabTitles = () => evaluate(`[...document.querySelectorAll('.tabbar .tab .tab-title')].map((t) => t.innerText)`)
+const tabOrder = async (expected) => { await waitFor(`JSON.stringify([...document.querySelectorAll('.tabbar .tab .tab-title')].map((t) => t.innerText)) === ${JSON.stringify(JSON.stringify(expected))}`, 3000); return JSON.stringify(await tabTitles()) === JSON.stringify(expected) }
 const tabOf = (title) => `[...document.querySelectorAll('.tabbar .tab')].find((t) => t.querySelector('.tab-title')?.innerText === '${title}')`
 const titles = await tabTitles()
 const others = titles.filter((t) => t !== 'spydb_ui_test')
 check('several tabs are open', titles.length >= 4 && titles.includes('spydb_ui_test'), titles)
 await p.drag(tabOf('spydb_ui_test'), `document.querySelectorAll('.tabbar .tab')[${titles.length - 1}]`, { dx: 20 })
-check('dragging spydb_ui_test past the last tab puts it last', JSON.stringify(await tabTitles()) === JSON.stringify([...others, 'spydb_ui_test']), await tabTitles())
+check('dragging spydb_ui_test past the last tab puts it last', await tabOrder([...others, 'spydb_ui_test']), await tabTitles())
 await click(tabOf(others[0])); await sleep(300)
 await click(tabOf('spydb_ui_test')); await evaluate(helpers)
 check('…its rows are still there after switching away and back', await waitFor(`document.querySelector('.tab.active .tab-title')?.innerText === 'spydb_ui_test'`) && (await idsShown()).length === 13, await idsShown())
-check('the order stays after switching tabs', JSON.stringify(await tabTitles()) === JSON.stringify([...others, 'spydb_ui_test']), await tabTitles())
+check('the order stays after switching tabs', await tabOrder([...others, 'spydb_ui_test']), await tabTitles())
 await p.drag(tabOf('spydb_ui_test'), `document.querySelector('.tabbar .tab')`, { dx: -20 })
-check('dragged before the first tab: first', JSON.stringify(await tabTitles()) === JSON.stringify(['spydb_ui_test', ...others]), await tabTitles())
+check('dragged before the first tab: first', await tabOrder(['spydb_ui_test', ...others]), await tabTitles())
 await shot(`${shots}/p9-range.png`)
 
 // Query results: 3 rows edited in a SELECT's results save to exactly those rows; a JOIN's results are read-only.
