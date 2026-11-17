@@ -473,6 +473,15 @@ await click(`document.querySelector('.delete-rows .btn-danger')`)
 check('deleted 2 while sorted', await waitFor(`__t.bar().includes('Deleted 2 items')`), await evaluate(`__t.bar()`))
 await sameExcept(before, twoSorted, 'two rows deleted while sorted')
 check('…they left the grid, and the rest is still sorted', await evaluate(`!__t.row('items', '${twoSorted[0]}') && !__t.row('items', '${twoSorted[1]}') && __t.status().includes('sorted by amount ↓')`), await evaluate(`__t.status()`))
+// A reload while the JSON view is open (the refresh shortcut, or a page arriving) moves or drops its
+// rows: the view closes and says so, instead of editing whatever row sits at that place now.
+const gone = await keyAt(3)
+await ddb('DeleteItem', { TableName: 'orders', Key: { userId: { S: gone }, createdAt: { N: String(1731400000 + Number(gone.slice(1))) } } })
+await evaluate(`(() => { __t.pane().querySelector('.grid-pager [aria-label="Reload items"]').click(); ${numAt(3)}.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })()`)
+check('the JSON view opened during a reload closes when it lands, saying why',
+  await waitFor(`!__t.pane().querySelector('.grid-wrap.loading') && !document.querySelector('.json-modal') && (document.querySelector('.copy-toast')?.innerText ?? '').includes('the JSON editor closed without applying')`, 5000),
+  [await evaluate(`!!document.querySelector('.json-modal')`), await evaluate(`document.querySelector('.copy-toast')?.innerText`)])
+check('…the item deleted meanwhile is gone from the grid, still sorted', await evaluate(`!__t.row('items', '${gone}') && __t.status().includes('sorted by amount ↓')`), await evaluate(`__t.status()`))
 await click(sortBy('amount'))
 await waitFor(`!__t.status().includes('sorted')`)
 // A pinned column, then 2 picked with ⌘ and deleted: the pin changes nothing about which items go.

@@ -336,7 +336,8 @@ export default function DataGrid(props: Props) {
   // New rows (another page, a reload): the selection no longer points at the
   // same cell. A layout effect, so it's cleared before the new rows are ever
   // shown: no click can pair the old rows' selection (or an open menu's
-  // Delete) with the new rows.
+  // Delete) with the new rows. A JSON editor open on them (a sorted DynamoDB
+  // tab re-sorts as a page lands) closes without applying, and says so.
   useLayoutEffect(() => {
     setSelected(null)
     setEditing(null)
@@ -347,6 +348,7 @@ export default function DataGrid(props: Props) {
     setJsonCell(null)
     setRowJson(null)
     setLinkMenu(null)
+    if (rowJson || jsonCell) setCopied({ text: `The ${many} changed (reloaded, or more loaded): the JSON editor closed without applying. Open it again.`, error: true })
   }, [rows])
 
   useEffect(() => {

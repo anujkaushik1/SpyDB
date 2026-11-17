@@ -1,8 +1,8 @@
 {
   "about": "Read by SpyDB when it opens. A copy older than its platform's minimum must update: the update window has no Later button. Raise mac, ubuntu or windows (or more than one) to the new version to require it there.",
   "minimum": {
-    "mac": "0.2.0",
-    "ubuntu": "0.2.0",
-    "windows": "0.2.0"
+    "mac": "0.2.3",
+    "ubuntu": "0.2.3",
+    "windows": "0.2.3"
   }
 }
