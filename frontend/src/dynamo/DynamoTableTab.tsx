@@ -132,14 +132,17 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
   // Saved items can bring new fields too.
   useEffect(() => setSeen((s) => addSeen(s, items)), [items])
 
+  // The loaded items in the sorted order (each row still carries its own item's key).
+  const shownItems = useMemo(() => sortItems(items, sort), [items, sort])
+  // The store gets the items in the rows' order, not AWS's: the grid names a
+  // row by its index, and the JSON view and Copy as JSON must find that row's
+  // item, not whichever item was loaded that many places in.
   const { store, readOnly } = useItemStore({
-    table, details, items, setItems, extra,
+    table, details, items: shownItems, setItems, extra,
     onNewFields: (fields) => setExtra((current) => [...current, ...fields]),
     onStale: reload,
   })
   const columns = useMemo(() => itemColumns(details, items, extra), [details, items, extra])
-  // The loaded items in the sorted order (each row still carries its own item's key).
-  const shownItems = useMemo(() => sortItems(items, sort), [items, sort])
   const rows = useMemo(() => itemRows(columns, shownItems), [columns, shownItems])
   const keyNames = store?.keyNames ?? []
   const rowKeys = useMemo(() => shownItems.map((item) => itemKey({ keyNames, types: {} }, item)), [shownItems, keyNames.join('\n')])

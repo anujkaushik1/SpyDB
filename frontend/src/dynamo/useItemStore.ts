@@ -7,8 +7,8 @@ import { itemDeletes, itemEdits, itemKey, itemsJson, itemsJsonEdits, type ItemSh
 type Options = {
   table: string // '' when the items aren't from one table (a PartiQL result from an index, say)
   details: TableDetails | null // the table's key; null until known (or if AWS won't say)
-  items: Item[]
-  setItems: Dispatch<SetStateAction<Item[]>>
+  items: Item[] // the items as the grid's rows show them, in the rows' order (sorted, if they are)
+  setItems: Dispatch<SetStateAction<Item[]>> // the loaded items, in any order: saved and deleted ones are found by key
   extra: NewField[] // fields added that no item has yet
   onNewFields: (fields: NewField[]) => void // the JSON view added some: give them columns
   onStale: () => void // a saved item couldn't be read back: load the items again

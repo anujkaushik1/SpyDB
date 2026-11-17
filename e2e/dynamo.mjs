@@ -428,6 +428,51 @@ before = await snapshot('orders', KEYS)
 await editCell(top, 'city', 'Top')
 await save()
 await sameExcept(before, [top], 'edit while sorted')
+// Still sorted by amount ↓: Copy as JSON, the JSON view and an edit made there are of the rows shown, not
+// of the items in the order AWS sent them (which once copied three other items than the three picked).
+await evaluate(CAPTURE_COPIES) // what a copy sends to the clipboard lands in window.__copied
+await evaluate(`window.__copied = null`)
+const top3 = [await keyAt(0), await keyAt(1), await keyAt(2)]
+await click(numAt(0)); await clickWith(numAt(2), SHIFT)
+check('3 sorted rows picked', (await selectedCount()) === 3, await selectedCount())
+await rightClick(numAt(1))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'JSON')`)
+await waitFor(`window.__copied`)
+const copied = JSON.parse(await evaluate(`window.__copied`))
+const real3 = await Promise.all(top3.map(o))
+check('Copy as JSON while sorted: the 3 items shown, in the order shown', copied.map((it) => it.userId).join() === top3.join(), { copied: copied.map((it) => it.userId), shown: top3 })
+check('…each with its own values, the biggest amounts first',
+  copied.every((it, i) => String(it.amount) === real3[i].amount.N && String(it.createdAt) === real3[i].createdAt.N) && copied[0].amount >= copied[1].amount && copied[1].amount >= copied[2].amount,
+  copied.map((it) => it.amount))
+await click(numAt(1))
+await dblclick(numAt(1))
+await waitFor(`document.querySelector('.json-modal .cm-content')`)
+const shownSorted = JSON.parse(await evaluate(`document.querySelector('.json-modal .cm-content').innerText`))
+check('the JSON view while sorted shows the row double-clicked', shownSorted.userId === top3[1] && String(shownSorted.amount) === real3[1].amount.N, { shown: shownSorted.userId, wanted: top3[1] })
+shownSorted.city = 'Sorted JSON'
+await click(`document.querySelector('.json-modal .cm-content')`)
+await key('a', MOD)
+await type(JSON.stringify(shownSorted, null, 2))
+await sleep(500)
+await click(`[...document.querySelectorAll('.json-modal .btn-primary')].find((b) => b.innerText === 'Apply')`)
+check('the JSON edit is one change in that item', await waitFor(`__t.bar().includes('1 unsaved change in 1 item')`), await evaluate(`__t.bar()`))
+before = await snapshot('orders', KEYS)
+await save()
+await waitFor(`__t.bar().includes('Saved 1 item')`)
+await sameExcept(before, [top3[1]], 'JSON edit while sorted')
+check('…and it landed on the item shown', (await o(top3[1])).city?.S === 'Sorted JSON', (await o(top3[1])).city)
+// A delete while sorted goes by each row's own key too: two rows picked apart, exactly those two go.
+const twoSorted = [await keyAt(1), await keyAt(3)]
+await click(numAt(1)); await clickWith(numAt(3), MOD)
+await rightClick(numAt(3))
+await click(`[...document.querySelectorAll('.row-menu button')].find((b) => b.innerText.trim() === 'Delete 2 whole items…')`)
+await waitFor(`document.querySelector('.delete-rows .btn-danger')`)
+check('the confirmation names the two rows picked', await evaluate(`(() => { const t = document.querySelector('.delete-rows')?.innerText ?? ''; return t.includes('${twoSorted[0]}') && t.includes('${twoSorted[1]}') })()`), await evaluate(`document.querySelector('.delete-rows')?.innerText`))
+before = await snapshot('orders', KEYS)
+await click(`document.querySelector('.delete-rows .btn-danger')`)
+check('deleted 2 while sorted', await waitFor(`__t.bar().includes('Deleted 2 items')`), await evaluate(`__t.bar()`))
+await sameExcept(before, twoSorted, 'two rows deleted while sorted')
+check('…they left the grid, and the rest is still sorted', await evaluate(`!__t.row('items', '${twoSorted[0]}') && !__t.row('items', '${twoSorted[1]}') && __t.status().includes('sorted by amount ↓')`), await evaluate(`__t.status()`))
 await click(sortBy('amount'))
 await waitFor(`!__t.status().includes('sorted')`)
 // A pinned column, then 2 picked with ⌘ and deleted: the pin changes nothing about which items go.
