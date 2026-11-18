@@ -374,7 +374,8 @@ export default function DataGrid(props: Props) {
     if (!cell) return
     cell.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     const box = w.getBoundingClientRect(), r = cell.getBoundingClientRect()
-    const head = w.querySelector('thead')?.getBoundingClientRect().height ?? 0
+    const thead = w.querySelector('thead')
+    const head = thead ? thead.getBoundingClientRect().bottom - box.top : 0 // the sticky header's bottom, under the find strip
     const pinned = cell.classList.contains('pinned') ? 0
       : Math.max(0, ...[...w.querySelectorAll<HTMLElement>('thead th.pinned, thead th.grid-rownum')].map((th) => th.getBoundingClientRect().right - box.left))
     if (r.top < box.top + head) w.scrollTop -= box.top + head - r.top
@@ -853,23 +854,21 @@ export default function DataGrid(props: Props) {
 
   return (
     <>
-      <div className={props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste}>
+      <div className={find ? `${props.wrapClass} finding` : props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste}>
         {find && (
-          <div className="grid-find-holder">
-            <div className="grid-find" role="search">
-              <SearchIcon />
-              <input ref={findInput} value={find.query} onChange={(e) => setFind({ query: e.target.value, at: 0 })} onKeyDown={onFindKeyDown}
-                     placeholder={`Find in ${many}`} aria-label={`Find in ${many}`}
-                     spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
-              <span className="grid-find-count" aria-live="polite">
-                {!findQuery ? '' : findMatches.length === 0 ? 'No matches' : `${findAt + 1} of ${findMatches.length.toLocaleString()}`}
-              </span>
-              <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(-1)}
-                      disabled={findMatches.length === 0} aria-label="Previous match" title="Previous match (Shift+Enter)"><ArrowUpIcon /></button>
-              <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(1)}
-                      disabled={findMatches.length === 0} aria-label="Next match" title="Next match (Enter)"><ArrowDownIcon /></button>
-              <button type="button" className="grid-find-btn" onClick={closeFind} aria-label="Close find" title="Close (Esc)"><XIcon /></button>
-            </div>
+          <div className="grid-find" role="search">
+            <SearchIcon />
+            <input ref={findInput} value={find.query} onChange={(e) => setFind({ query: e.target.value, at: 0 })} onKeyDown={onFindKeyDown}
+                   placeholder={`Find in ${many}`} aria-label={`Find in ${many}`}
+                   spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+            <span className="grid-find-count" aria-live="polite">
+              {!findQuery ? '' : findMatches.length === 0 ? 'No matches' : `${findAt + 1} of ${findMatches.length.toLocaleString()}`}
+            </span>
+            <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(-1)}
+                    disabled={findMatches.length === 0} aria-label="Previous match" title="Previous match (Shift+Enter)"><ArrowUpIcon /></button>
+            <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(1)}
+                    disabled={findMatches.length === 0} aria-label="Next match" title="Next match (Enter)"><ArrowDownIcon /></button>
+            <button type="button" className="grid-find-btn" onClick={closeFind} aria-label="Close find" title="Close (Esc)"><XIcon /></button>
           </div>
         )}
         {columns.length > 0 && (

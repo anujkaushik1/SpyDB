@@ -1553,28 +1553,39 @@ kbd {
 .grid tbody tr td.cell-found { box-shadow: inset 0 0 0 1px var(--warn); }
 .grid tbody tr td.cell-in-range { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-bg-strong); }
 
-/* ----- Find in the grid (⌘F / Ctrl+F): a box at the top right, over the rows ----- */
-.grid-find-holder { position: sticky; top: 0; left: 0; z-index: 6; width: 100%; height: 0; }
+/* ----- Find in the grid (⌘F / Ctrl+F): a strip across the top of the rows, above the header, so it covers nothing ----- */
 .grid-find {
-    position: absolute;
-    top: 8px;
-    right: 14px;
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 6;
     display: flex;
     align-items: center;
-    gap: 4px;
-    height: 32px;
-    padding: 0 4px 0 10px;
+    gap: 6px;
+    box-sizing: border-box;
+    height: 36px;
+    padding: 0 10px 0 14px;
     color: var(--text-subtle);
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+    border-bottom: 1px solid var(--border);
 }
-.grid-find:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-ring), 0 8px 24px rgb(0 0 0 / 0.28); }
 .grid-find > svg { flex: 0 0 auto; width: 13px; height: 13px; }
-.grid-find input { width: 180px; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); background: transparent; border: 0; outline: 0; }
+.grid-find input {
+    flex: 0 1 300px;
+    min-width: 120px;
+    height: 26px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: 0;
+}
+.grid-find input:focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-ring); }
 .grid-find input::placeholder { color: var(--text-subtle); }
-.grid-find-count { min-width: 56px; margin: 0 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.grid-find-count { min-width: 64px; margin: 0 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .grid-find-btn {
     display: inline-flex;
     align-items: center;
@@ -1591,6 +1602,8 @@ kbd {
 .grid-find-btn:hover:not(:disabled) { color: var(--text); background: var(--hover-weak); }
 .grid-find-btn:disabled { opacity: 0.4; cursor: default; }
 .grid-find-btn svg { width: 13px; height: 13px; }
+/* With the strip there, the header sticks below it instead of sliding under it. */
+.finding .grid thead th { top: 36px; }
 .range-dragging, .range-dragging * { user-select: none; cursor: cell; }
 /* An unsaved edit: a blue tint and a bar on the left edge. */
 .grid tbody tr td.cell-changed {
