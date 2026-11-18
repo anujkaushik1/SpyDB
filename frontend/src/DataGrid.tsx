@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject, type ClipboardEvent } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject, type ClipboardEvent } from 'react'
 import { DBService, type EditTarget, type ForeignKey, type RowEdit } from '../bindings/github.com/anujkaushik1/SpyDB/postgres'
 import Banner, { errorDetail, errorMessage } from './Banner'
-import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, Spinner, PinIcon } from './icons'
+import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, KeyIcon, LinkIcon, SearchIcon, Spinner, PinIcon, XIcon } from './icons'
 import { copyText } from './clipboard'
 import { formatRows, formatValue, rowsAsJson, type CopyFormat } from './copyFormats'
 import { dragX } from './resize'
@@ -195,6 +195,9 @@ export default function DataGrid(props: Props) {
   const lead = useRef<number | null>(null) // its moving end, for Shift+↑/↓
   const [menu, setMenu] = useState<{ x: number; y: number; cell: Cell | null } | null>(null)
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
+  // The find bar (⌘F / Ctrl+F): the text typed, and which match is current.
+  const [find, setFind] = useState<{ query: string; at: number } | null>(null)
+  const findInput = useRef<HTMLInputElement>(null)
   const [jsonCell, setJsonCell] = useState<Cell | null>(null) // open in the JSON editor
   const [rowJson, setRowJson] = useState<number[] | null>(null) // rows shown with "View as JSON"
   const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; links: Link[] } | null>(null) // a value that points at rows in several tables
@@ -332,6 +335,88 @@ export default function DataGrid(props: Props) {
 
   const changedRows = Object.keys(pending).length
   const changedCells = Object.values(pending).reduce((n, e) => n + Object.keys(e.values).length, 0)
+
+  // Find: cells whose shown text has the typed text, and columns whose name
+  // has it (as their top cell, so a column's name finds the column). Column
+  // matches first, then row by row; case doesn't matter.
+  const findQuery = find?.query.trim().toLowerCase() ?? ''
+  const findMatches = useMemo((): Cell[] => {
+    if (!findQuery) return []
+    const seen = new Set<string>()
+    const out: Cell[] = []
+    const add = (cell: Cell) => {
+      const key = `${cell.row}-${cell.col}`
+      if (!seen.has(key)) { seen.add(key); out.push(cell) }
+    }
+    columns.forEach((c, j) => { if (c.name.toLowerCase().includes(findQuery)) add({ row: rows.length > 0 ? 0 : -1, col: j }) })
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = 0; j < columns.length; j++) {
+        const v = shownValue(i, j)
+        if (v != null && v.toLowerCase().includes(findQuery)) add({ row: i, col: j })
+      }
+    }
+    return out
+  }, [findQuery, rows, columns, pending, saved])
+  const found = useMemo(() => new Set(findMatches.map((m) => `${m.row}-${m.col}`)), [findMatches])
+  const findAt = find ? Math.min(find.at, Math.max(0, findMatches.length - 1)) : 0
+  // Goes to a match: the cell is selected and scrolled to, out from under the
+  // sticky header and a pinned column; a column with no rows just scrolls into view.
+  const showMatch = (m: Cell) => {
+    const w = wrap.current
+    if (!w) return
+    if (m.row < 0) {
+      w.querySelector(`thead th[data-col="${m.col}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      return
+    }
+    setRangeTo(null)
+    setSelected(m)
+    const cell = w.querySelector<HTMLElement>(`[data-cell="${m.row}-${m.col}"]`)
+    if (!cell) return
+    cell.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const box = w.getBoundingClientRect(), r = cell.getBoundingClientRect()
+    const head = w.querySelector('thead')?.getBoundingClientRect().height ?? 0
+    const pinned = cell.classList.contains('pinned') ? 0
+      : Math.max(0, ...[...w.querySelectorAll<HTMLElement>('thead th.pinned, thead th.grid-rownum')].map((th) => th.getBoundingClientRect().right - box.left))
+    if (r.top < box.top + head) w.scrollTop -= box.top + head - r.top
+    if (r.left < box.left + pinned) w.scrollLeft -= box.left + pinned - r.left
+  }
+  const stepFind = (by: number) => {
+    if (!find || findMatches.length === 0) return
+    const at = (findAt + by + findMatches.length) % findMatches.length
+    setFind({ ...find, at })
+    showMatch(findMatches[at])
+  }
+  const openFind = () => {
+    setFind((f) => f ?? { query: '', at: 0 })
+    requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select() })
+  }
+  const closeFind = () => {
+    setFind(null)
+    wrap.current?.focus({ preventScroll: true })
+  }
+  // Typing goes to the first match straight away, like a browser's find.
+  useEffect(() => {
+    if (find && findMatches.length > 0 && find.at === 0) showMatch(findMatches[0])
+  }, [findQuery])
+  const onFindKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation() // the grid's own keys (type to edit, arrows…) aren't for the find box
+    if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFind() }
+    else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); e.currentTarget.select() }
+  }
+  // ⌘F from anywhere in the tab (a filter box, a button) opens the find bar of
+  // the grid on screen, unless an editor took it first (CodeMirror has its own).
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f' || e.defaultPrevented) return
+      const w = wrap.current
+      if (!w || w.offsetParent === null) return
+      e.preventDefault()
+      openFind()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // New rows (another page, a reload): the selection no longer points at the
   // same cell. A layout effect, so it's cleared before the new rows are ever
@@ -651,6 +736,11 @@ export default function DataGrid(props: Props) {
       save()
       return
     }
+    if (mod && e.key.toLowerCase() === 'f') {
+      e.preventDefault()
+      openFind()
+      return
+    }
     if (mod && e.key.toLowerCase() === 'a') {
       e.preventDefault()
       selectAll()
@@ -764,6 +854,24 @@ export default function DataGrid(props: Props) {
   return (
     <>
       <div className={props.wrapClass} ref={wrap} tabIndex={0} onKeyDown={onKeyDown} onPaste={onPaste}>
+        {find && (
+          <div className="grid-find-holder">
+            <div className="grid-find" role="search">
+              <SearchIcon />
+              <input ref={findInput} value={find.query} onChange={(e) => setFind({ query: e.target.value, at: 0 })} onKeyDown={onFindKeyDown}
+                     placeholder={`Find in ${many}`} aria-label={`Find in ${many}`}
+                     spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" />
+              <span className="grid-find-count" aria-live="polite">
+                {!findQuery ? '' : findMatches.length === 0 ? 'No matches' : `${findAt + 1} of ${findMatches.length.toLocaleString()}`}
+              </span>
+              <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(-1)}
+                      disabled={findMatches.length === 0} aria-label="Previous match" title="Previous match (Shift+Enter)"><ArrowUpIcon /></button>
+              <button type="button" className="grid-find-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => stepFind(1)}
+                      disabled={findMatches.length === 0} aria-label="Next match" title="Next match (Enter)"><ArrowDownIcon /></button>
+              <button type="button" className="grid-find-btn" onClick={closeFind} aria-label="Close find" title="Close (Esc)"><XIcon /></button>
+            </div>
+          </div>
+        )}
         {columns.length > 0 && (
           <table className={widths ? 'grid sized' : 'grid'} ref={table}
                  style={widths ? { width: widths.reduce((sum, w) => sum + w, 0) } : undefined}>
@@ -850,6 +958,7 @@ export default function DataGrid(props: Props) {
                       inRange(i, j) && !isSelected && 'cell-in-range',
                       isEditing && 'cell-editing',
                       columnKeys[j].length > 0 && 'cell-fk',
+                      found.size > 0 && found.has(`${i}-${j}`) && 'cell-found',
                       pinClass(j).trim(),
                     ].filter(Boolean).join(' ')
                     return (

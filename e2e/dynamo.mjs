@@ -696,6 +696,24 @@ await p.drag(tabOf('orders'), `document.querySelector('.tabbar .tab')`, { dx: -2
 check('dragged before the first tab: first', await tabOrder(['orders', ...others]), await tabTitles())
 await shot(`${shots}/d9-range.png`)
 
+// ===== Find in the grid (⌘F / Ctrl+F) on a DynamoDB tab: cells and column names, Enter steps, Esc closes =====
+await click(tabOf('orders'))
+await waitFor(`__t.grid('items') && __t.rows('items') > 0`)
+const found = () => evaluate(`__t.grid('items').querySelector('td.cell-selected')?.dataset.cell ?? null`)
+await click(`__t.grid('items').querySelector('tbody tr td[data-col="0"]')`)
+await key('f', MOD)
+await waitFor(`document.querySelector('.grid-find input') === document.activeElement`)
+await type('pune')
+const puneCells = await evaluate(`[...__t.grid('items').querySelectorAll('tbody td')].filter((td) => td.innerText.toLowerCase().includes('pune')).length`)
+check(`⌘F "pune": all ${puneCells} cells with it are counted, the first selected`, puneCells > 1 && await waitFor(`document.querySelector('.grid-find-count')?.innerText === '1 of ${puneCells}' && __t.grid('items').querySelector('td.cell-selected')?.innerText.toLowerCase().includes('pune')`), [await evaluate(`document.querySelector('.grid-find-count')?.innerText`), await found()])
+const firstPune = await found()
+await key('Enter')
+check('Enter: the next match', await waitFor(`document.querySelector('.grid-find-count')?.innerText === '2 of ${puneCells}'`) && (await found()) !== firstPune, [await evaluate(`document.querySelector('.grid-find-count')?.innerText`), firstPune, await found()])
+await evaluate(`document.querySelector('.grid-find input').select()`); await type('paid')
+check('a column name finds the column: its top cell is selected', await waitFor(`__t.grid('items').querySelector('td.cell-selected')?.dataset.cell === __t.grid('items').querySelectorAll('tbody tr')[0].children[__t.col('items', 'paid')].dataset.cell`), await found())
+await key('Escape')
+check('Esc closes the find box', await waitFor(`!document.querySelector('.grid-find')`), null)
+
 check('the events table never moved', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
 
 check('no page errors', p.errors.length === 0, p.errors)

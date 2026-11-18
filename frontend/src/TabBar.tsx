@@ -101,6 +101,11 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
     return { transform: `translateX(${shift}px)`, transition: 'transform 160ms ease' }
   }
   const [menu, setMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null)
+  // The active tab stays in view: one opened, or picked, past the bar's edge scrolls the bar to it.
+  const bar = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    bar.current?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(activeId)}"]`)?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [activeId, tabs.length])
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
     if (!copied) return
@@ -126,7 +131,7 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
   }
 
   return (
-    <div className="tabbar" role="tablist" aria-label="Open tabs">
+    <div className="tabbar" role="tablist" aria-label="Open tabs" ref={bar}>
       {tabs.map((tab) => {
         const active = tab.id === activeId
         const accent = tab.kind === 'table' ? kindClass(tab.table.kind) : tab.kind === 'dynamo-table' ? 'kind-table'

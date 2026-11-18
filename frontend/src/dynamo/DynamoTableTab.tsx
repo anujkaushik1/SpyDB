@@ -5,6 +5,7 @@ import ConfirmDialog from '../ConfirmDialog'
 import DataGrid, { type Sort } from '../DataGrid'
 import FieldPicker, { type FieldOption } from '../FieldPicker'
 import { CodeIcon, KeyIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, XIcon } from '../icons'
+import { shortcut } from '../platform'
 import { addSeen, fieldOptions, fieldType, formatSize, itemColumns, itemRows, sortItems, type Item, type NewField, type SeenFields } from './itemGrid'
 import { itemKey } from './itemStore'
 import PartiqlEditor from './PartiqlEditor'
@@ -323,6 +324,7 @@ export default function DynamoTableTab({ table, refreshSignal, onDirtyChange }: 
               sort && `sorted by ${sort.column} ${sort.desc ? '↓' : '↑'} (the items loaded)`,
               durationMs != null && `${durationMs} ms`,
               details && (store ? 'double-click a cell to edit' : `read-only: ${readOnly}`),
+              items.length > 0 && `${shortcut('F')} finds`,
             ].filter(Boolean).join(' · ')}
           </span>
           <div className="grid-pager">

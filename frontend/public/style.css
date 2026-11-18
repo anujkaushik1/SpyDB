@@ -1069,6 +1069,7 @@ kbd {
     gap: 2px;
     padding: 8px 12px 0;
     overflow-x: auto;
+    scroll-padding-inline: 12px; /* a tab scrolled into view keeps the bar's side padding */
     scrollbar-width: none;
     background: var(--sidebar);
     border-bottom: 1px solid var(--border);
@@ -1549,7 +1550,47 @@ kbd {
 
 .grid td.cell-selected { box-shadow: inset 0 0 0 2px var(--focus); }
 /* A range of cells dragged, Shift-clicked or Shift+arrowed from the selected one. */
+.grid tbody tr td.cell-found { box-shadow: inset 0 0 0 1px var(--warn); }
 .grid tbody tr td.cell-in-range { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent-bg-strong); }
+
+/* ----- Find in the grid (⌘F / Ctrl+F): a box at the top right, over the rows ----- */
+.grid-find-holder { position: sticky; top: 0; left: 0; z-index: 6; width: 100%; height: 0; }
+.grid-find {
+    position: absolute;
+    top: 8px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 32px;
+    padding: 0 4px 0 10px;
+    color: var(--text-subtle);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+}
+.grid-find:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-ring), 0 8px 24px rgb(0 0 0 / 0.28); }
+.grid-find > svg { flex: 0 0 auto; width: 13px; height: 13px; }
+.grid-find input { width: 180px; padding: 0; font: inherit; font-size: 12.5px; color: var(--text); background: transparent; border: 0; outline: 0; }
+.grid-find input::placeholder { color: var(--text-subtle); }
+.grid-find-count { min-width: 56px; margin: 0 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.grid-find-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--text-subtle);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.grid-find-btn:hover:not(:disabled) { color: var(--text); background: var(--hover-weak); }
+.grid-find-btn:disabled { opacity: 0.4; cursor: default; }
+.grid-find-btn svg { width: 13px; height: 13px; }
 .range-dragging, .range-dragging * { user-select: none; cursor: cell; }
 /* An unsaved edit: a blue tint and a bar on the left edge. */
 .grid tbody tr td.cell-changed {

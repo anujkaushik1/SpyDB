@@ -483,5 +483,52 @@ await key('Backspace')
 check('Backspace on a range in read-only results changes nothing', (await toast()) === 'These columns can’t be edited' && (await changed()) === 0, [await toast(), await changed()])
 check('the other tables ended as they should', sql('select count(*) from spydb_ui_big') === '245' && nokey() === 'a1,a9,b2,b2,c3', [sql('select count(*) from spydb_ui_big'), nokey()])
 
+// ===== Find in the grid (⌘F / Ctrl+F): cells and column names match, Enter steps through them, the grid scrolls to each (sideways too); the tab bar scrolls to the tab opened or picked =====
+await openTable('spydb_ui_test')
+const findBox = () => evaluate(`(() => { const f = document.querySelector('.grid-find'); return f ? { open: true, count: f.querySelector('.grid-find-count').innerText, focused: document.activeElement === f.querySelector('input') } : { open: false } })()`)
+const selectedCell = () => evaluate(`__t.grid().querySelector('td.cell-selected')?.dataset.cell ?? null`)
+const cellId = (js) => evaluate(`(${js})?.dataset.cell ?? null`)
+const colInView = (name) => evaluate(`(() => { const th = __t.grid().querySelectorAll('thead th')[__t.col('${name}')]; const w = __t.grid().getBoundingClientRect(), r = th.getBoundingClientRect(); return r.left >= w.left - 1 && r.right <= w.right + 1 })()`)
+const retype = async (text) => { await evaluate(`document.querySelector('.grid-find input').select()`); await type(text) }
+await click(cellAt(0, 'id'))
+await key('f', MOD)
+check('⌘F opens the find box with its input focused', await waitFor(`document.querySelector('.grid-find input') === document.activeElement`), await findBox())
+// Whatever row 7's name is by now (earlier steps renamed some): every cell with that text counts, the first (by row, then column) is selected.
+const probe = await evaluate(`${cellAt(6, 'name')}.innerText`)
+const probeCells = await evaluate(`(() => { const q = ${JSON.stringify(probe)}.toLowerCase(); const at = (td) => td.dataset.cell.split('-').map(Number); return [...__t.grid().querySelectorAll('tbody td[data-cell]')].filter((td) => td.innerText.toLowerCase().includes(q)).sort((a, b) => at(a)[0] - at(b)[0] || at(a)[1] - at(b)[1]).map((td) => td.dataset.cell) })()`)
+await type(probe)
+check(`"${probe}": ${probeCells.length} found, the first selected`, probeCells.length > 0 && await waitFor(`document.querySelector('.grid-find-count')?.innerText === '1 of ${probeCells.length}'`) && (await selectedCell()) === probeCells[0], [await findBox(), probeCells, await selectedCell()])
+check('…and exactly those cells are marked as found', (await evaluate(`__t.grid().querySelectorAll('td.cell-found').length`)) === probeCells.length, await evaluate(`__t.grid().querySelectorAll('td.cell-found').length`))
+check('the last column starts off screen (the table is wider than the pane)', !(await colInView('wide4')) && (await evaluate(`__t.grid().scrollLeft`)) === 0, [await colInView('wide4'), await evaluate(`__t.grid().scrollLeft`)])
+await retype('wide4')
+check('a column name finds the column: the grid scrolls sideways to it and its top cell is selected', await waitFor(`document.querySelector('.grid-find-count')?.innerText === '1 of 1' && __t.grid().scrollLeft > 0`) && (await colInView('wide4')) && (await selectedCell()) === (await cellId(cellAt(0, 'wide4'))), [await findBox(), await colInView('wide4'), await selectedCell()])
+await retype('1')
+check('"1": many matches, the first current', await waitFor(`/^1 of \\d+$/.test(document.querySelector('.grid-find-count')?.innerText ?? '') && parseInt(document.querySelector('.grid-find-count').innerText.split(' of ')[1]) > 10`), await findBox())
+const first1 = await selectedCell()
+await key('Enter')
+check('Enter: the next match is selected', await waitFor(`document.querySelector('.grid-find-count')?.innerText.startsWith('2 of ')`) && (await selectedCell()) !== first1, [await findBox(), first1, await selectedCell()])
+await key('Enter', SHIFT)
+check('Shift+Enter: back to the first', await waitFor(`document.querySelector('.grid-find-count')?.innerText.startsWith('1 of ')`) && (await selectedCell()) === first1, [await findBox(), await selectedCell()])
+await retype('qqqq')
+check('nothing matching says No matches', await waitFor(`document.querySelector('.grid-find-count')?.innerText === 'No matches'`) && (await evaluate(`__t.grid().querySelectorAll('td.cell-found').length`)) === 0, await findBox())
+await key('Escape')
+check('Esc closes it and the grid has focus again', await waitFor(`!document.querySelector('.grid-find') && document.activeElement === __t.grid()`), [await findBox(), await evaluate(`document.activeElement?.className`)])
+await evaluate(`document.activeElement.blur()`)
+await key('f', MOD)
+check('⌘F with nothing in the tab focused still opens it', await waitFor(`document.querySelector('.grid-find input') === document.activeElement`), await findBox())
+await key('Escape')
+// The tab bar: 12 query tabs opened with ⌘T overflow it; it scrolls to the one just opened, and back to the first when that is picked.
+const barState = () => evaluate(`(() => { const bar = document.querySelector('.tabbar'); const t = bar.querySelector('.tab.active').getBoundingClientRect(); const b = bar.getBoundingClientRect(); return { overflow: bar.scrollWidth > bar.clientWidth, scrolled: bar.scrollLeft > 0, visible: t.left >= b.left - 1 && t.right <= b.right + 1, title: bar.querySelector('.tab.active .tab-title').innerText } })()`)
+let tabCount = await evaluate(`document.querySelectorAll('.tabbar .tab').length`)
+for (let i = 0; i < 12; i++) {
+  await evaluate(`document.activeElement.blur()`)
+  await key('t', MOD)
+  await waitFor(`document.querySelectorAll('.tabbar .tab').length === ${tabCount + 1}`)
+  tabCount++
+}
+check('12 tabs opened with ⌘T: the bar overflows, scrolled to the last one, which is in view', await waitFor(`(() => { const bar = document.querySelector('.tabbar'); const t = bar.querySelector('.tab.active').getBoundingClientRect(); const b = bar.getBoundingClientRect(); return bar.scrollWidth > bar.clientWidth && bar.scrollLeft > 0 && t.left >= b.left - 1 && t.right <= b.right + 1 })()`), await barState())
+await evaluate(`(() => { const first = document.querySelector('.tabbar .tab'); first.focus({ preventScroll: true }); first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })()`)
+check('picking the first tab scrolls the bar back to it', await waitFor(`(() => { const bar = document.querySelector('.tabbar'); const first = bar.querySelector('.tab'); const b = bar.getBoundingClientRect(), t = first.getBoundingClientRect(); return first.classList.contains('active') && bar.scrollLeft === 0 && t.left >= b.left - 1 && t.right <= b.right + 1 })()`), await barState())
+
 check('no page errors', p.errors.length === 0, p.errors)
 }

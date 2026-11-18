@@ -74,7 +74,8 @@ SpyDB has no server and no account. It talks only to the databases you connect t
 - **Switch without disconnecting:** each database stays connected, with its tabs as you left them, while you use another. Postgres and DynamoDB are separate parts of the app that share only the grid, tabs and dialogs: nothing one does reaches another.
 - **Dark or light:** the sun / moon button at the bottom of the rail; SpyDB remembers your choice.
 - **Cell ranges:** drag down (or across) cells, Shift-click, or Shift+arrows to pick a block. ⌘C / Ctrl+C copies it as tab-separated lines, a paste fills it (one value into every cell, or several lines cell by cell), and Backspace sets every cell to NULL; all as unsaved edits you save with ⌘S / Ctrl+S, and only those cells change.
-- **Tabs** can be dragged into another order.
+- **Find** in the rows with ⌘F / Ctrl+F: it matches cell text and column names, Enter goes to the next match, and the grid scrolls there, sideways too.
+- **Tabs** can be dragged into another order, and the bar scrolls to the tab you open or pick.
 
 ## Benchmarks vs Beekeeper Studio
 

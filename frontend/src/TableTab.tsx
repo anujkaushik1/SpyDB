@@ -7,6 +7,7 @@ import ImportDialog from './ImportDialog'
 import SqlEditor from './SqlEditor'
 import FieldPicker from './FieldPicker'
 import { ChevronIcon, ChevronLeftIcon, CodeIcon, PlusIcon, RefreshIcon, SearchIcon, Spinner, UploadIcon, XIcon } from './icons'
+import { shortcut } from './platform'
 
 const PAGE_SIZE = 100
 
@@ -360,6 +361,7 @@ function TableView({ table, preset, onFollow, onFiltersChange, onImported, toggl
           {data && ` · ${data.durationMs} ms`}
           {readOnlyReason && ` · read-only: ${readOnlyReason}`}
           {target?.kind === 'ctid' && ' · no primary key: rows are matched by address'}
+          {rows.length > 0 && ` · ${shortcut('F')} finds`}
         </span>
         <div className="grid-pager">
           {(table.kind === 'table' || table.kind === 'partitioned table') && (
