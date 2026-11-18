@@ -714,6 +714,21 @@ check('a column name finds the column: its top cell is selected', await waitFor(
 await key('Escape')
 check('Esc closes the find box', await waitFor(`!document.querySelector('.grid-find')`), null)
 
+// ===== A table opened from the sidebar once the bar is full: its tab is past the right edge, and the bar scrolls to it =====
+let nTabs = await evaluate(`document.querySelectorAll('.tabbar .tab').length`)
+for (let i = 0; i < 10; i++) {
+  await evaluate(`document.activeElement.blur()`)
+  await key('t', MOD)
+  await waitFor(`document.querySelectorAll('.tabbar .tab').length === ${nTabs + 1}`)
+  nTabs++
+}
+await click(`${tabOf('events')}.querySelector('.tab-close')`)
+await waitFor(`!${tabOf('events')}`)
+await click(`[...document.querySelectorAll('.dynamo-sidebar .tree-item')].find((b) => b.innerText.startsWith('events'))`)
+await waitFor(`${tabOf('events')}?.classList.contains('active')`)
+const barNow = () => evaluate(`(() => { const bar = document.querySelector('.tabbar'); const t = bar.querySelector('.tab.active'); const b = bar.getBoundingClientRect(), r = t.getBoundingClientRect(); return { title: t.innerText, overflow: bar.scrollWidth > bar.clientWidth, scrollLeft: bar.scrollLeft, inView: r.left >= b.left - 1 && r.right <= b.right + 1, last: bar.lastElementChild === t } })()`)
+check('events opened from the sidebar is the last tab, and the bar scrolled to it', await waitFor(`(() => { const bar = document.querySelector('.tabbar'); const t = bar.querySelector('.tab.active'); const b = bar.getBoundingClientRect(), r = t.getBoundingClientRect(); return bar.scrollWidth > bar.clientWidth && bar.lastElementChild === t && r.left >= b.left - 1 && r.right <= b.right + 1 })()`), await barNow())
+
 check('the events table never moved', JSON.stringify(await snapshot('events', ['id'])) === eventsBefore, null)
 
 check('no page errors', p.errors.length === 0, p.errors)

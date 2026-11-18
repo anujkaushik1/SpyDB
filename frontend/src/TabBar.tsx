@@ -101,10 +101,19 @@ export default function TabBar({ tabs, activeId, onSelect, onClose, onDuplicate,
     return { transform: `translateX(${shift}px)`, transition: 'transform 160ms ease' }
   }
   const [menu, setMenu] = useState<{ x: number; y: number; tab: Tab } | null>(null)
-  // The active tab stays in view: one opened, or picked, past the bar's edge scrolls the bar to it.
+  // The active tab stays in view: one opened, or picked, past the bar's edge
+  // scrolls the bar to it, keeping the bar's side padding. Done by hand, not
+  // scrollIntoView: the same on every engine, and nothing else scrolls.
   const bar = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    bar.current?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(activeId)}"]`)?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+    const el = bar.current
+    const tab = el && [...el.querySelectorAll<HTMLElement>('.tab')].find((t) => t.dataset.tabId === activeId)
+    if (!el || !tab) return
+    const pad = 12
+    const left = tab.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
+    const right = left + tab.offsetWidth
+    if (left - pad < el.scrollLeft) el.scrollLeft = Math.max(0, left - pad)
+    else if (right + pad > el.scrollLeft + el.clientWidth) el.scrollLeft = right + pad - el.clientWidth
   }, [activeId, tabs.length])
   const [copied, setCopied] = useState<{ text: string; error?: boolean } | null>(null)
   useEffect(() => {
